@@ -144,7 +144,8 @@ git commit -m "chore: bootstrap project package and tooling"
 - [ ] **Step 1: Write the failing settings test**
 
 ```python
-from app.config import settings as settings_module
+from pathlib import Path
+
 from app.config.settings import get_settings
 from app.core.paths import ensure_data_directories
 
@@ -165,7 +166,8 @@ def test_settings_default_root_without_env(monkeypatch):
 
     settings = get_settings()
 
-    assert settings.project_root == settings_module.DEFAULT_PROJECT_ROOT
+    assert settings.project_root == Path.cwd().resolve()
+    assert settings.data_dir == Path.cwd().resolve() / "data"
 
 
 def test_ensure_data_directories_creates_missing_directories(monkeypatch, tmp_path):
@@ -199,8 +201,6 @@ from pydantic import BaseModel
 
 from app import APP_NAME, __version__
 
-DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
 
 class Settings(BaseModel):
     app_name: str
@@ -212,7 +212,7 @@ class Settings(BaseModel):
 
 
 def get_settings() -> Settings:
-    root = Path(getenv("MENDCODE_PROJECT_ROOT", DEFAULT_PROJECT_ROOT)).resolve()
+    root = Path(getenv("MENDCODE_PROJECT_ROOT", Path.cwd())).resolve()
     data_dir = root / "data"
     return Settings(
         app_name=APP_NAME,
@@ -624,6 +624,15 @@ def test_task_validate_returns_user_facing_error_for_missing_file(monkeypatch, t
     assert "Task file not found" in result.stdout
 
 
+def test_task_validate_returns_user_facing_error_for_directory_input(monkeypatch, tmp_path):
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+
+    result = runner.invoke(app, ["task", "validate", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert "Task file could not be read" in result.stdout
+
+
 def test_task_show_writes_trace_file(monkeypatch, tmp_path):
     monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
     task_file = write_task_file(tmp_path)
@@ -716,6 +725,9 @@ def validate_task(file_path: Path) -> None:
     except ValidationError as exc:
         console.print(f"Task file failed schema validation: {exc}")
         raise typer.Exit(code=1)
+    except OSError as exc:
+        console.print(f"Task file could not be read: {exc}")
+        raise typer.Exit(code=1)
     console.print(f"Task file is valid: {task.task_id} ({task.task_type})")
 
 
@@ -731,6 +743,9 @@ def show_task(file_path: Path) -> None:
         raise typer.Exit(code=1)
     except ValidationError as exc:
         console.print(f"Task file failed schema validation: {exc}")
+        raise typer.Exit(code=1)
+    except OSError as exc:
+        console.print(f"Task file could not be read: {exc}")
         raise typer.Exit(code=1)
     settings = get_settings()
     ensure_data_directories(settings)
