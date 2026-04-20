@@ -1,12 +1,11 @@
 from os import getenv
 from pathlib import Path
 
-from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from app import APP_NAME, __version__
 
-load_dotenv()
+DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseModel):
@@ -19,7 +18,7 @@ class Settings(BaseModel):
 
 
 def get_settings() -> Settings:
-    root = Path(getenv("MENDCODE_PROJECT_ROOT", Path(__file__).resolve().parents[2])).resolve()
+    root = Path(getenv("MENDCODE_PROJECT_ROOT", DEFAULT_PROJECT_ROOT)).resolve()
     data_dir = root / "data"
     return Settings(
         app_name=APP_NAME,
