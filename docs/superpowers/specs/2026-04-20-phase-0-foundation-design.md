@@ -162,6 +162,7 @@ MendCode/
 
 - `task_type` 首阶段只允许 `ci_fix`、`test_regression_fix`、`pr_review`
 - `entry_artifacts`、`verification_commands` 必须保留，为下一阶段直接复用
+- schema 默认应拒绝未知字段，避免任务文件中的拼写错误被静默吞掉
 
 ### 6.4 `app/schemas/trace.py`
 
@@ -244,6 +245,8 @@ Phase 0 任务文件使用 JSON 格式，避免在项目初始化阶段引入 YA
 ```
 
 该格式只承担“被系统读取和校验”的职责，不承担执行语义。
+
+仓库内提供的 demo 任务文件应被自动化测试直接加载，避免样例文件和 schema 随时间漂移。
 
 ## 8. Phase 0 数据流
 

@@ -294,6 +294,8 @@ def test_task_spec_accepts_valid_payload(tmp_path):
     assert task.task_id == "demo-ci-001"
     assert task.task_type == "ci_fix"
     assert task.repo_path == str(tmp_path)
+    assert task.allowed_tools == ["read_file", "search_code"]
+    assert task.metadata == {}
 
 
 def test_task_spec_rejects_invalid_task_type(tmp_path):
@@ -312,27 +314,30 @@ def test_task_spec_rejects_invalid_task_type(tmp_path):
         TaskSpec.model_validate(payload)
 
 
-def test_load_task_spec_from_json_file(tmp_path):
-    task_file = tmp_path / "task.json"
-    task_file.write_text(
-        json.dumps(
-            {
-                "task_id": "demo-ci-001",
-                "task_type": "ci_fix",
-                "title": "Fix failing unit test",
-                "repo_path": str(tmp_path),
-                "entry_artifacts": {"log": "pytest failed"},
-                "verification_commands": ["pytest -q"],
-                "allowed_tools": ["read_file", "search_code"],
-                "metadata": {},
-            }
-        ),
-        encoding="utf-8",
-    )
+def test_task_spec_rejects_unknown_fields(tmp_path):
+    payload = {
+        "task_id": "bad-002",
+        "task_type": "ci_fix",
+        "title": "Bad task",
+        "repo_path": str(tmp_path),
+        "entry_artifacts": {"log": "bad"},
+        "verification_commands": ["pytest -q"],
+        "allowed_tools": [],
+        "metadata": {},
+        "unexpected": "value",
+    }
 
-    task = load_task_spec(task_file)
+    with pytest.raises(ValidationError):
+        TaskSpec.model_validate(payload)
+
+
+def test_load_demo_task_spec_fixture():
+    repo_root = Path(__file__).resolve().parents[2]
+    task = load_task_spec(repo_root / "data" / "tasks" / "demo.json")
 
     assert task.task_id == "demo-ci-001"
+    assert task.allowed_tools == ["read_file", "search_code"]
+    assert task.entry_artifacts["log"] == "pytest failed: test_example"
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -349,10 +354,11 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     task_id: str
     task_type: Literal["ci_fix", "test_regression_fix", "pr_review"]
     title: str
