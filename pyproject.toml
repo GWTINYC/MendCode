@@ -26,6 +26,9 @@ dependencies = [
 
 dynamic = ["version"]
 
+[project.scripts]
+mendcode = "app.cli.main:app"
+
 [project.optional-dependencies]
 dev = [
   "pytest==9.0.3",
