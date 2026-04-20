@@ -14,8 +14,14 @@ def test_trace_event_serializes_expected_fields():
         payload={"task_id": "demo-ci-001"},
     )
 
-    assert event.run_id == "run-001"
-    assert event.payload["task_id"] == "demo-ci-001"
+    serialized = event.model_dump(mode="json")
+
+    assert serialized["run_id"] == "run-001"
+    assert serialized["event_type"] == "task.show"
+    assert serialized["message"] == "Previewed task"
+    assert serialized["payload"]["task_id"] == "demo-ci-001"
+    assert isinstance(serialized["timestamp"], str)
+    assert serialized["timestamp"].startswith("2026-04-20T00:00:00")
 
 
 def test_trace_recorder_writes_jsonl_file(tmp_path):
