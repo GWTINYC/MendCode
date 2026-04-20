@@ -16,6 +16,6 @@ class TraceEvent(BaseModel):
     @field_validator("run_id")
     @classmethod
     def validate_run_id(cls, value: str) -> str:
-        if "/" in value or "\\" in value or ".." in value:
+        if not value or "/" in value or "\\" in value or ".." in value:
             raise ValueError("run_id must be a safe filename")
         return value

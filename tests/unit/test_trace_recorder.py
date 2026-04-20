@@ -26,7 +26,7 @@ def test_trace_event_serializes_expected_fields():
     assert serialized["timestamp"].startswith("2026-04-20T00:00:00")
 
 
-@pytest.mark.parametrize("run_id", ["../escape", "bad/name", r"bad\name", "bad..name"])
+@pytest.mark.parametrize("run_id", ["", "../escape", "bad/name", r"bad\name", "bad..name"])
 def test_trace_event_rejects_unsafe_run_id(run_id):
     with pytest.raises(ValueError):
         TraceEvent(
@@ -50,8 +50,8 @@ def test_trace_recorder_writes_jsonl_file(tmp_path):
     lines = output_path.read_text(encoding="utf-8").strip().splitlines()
     assert output_path.name == "run-001.jsonl"
     assert len(lines) == 1
-    payload = json.loads(lines[0])
-    assert payload["run_id"] == "run-001"
-    assert payload["event_type"] == "task.show"
-    assert payload["message"] == "Previewed task"
-    assert payload["payload"]["task_id"] == "demo-ci-001"
+    parsed = TraceEvent.model_validate(json.loads(lines[0]))
+    assert parsed.run_id == "run-001"
+    assert parsed.event_type == "task.show"
+    assert parsed.message == "Previewed task"
+    assert parsed.payload["task_id"] == "demo-ci-001"
