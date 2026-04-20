@@ -144,8 +144,7 @@ git commit -m "chore: bootstrap project package and tooling"
 - [ ] **Step 1: Write the failing settings test**
 
 ```python
-from pathlib import Path
-
+from app.config import settings as settings_module
 from app.config.settings import get_settings
 from app.core.paths import ensure_data_directories
 
@@ -159,6 +158,14 @@ def test_settings_default_paths(monkeypatch, tmp_path):
     assert settings.data_dir == tmp_path / "data"
     assert settings.tasks_dir == tmp_path / "data" / "tasks"
     assert settings.traces_dir == tmp_path / "data" / "traces"
+
+
+def test_settings_default_root_without_env(monkeypatch):
+    monkeypatch.delenv("MENDCODE_PROJECT_ROOT", raising=False)
+
+    settings = get_settings()
+
+    assert settings.project_root == settings_module.DEFAULT_PROJECT_ROOT
 
 
 def test_ensure_data_directories_creates_missing_directories(monkeypatch, tmp_path):
@@ -188,12 +195,11 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'app.config.settings'`
 from os import getenv
 from pathlib import Path
 
-from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from app import APP_NAME, __version__
 
-load_dotenv()
+DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseModel):
@@ -206,7 +212,7 @@ class Settings(BaseModel):
 
 
 def get_settings() -> Settings:
-    root = Path(getenv("MENDCODE_PROJECT_ROOT", Path(__file__).resolve().parents[2])).resolve()
+    root = Path(getenv("MENDCODE_PROJECT_ROOT", DEFAULT_PROJECT_ROOT)).resolve()
     data_dir = root / "data"
     return Settings(
         app_name=APP_NAME,
@@ -217,6 +223,8 @@ def get_settings() -> Settings:
         traces_dir=data_dir / "traces",
     )
 ```
+
+Note: keep `settings.py` side-effect free. If `.env` loading is needed later, do it in CLI or API bootstrap code instead of at module import time.
 
 `app/core/paths.py`
 
