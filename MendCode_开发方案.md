@@ -58,7 +58,7 @@
 当前阶段的重点已经切换为：
 
 - 更新根方案文档，使其与仓库真实状态对齐
-- 进入 Phase 1 的第一刀：补最小运行骨架，而不是直接铺开完整修复链
+- 在已完成 Phase 1A 的基础上，继续推进 Phase 1B 的真实执行链
 
 ### 2.3 对初稿的评价
 
@@ -626,7 +626,8 @@ L3 长期记忆：
 
 - Phase 0 已完成并合并回 `main`
 - 已具备 schema、settings、paths、trace recorder、CLI、API 与测试基线
-- 当前不再继续扩充 Phase 0，而是直接进入 Phase 1 的最小执行链建设
+- Phase 1A 已完成：`RunState`、最小 runner、`task run`、开始/结束 trace 已落地
+- 当前不再继续扩充 Phase 0，而是进入 Phase 1B 的真实执行链建设
 
 ### Phase 1：打通最小修复闭环
 
@@ -664,8 +665,9 @@ L3 长期记忆：
 进入 Phase 1 的前置条件已经更清晰：
 
 - Phase 0 前置条件已经满足
-- 下一步应先完成 Phase 1A 的最小运行骨架，避免直接跳入工具和 workspace 细节
-- 在 Phase 1A 未完成前，不应提前实现完整修复链
+- Phase 1A 已完成，说明系统已经具备最小运行态骨架
+- 下一步应优先实现 `run_verification`，再进入 workspace / worktree 与基础工具
+- 在 `run_verification` 未落地前，不应过早进入补丁修改链路
 
 ### Phase 2：补足上下文工程
 
@@ -860,8 +862,9 @@ L3 长期记忆：
 截至当前的完成情况：
 
 - 已完成：1、2、3、4、9 的基础子集，以及对应单元测试框架
-- 下一优先级：5，也就是最小 orchestrator runner 与 `task run`
-- 暂缓：6、7、8，直到运行骨架先落地
+- 已完成：5，也就是最小 orchestrator runner 与 `task run`
+- 下一优先级：6，也就是 `run_verification`
+- 之后依次推进：7 的 worktree manager、8 的 `read_file` / `search_code` / `apply_patch`
 
 ---
 
