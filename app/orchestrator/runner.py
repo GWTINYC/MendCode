@@ -72,6 +72,7 @@ def run_task_preview(task: TaskSpec, traces_dir: Path) -> RunState:
                     shell=True,
                     capture_output=True,
                     text=True,
+                    cwd=task.repo_path,
                 )
                 exit_code = completed_process.returncode
                 stdout_excerpt = _trim_output(completed_process.stdout)
