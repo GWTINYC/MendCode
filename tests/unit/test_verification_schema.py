@@ -123,3 +123,27 @@ def test_verification_models_forbid_extra_fields():
             command_results=[],
             extra_field=True,
         )
+
+
+def test_verification_command_result_rejects_zero_exit_code_with_failed_status():
+    with pytest.raises(ValidationError):
+        VerificationCommandResult(
+            command="pytest -q",
+            exit_code=0,
+            status="failed",
+            duration_ms=120,
+            stdout_excerpt="2 passed",
+            stderr_excerpt="",
+        )
+
+
+def test_verification_command_result_rejects_nonzero_exit_code_with_passed_status():
+    with pytest.raises(ValidationError):
+        VerificationCommandResult(
+            command="python -m bad.module",
+            exit_code=1,
+            status="passed",
+            duration_ms=80,
+            stdout_excerpt="",
+            stderr_excerpt="ModuleNotFoundError",
+        )

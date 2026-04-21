@@ -15,6 +15,13 @@ class VerificationCommandResult(BaseModel):
     stdout_excerpt: str = ""
     stderr_excerpt: str = ""
 
+    @model_validator(mode="after")
+    def validate_exit_code_matches_status(self) -> "VerificationCommandResult":
+        expected_status: VerificationStatus = "passed" if self.exit_code == 0 else "failed"
+        if self.status != expected_status:
+            raise ValueError("status must match exit_code")
+        return self
+
 
 class VerificationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
