@@ -95,15 +95,16 @@ def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
     result = runner.invoke(app, ["task", "run", str(task_file)], terminal_width=200)
 
     trace_files = sorted((tmp_path / "data" / "traces").glob("preview-*.jsonl"))
-    trace_path = str(trace_files[0])
 
     assert result.exit_code == 0
     assert "Task Run" in result.stdout
     assert "demo-ci-001" in result.stdout
     assert "summarize" in result.stdout
-    assert trace_path in result.stdout
     assert "completed" in result.stdout
     assert len(trace_files) == 1
+
+    trace_path = str(trace_files[0])
+    assert trace_path in result.stdout
 
     trace_lines = trace_files[0].read_text(encoding="utf-8").strip().splitlines()
     trace_events = [json.loads(line) for line in trace_lines]
