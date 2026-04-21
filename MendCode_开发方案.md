@@ -59,6 +59,7 @@
 
 - 更新根方案文档，使其与仓库真实状态对齐
 - 在已完成 Phase 1A 的基础上，继续推进 Phase 1B 的真实执行链
+- 当前第一优先级是 `run_verification`，用最小成本打通真实验证命令执行
 
 ### 2.3 对初稿的评价
 
@@ -628,6 +629,7 @@ L3 长期记忆：
 - 已具备 schema、settings、paths、trace recorder、CLI、API 与测试基线
 - Phase 1A 已完成：`RunState`、最小 runner、`task run`、开始/结束 trace 已落地
 - 当前不再继续扩充 Phase 0，而是进入 Phase 1B 的真实执行链建设
+- 当前正在设计 Phase 1B 第一刀：顺序执行 `verification_commands` 并输出验证摘要
 
 ### Phase 1：打通最小修复闭环
 
@@ -865,6 +867,14 @@ L3 长期记忆：
 - 已完成：5，也就是最小 orchestrator runner 与 `task run`
 - 下一优先级：6，也就是 `run_verification`
 - 之后依次推进：7 的 worktree manager、8 的 `read_file` / `search_code` / `apply_patch`
+
+当前对 `run_verification` 的收敛策略：
+
+- 只执行 `TaskSpec.verification_commands`
+- 顺序执行，不并行
+- 记录退出码、耗时、输出摘要
+- 失败视为业务结果而不是 CLI 崩溃
+- 暂不引入白名单、超时系统和 worktree 隔离
 
 ---
 
