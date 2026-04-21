@@ -89,17 +89,19 @@ def test_task_show_writes_trace_file(monkeypatch, tmp_path):
 
 def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
     monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("app.cli.main.console.width", 200, raising=False)
     task_file = write_task_file(tmp_path)
 
-    result = runner.invoke(app, ["task", "run", str(task_file)])
+    result = runner.invoke(app, ["task", "run", str(task_file)], terminal_width=200)
 
     trace_files = sorted((tmp_path / "data" / "traces").glob("preview-*.jsonl"))
+    trace_path = str(trace_files[0])
 
     assert result.exit_code == 0
     assert "Task Run" in result.stdout
     assert "demo-ci-001" in result.stdout
-    assert "current_step" in result.stdout
-    assert "trace_path" in result.stdout
+    assert "summarize" in result.stdout
+    assert trace_path in result.stdout
     assert "completed" in result.stdout
     assert len(trace_files) == 1
 
@@ -111,4 +113,8 @@ def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
         "run.completed",
     ]
     assert trace_events[0]["payload"]["task_id"] == "demo-ci-001"
+    assert trace_events[0]["payload"]["task_type"] == "ci_fix"
+    assert trace_events[0]["payload"]["summary"] == "Task preview started"
     assert trace_events[1]["payload"]["status"] == "completed"
+    assert trace_events[1]["payload"]["task_type"] == "ci_fix"
+    assert trace_events[1]["payload"]["summary"] == "Task preview completed"
