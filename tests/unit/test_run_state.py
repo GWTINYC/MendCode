@@ -3,6 +3,7 @@ from pydantic import ValidationError
 
 from app.schemas import RunState, TaskSpec, TraceEvent
 from app.schemas.task import TaskType
+from app.schemas.verification import VerificationCommandResult, VerificationResult
 
 
 def test_schema_exports_support_package_imports():
@@ -34,7 +35,36 @@ def test_run_state_serializes_expected_fields():
         "current_step": "summarize",
         "summary": "Task preview completed",
         "trace_path": "/tmp/demo.jsonl",
+        "verification": None,
     }
+
+
+def test_run_state_includes_verification_result():
+    state = RunState(
+        run_id="preview-123456789abc",
+        task_id="demo-ci-001",
+        task_type="ci_fix",
+        status="failed",
+        current_step="summarize",
+        summary="Verification failed",
+        trace_path="/tmp/demo.jsonl",
+        verification=VerificationResult(
+            status="failed",
+            passed_count=0,
+            failed_count=1,
+            command_results=[
+                VerificationCommandResult(
+                    command="pytest tests/unit/test_run_state.py -v",
+                    exit_code=1,
+                    status="failed",
+                    duration_ms=1200,
+                )
+            ],
+        ),
+    )
+
+    assert state.verification is not None
+    assert state.verification.status == "failed"
 
 
 def test_run_state_rejects_unknown_fields():
