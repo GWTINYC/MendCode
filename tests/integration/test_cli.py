@@ -98,5 +98,17 @@ def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "Task Run" in result.stdout
     assert "demo-ci-001" in result.stdout
+    assert "current_step" in result.stdout
+    assert "trace_path" in result.stdout
     assert "completed" in result.stdout
     assert len(trace_files) == 1
+
+    trace_lines = trace_files[0].read_text(encoding="utf-8").strip().splitlines()
+    trace_events = [json.loads(line) for line in trace_lines]
+
+    assert [event["event_type"] for event in trace_events] == [
+        "run.started",
+        "run.completed",
+    ]
+    assert trace_events[0]["payload"]["task_id"] == "demo-ci-001"
+    assert trace_events[1]["payload"]["status"] == "completed"
