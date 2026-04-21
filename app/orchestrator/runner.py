@@ -10,9 +10,8 @@ from app.tracing.recorder import TraceRecorder
 def run_task_preview(task: TaskSpec, traces_dir: Path) -> RunState:
     recorder = TraceRecorder(traces_dir)
     run_id = f"preview-{uuid4().hex[:12]}"
-    trace_path = traces_dir / f"{run_id}.jsonl"
 
-    recorder.record(
+    trace_path = recorder.record(
         TraceEvent(
             run_id=run_id,
             event_type="run.started",
@@ -26,7 +25,7 @@ def run_task_preview(task: TaskSpec, traces_dir: Path) -> RunState:
         )
     )
 
-    recorder.record(
+    trace_path = recorder.record(
         TraceEvent(
             run_id=run_id,
             event_type="run.completed",
