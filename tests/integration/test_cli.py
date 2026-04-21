@@ -85,3 +85,18 @@ def test_task_show_writes_trace_file(monkeypatch, tmp_path):
     assert trace_payload["event_type"] == "task.show"
     assert trace_payload["payload"]["task_id"] == "demo-ci-001"
     assert trace_payload["payload"]["title"] == "Fix failing unit test"
+
+
+def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    task_file = write_task_file(tmp_path)
+
+    result = runner.invoke(app, ["task", "run", str(task_file)])
+
+    trace_files = sorted((tmp_path / "data" / "traces").glob("preview-*.jsonl"))
+
+    assert result.exit_code == 0
+    assert "Task Run" in result.stdout
+    assert "demo-ci-001" in result.stdout
+    assert "completed" in result.stdout
+    assert len(trace_files) == 1

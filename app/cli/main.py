@@ -9,6 +9,7 @@ from rich.table import Table
 
 from app.config.settings import get_settings
 from app.core.paths import ensure_data_directories
+from app.orchestrator.runner import run_task_preview
 from app.schemas.task import load_task_spec
 from app.schemas.trace import TraceEvent
 from app.tracing.recorder import TraceRecorder
@@ -95,6 +96,31 @@ def show_task(file_path: Path) -> None:
     table.add_row("title", task.title)
     table.add_row("repo_path", task.repo_path)
     table.add_row("trace_path", str(trace_path))
+    console.print(table)
+
+
+@task_app.command("run")
+def run_task(file_path: Path) -> None:
+    task = _load_task_spec_or_exit(file_path)
+    settings = get_settings()
+    ensure_data_directories(settings)
+
+    try:
+        state = run_task_preview(task, settings.traces_dir)
+    except OSError as exc:
+        typer.echo(f"Task run failed while writing trace output: {exc}")
+        raise typer.Exit(code=1)
+
+    table = Table(title="Task Run")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("run_id", state.run_id)
+    table.add_row("task_id", state.task_id)
+    table.add_row("task_type", state.task_type)
+    table.add_row("status", state.status)
+    table.add_row("current_step", state.current_step)
+    table.add_row("summary", state.summary)
+    table.add_row("trace_path", state.trace_path)
     console.print(table)
 
 
