@@ -9,6 +9,7 @@
 - worktree 位置使用项目内隐藏目录 `.worktrees/`
 - Phase 0 完成度为“工程骨架 + 最小任务入口”
 - 使用 `pyproject.toml` 作为主配置，同时保留 `requirements.txt` 兼容现有依赖方式
+- 当前实现环境按 Python 3.11 对齐，而不是预期中的 3.12
 
 ## 2. 目标
 
@@ -55,6 +56,14 @@ Phase 0 只实现后续阶段一定会复用的稳定边界：配置、schema、
 ### 4.4 后续兼容
 
 虽然本阶段不实现任务执行，但 `TaskSpec`、路径约定和 trace 结构必须考虑后续 Phase 1 直接接入，避免下一阶段推倒重来。
+
+### 4.5 工程配置去重复
+
+基础工程配置应避免无意义重复和运行时污染。对于 `pyproject.toml`：
+
+- 包版本应与应用元数据保持单一事实来源
+- 测试与 lint 工具应放在开发依赖中，而不是运行时依赖中
+- 运行时依赖应只保留 Phase 0 真正需要的应用依赖
 
 ## 5. 目录结构
 
@@ -115,6 +124,8 @@ MendCode/
 - 使用 Typer 实现
 - 输出对人类可读
 - 校验失败时返回非零退出码
+- 对任务文件缺失、JSON 非法、schema 非法等常见错误给出面向用户的简洁提示，而不是直接暴露原始异常
+- 对目录路径、权限错误、不可读文件等一般 `OSError` 输入同样应返回简洁错误，而不是 traceback
 
 ### 6.2 `app/api/server.py`
 
@@ -153,6 +164,7 @@ MendCode/
 
 - `task_type` 首阶段只允许 `ci_fix`、`test_regression_fix`、`pr_review`
 - `entry_artifacts`、`verification_commands` 必须保留，为下一阶段直接复用
+- schema 默认应拒绝未知字段，避免任务文件中的拼写错误被静默吞掉
 
 ### 6.4 `app/schemas/trace.py`
 
@@ -160,6 +172,7 @@ MendCode/
 
 - 定义最小 `TraceEvent`
 - 为 JSONL trace 提供结构化输出
+- 对 trace 基础字段做严格校验，避免拼写错误被静默吞掉
 
 建议字段：
 
@@ -169,12 +182,16 @@ MendCode/
 - `timestamp`
 - `payload`
 
+其中 `run_id` 需要满足可安全映射为单个文件名的约束，不能包含路径穿越或平台不兼容字符。
+建议采用白名单约束，而不是只做黑名单过滤。
+
 ### 6.5 `app/config/settings.py`
 
 职责：
 
 - 统一环境变量读取
 - 管理默认目录与运行时配置
+- 保持纯解析职责，不在模块导入期执行隐藏副作用
 
 至少统一这些配置：
 
@@ -182,6 +199,12 @@ MendCode/
 - `data/tasks`
 - `data/traces`
 - 应用版本
+
+应用版本在工程配置上应由 `app.__version__` 统一导出，以避免 `pyproject.toml` 和运行时代码形成双源维护。
+
+当 `MENDCODE_PROJECT_ROOT` 未设置时，默认项目根目录应优先取当前工作目录，而不是包文件所在目录。这样在源码树运行和普通安装场景下都更符合 CLI / API 的使用直觉。
+
+如果后续需要读取 `.env`，应在 CLI 或 API 入口层显式加载，而不是在 `settings.py` 导入时自动执行。
 
 ### 6.6 `app/core/paths.py`
 
@@ -202,6 +225,7 @@ MendCode/
 - 单次写入一个事件
 - 自动创建 trace 目录
 - 文件命名稳定，便于后续按 `run_id` 聚合
+- 不应直接信任未校验的 `run_id` 去拼接路径
 
 ## 7. 任务文件格式
 
@@ -230,6 +254,8 @@ Phase 0 任务文件使用 JSON 格式，避免在项目初始化阶段引入 YA
 ```
 
 该格式只承担“被系统读取和校验”的职责，不承担执行语义。
+
+仓库内提供的 demo 任务文件应被自动化测试直接加载，避免样例文件和 schema 随时间漂移。
 
 ## 8. Phase 0 数据流
 
@@ -326,6 +352,8 @@ Phase 0 完成时必须满足以下条件：
 - `/healthz` 返回 200
 - `pyproject.toml` 成为主配置来源
 - `requirements.txt` 继续保留
+- `pyproject.toml` 中的版本定义与运行时元数据保持单一来源
+- `pytest`、`pytest-asyncio`、`ruff` 不作为运行时依赖安装
 
 ## 11. 风险与控制
 

@@ -1,0 +1,17 @@
+{
+  "task_id": "demo-ci-001",
+  "task_type": "ci_fix",
+  "title": "Fix failing unit test",
+  "repo_path": ".",
+  "entry_artifacts": {
+    "log": "pytest failed: test_example"
+  },
+  "verification_commands": [
+    "pytest -q"
+  ],
+  "allowed_tools": [
+    "read_file",
+    "search_code"
+  ],
+  "metadata": {}
+}

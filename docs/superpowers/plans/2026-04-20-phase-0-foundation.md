@@ -6,7 +6,7 @@
 
 **Architecture:** Keep the implementation deliberately small. Phase 0 creates only the stable interfaces that Phase 1 will reuse: package metadata, settings/path resolution, task and trace schemas, a trace recorder, CLI commands, and an API health endpoint. It does not implement orchestrator, tools, or worktree execution yet.
 
-**Tech Stack:** Python 3.12+, Typer, FastAPI, Pydantic v2, pytest, ruff, orjson, uvicorn
+**Tech Stack:** Python 3.11+, Typer, FastAPI, Pydantic v2, pytest, ruff, orjson, uvicorn
 
 ---
 
@@ -51,10 +51,10 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mendcode"
-version = "0.1.0"
 description = "A maintenance agent for enterprise local repositories"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
+dynamic = ["version"]
 dependencies = [
   "fastapi==0.136.0",
   "uvicorn[standard]==0.44.0",
@@ -69,11 +69,18 @@ dependencies = [
   "tree-sitter==0.25.2",
   "tree-sitter-language-pack==1.6.2",
   "openai==2.32.0",
+  "watchfiles==1.1.1",
+]
+
+[project.optional-dependencies]
+dev = [
   "pytest==9.0.3",
   "pytest-asyncio==1.3.0",
   "ruff==0.15.11",
-  "watchfiles==1.1.1",
 ]
+
+[tool.setuptools.dynamic]
+version = {attr = "app.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["app*"]
@@ -84,7 +91,7 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py312"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I"]
@@ -96,6 +103,8 @@ select = ["E", "F", "I"]
 APP_NAME = "MendCode"
 __version__ = "0.1.0"
 ```
+
+Note: keep `app.__version__` as the single source of truth and source the package version from it in `pyproject.toml`.
 
 Create these package markers with the same content:
 
@@ -152,6 +161,15 @@ def test_settings_default_paths(monkeypatch, tmp_path):
     assert settings.traces_dir == tmp_path / "data" / "traces"
 
 
+def test_settings_default_root_without_env(monkeypatch):
+    monkeypatch.delenv("MENDCODE_PROJECT_ROOT", raising=False)
+
+    settings = get_settings()
+
+    assert settings.project_root == Path.cwd().resolve()
+    assert settings.data_dir == Path.cwd().resolve() / "data"
+
+
 def test_ensure_data_directories_creates_missing_directories(monkeypatch, tmp_path):
     monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
     settings = get_settings()
@@ -179,12 +197,9 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'app.config.settings'`
 from os import getenv
 from pathlib import Path
 
-from dotenv import load_dotenv
 from pydantic import BaseModel
 
 from app import APP_NAME, __version__
-
-load_dotenv()
 
 
 class Settings(BaseModel):
@@ -197,7 +212,7 @@ class Settings(BaseModel):
 
 
 def get_settings() -> Settings:
-    root = Path(getenv("MENDCODE_PROJECT_ROOT", Path(__file__).resolve().parents[2])).resolve()
+    root = Path(getenv("MENDCODE_PROJECT_ROOT", Path.cwd())).resolve()
     data_dir = root / "data"
     return Settings(
         app_name=APP_NAME,
@@ -208,6 +223,8 @@ def get_settings() -> Settings:
         traces_dir=data_dir / "traces",
     )
 ```
+
+Note: keep `settings.py` side-effect free. If `.env` loading is needed later, do it in CLI or API bootstrap code instead of at module import time.
 
 `app/core/paths.py`
 
@@ -277,6 +294,8 @@ def test_task_spec_accepts_valid_payload(tmp_path):
     assert task.task_id == "demo-ci-001"
     assert task.task_type == "ci_fix"
     assert task.repo_path == str(tmp_path)
+    assert task.allowed_tools == ["read_file", "search_code"]
+    assert task.metadata == {}
 
 
 def test_task_spec_rejects_invalid_task_type(tmp_path):
@@ -295,27 +314,30 @@ def test_task_spec_rejects_invalid_task_type(tmp_path):
         TaskSpec.model_validate(payload)
 
 
-def test_load_task_spec_from_json_file(tmp_path):
-    task_file = tmp_path / "task.json"
-    task_file.write_text(
-        json.dumps(
-            {
-                "task_id": "demo-ci-001",
-                "task_type": "ci_fix",
-                "title": "Fix failing unit test",
-                "repo_path": str(tmp_path),
-                "entry_artifacts": {"log": "pytest failed"},
-                "verification_commands": ["pytest -q"],
-                "allowed_tools": ["read_file", "search_code"],
-                "metadata": {},
-            }
-        ),
-        encoding="utf-8",
-    )
+def test_task_spec_rejects_unknown_fields(tmp_path):
+    payload = {
+        "task_id": "bad-002",
+        "task_type": "ci_fix",
+        "title": "Bad task",
+        "repo_path": str(tmp_path),
+        "entry_artifacts": {"log": "bad"},
+        "verification_commands": ["pytest -q"],
+        "allowed_tools": [],
+        "metadata": {},
+        "unexpected": "value",
+    }
 
-    task = load_task_spec(task_file)
+    with pytest.raises(ValidationError):
+        TaskSpec.model_validate(payload)
+
+
+def test_load_demo_task_spec_fixture():
+    repo_root = Path(__file__).resolve().parents[2]
+    task = load_task_spec(repo_root / "data" / "tasks" / "demo.json")
 
     assert task.task_id == "demo-ci-001"
+    assert task.allowed_tools == ["read_file", "search_code"]
+    assert task.entry_artifacts["log"] == "pytest failed: test_example"
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -332,10 +354,11 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class TaskSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     task_id: str
     task_type: Literal["ci_fix", "test_regression_fix", "pr_review"]
     title: str
@@ -400,6 +423,7 @@ git commit -m "feat: add task schema and demo fixture"
 import json
 from datetime import UTC, datetime
 
+import pytest
 from app.schemas.trace import TraceEvent
 from app.tracing.recorder import TraceRecorder
 
@@ -413,8 +437,22 @@ def test_trace_event_serializes_expected_fields():
         payload={"task_id": "demo-ci-001"},
     )
 
-    assert event.run_id == "run-001"
-    assert event.payload["task_id"] == "demo-ci-001"
+    serialized = event.model_dump(mode="json")
+
+    assert serialized["run_id"] == "run-001"
+    assert serialized["event_type"] == "task.show"
+    assert serialized["message"] == "Previewed task"
+    assert serialized["payload"]["task_id"] == "demo-ci-001"
+    assert isinstance(serialized["timestamp"], str)
+
+
+@pytest.mark.parametrize(
+    "run_id",
+    ["", "../bad", "bad/name", r"bad\\name", " bad", ".hidden", "trail.", "con"],
+)
+def test_trace_event_rejects_unsafe_run_id(run_id):
+    with pytest.raises(ValueError):
+        TraceEvent(run_id=run_id, event_type="task.show", message="bad")
 
 
 def test_trace_recorder_writes_jsonl_file(tmp_path):
@@ -429,9 +467,14 @@ def test_trace_recorder_writes_jsonl_file(tmp_path):
     output_path = recorder.record(event)
 
     lines = output_path.read_text(encoding="utf-8").strip().splitlines()
+    payload = json.loads(lines[0])
+
     assert output_path.name == "run-001.jsonl"
     assert len(lines) == 1
-    assert json.loads(lines[0])["event_type"] == "task.show"
+    assert payload["run_id"] == "run-001"
+    assert payload["event_type"] == "task.show"
+    assert payload["message"] == "Previewed task"
+    assert payload["payload"]["task_id"] == "demo-ci-001"
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -444,18 +487,33 @@ Expected: FAIL with `ModuleNotFoundError: No module named 'app.schemas.trace'`
 `app/schemas/trace.py`
 
 ```python
+import re
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TraceEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     run_id: str
     event_type: str
     message: str
     timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
     payload: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("run_id")
+    @classmethod
+    def validate_run_id(cls, value: str) -> str:
+        if not value:
+            raise ValueError("run_id must not be empty")
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value):
+            raise ValueError("run_id must be a safe filename segment")
+        if value.endswith("."):
+            raise ValueError("run_id must not end with a dot")
+        if value.lower() in {"con", "prn", "aux", "nul", "com1", "lpt1"}:
+            raise ValueError("run_id uses a reserved filename")
+        return value
 ```
 
 `app/tracing/recorder.py`
@@ -507,6 +565,7 @@ git commit -m "feat: add trace schema and recorder"
 import json
 from pathlib import Path
 
+import orjson
 from typer.testing import CliRunner
 
 from app.cli.main import app
@@ -542,6 +601,7 @@ def test_health_command_reports_status(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "MendCode" in result.stdout
     assert "status" in result.stdout
+    assert str(tmp_path / "data" / "traces") in result.stdout
 
 
 def test_task_validate_command_accepts_valid_file(monkeypatch, tmp_path):
@@ -553,6 +613,24 @@ def test_task_validate_command_accepts_valid_file(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "Task file is valid" in result.stdout
     assert "demo-ci-001" in result.stdout
+
+
+def test_task_validate_returns_user_facing_error_for_missing_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+
+    result = runner.invoke(app, ["task", "validate", str(tmp_path / "missing.json")])
+
+    assert result.exit_code != 0
+    assert "Task file not found" in result.stdout
+
+
+def test_task_validate_returns_user_facing_error_for_directory_input(monkeypatch, tmp_path):
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+
+    result = runner.invoke(app, ["task", "validate", str(tmp_path)])
+
+    assert result.exit_code != 0
+    assert "Task file could not be read" in result.stdout
 
 
 def test_task_show_writes_trace_file(monkeypatch, tmp_path):
@@ -567,6 +645,10 @@ def test_task_show_writes_trace_file(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "Fix failing unit test" in result.stdout
     assert len(trace_files) == 1
+    payload = orjson.loads(trace_files[0].read_bytes().splitlines()[0])
+    assert payload["event_type"] == "task.show"
+    assert payload["payload"]["task_id"] == "demo-ci-001"
+    assert payload["payload"]["title"] == "Fix failing unit test"
 ```
 
 - [ ] **Step 2: Run the test to verify it fails**
@@ -586,10 +668,12 @@ mendcode = "app.cli.main:app"
 `app/cli/main.py`
 
 ```python
+import json
 from pathlib import Path
 from uuid import uuid4
 
 import typer
+from pydantic import ValidationError
 from rich.console import Console
 from rich.table import Table
 
@@ -630,13 +714,39 @@ def health() -> None:
 
 @task_app.command("validate")
 def validate_task(file_path: Path) -> None:
-    task = load_task_spec(file_path)
+    try:
+        task = load_task_spec(file_path)
+    except FileNotFoundError:
+        console.print(f"Task file not found: {file_path}")
+        raise typer.Exit(code=1)
+    except json.JSONDecodeError as exc:
+        console.print(f"Task file is not valid JSON: {exc}")
+        raise typer.Exit(code=1)
+    except ValidationError as exc:
+        console.print(f"Task file failed schema validation: {exc}")
+        raise typer.Exit(code=1)
+    except OSError as exc:
+        console.print(f"Task file could not be read: {exc}")
+        raise typer.Exit(code=1)
     console.print(f"Task file is valid: {task.task_id} ({task.task_type})")
 
 
 @task_app.command("show")
 def show_task(file_path: Path) -> None:
-    task = load_task_spec(file_path)
+    try:
+        task = load_task_spec(file_path)
+    except FileNotFoundError:
+        console.print(f"Task file not found: {file_path}")
+        raise typer.Exit(code=1)
+    except json.JSONDecodeError as exc:
+        console.print(f"Task file is not valid JSON: {exc}")
+        raise typer.Exit(code=1)
+    except ValidationError as exc:
+        console.print(f"Task file failed schema validation: {exc}")
+        raise typer.Exit(code=1)
+    except OSError as exc:
+        console.print(f"Task file could not be read: {exc}")
+        raise typer.Exit(code=1)
     settings = get_settings()
     ensure_data_directories(settings)
     recorder = TraceRecorder(settings.traces_dir)
@@ -790,7 +900,7 @@ Replace `README.md` with:
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-pip install -e .
+pip install -e ".[dev]"
 ```
 
 ## CLI
