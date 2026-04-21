@@ -25,6 +25,7 @@ mendcode version
 mendcode health
 mendcode task validate data/tasks/demo.json
 mendcode task show data/tasks/demo.json
+mendcode task run data/tasks/demo.json
 ```
 
 ## API
