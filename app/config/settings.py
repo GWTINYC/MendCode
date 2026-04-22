@@ -15,6 +15,7 @@ class Settings(BaseModel):
     data_dir: Path
     tasks_dir: Path
     traces_dir: Path
+    evals_dir: Path
     workspace_root: Path
     verification_timeout_seconds: int
     cleanup_success_workspace: bool
@@ -30,6 +31,7 @@ def get_settings() -> Settings:
         data_dir=data_dir,
         tasks_dir=data_dir / "tasks",
         traces_dir=data_dir / "traces",
+        evals_dir=data_dir / "evals",
         workspace_root=root / ".worktrees",
         verification_timeout_seconds=60,
         cleanup_success_workspace=False,

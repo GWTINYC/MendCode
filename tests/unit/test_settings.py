@@ -15,6 +15,14 @@ def test_settings_default_paths(monkeypatch, tmp_path):
     assert settings.traces_dir == tmp_path / "data" / "traces"
 
 
+def test_settings_exposes_evals_directory(monkeypatch, tmp_path):
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+
+    settings = get_settings()
+
+    assert settings.evals_dir == tmp_path / "data" / "evals"
+
+
 def test_settings_uses_default_project_root_when_env_unset(monkeypatch):
     monkeypatch.delenv("MENDCODE_PROJECT_ROOT", raising=False)
 
@@ -34,6 +42,7 @@ def test_ensure_data_directories_creates_missing_directories(monkeypatch, tmp_pa
         "data_dir": tmp_path / "data",
         "tasks_dir": tmp_path / "data" / "tasks",
         "traces_dir": tmp_path / "data" / "traces",
+        "evals_dir": tmp_path / "data" / "evals",
         "workspace_root": tmp_path / ".worktrees",
     }
     assert all(path.exists() for path in created.values())
@@ -57,3 +66,13 @@ def test_ensure_data_directories_creates_workspace_root(monkeypatch, tmp_path):
 
     assert created["workspace_root"] == tmp_path / ".worktrees"
     assert created["workspace_root"].exists()
+
+
+def test_ensure_data_directories_creates_evals_directory(monkeypatch, tmp_path):
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    settings = get_settings()
+
+    created = ensure_data_directories(settings)
+
+    assert created["evals_dir"] == tmp_path / "data" / "evals"
+    assert created["evals_dir"].exists()

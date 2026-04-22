@@ -15,6 +15,12 @@ def test_gitignore_covers_runtime_artifacts() -> None:
     assert "*.py[cod]" in contents
 
 
+def test_gitignore_covers_eval_runtime_artifacts() -> None:
+    contents = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    assert "data/evals/" in contents
+
+
 def test_repo_does_not_track_python_bytecode() -> None:
     tracked_files = subprocess.run(
         ["git", "ls-files", "*__pycache__*", "*.pyc"],
