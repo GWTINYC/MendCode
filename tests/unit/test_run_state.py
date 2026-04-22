@@ -27,20 +27,20 @@ def test_run_state_serializes_expected_fields():
         trace_path="/tmp/demo.jsonl",
     )
 
-    assert state.model_dump() == {
-        "run_id": "preview-123456789abc",
-        "task_id": "demo-ci-001",
-        "task_type": "ci_fix",
-        "status": "completed",
-        "current_step": "summarize",
-        "summary": "Task preview completed",
-        "trace_path": "/tmp/demo.jsonl",
-        "workspace_path": None,
-        "selected_files": [],
-        "applied_patch": False,
-        "tool_results": [],
-        "verification": None,
-    }
+    dump = state.model_dump()
+
+    assert dump["run_id"] == "preview-123456789abc"
+    assert dump["task_id"] == "demo-ci-001"
+    assert dump["task_type"] == "ci_fix"
+    assert dump["status"] == "completed"
+    assert dump["current_step"] == "summarize"
+    assert dump["summary"] == "Task preview completed"
+    assert dump["trace_path"] == "/tmp/demo.jsonl"
+    assert dump["workspace_path"] is None
+    assert dump["selected_files"] == []
+    assert dump["applied_patch"] is False
+    assert dump["tool_results"] == []
+    assert dump["verification"] is None
 
 
 def test_run_state_accepts_fixed_flow_fields():

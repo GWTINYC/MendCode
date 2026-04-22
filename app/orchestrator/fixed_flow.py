@@ -17,6 +17,8 @@ class FixedFlowArtifacts(BaseModel):
 
     @model_validator(mode="after")
     def validate_targeting(self) -> "FixedFlowArtifacts":
+        if self.read_target_path is not None and not self.read_target_path.strip():
+            raise ValueError("read_target_path must not be empty")
         if self.read_target_path is None and (self.search_query is None or not self.search_query.strip()):
             raise ValueError("either read_target_path or search_query is required")
         return self
