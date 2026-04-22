@@ -3,14 +3,40 @@ from pathlib import Path
 from uuid import uuid4
 
 from app.config.settings import Settings
+from app.orchestrator.fixed_flow import load_fixed_flow_artifacts, summarize_tool_result
 from app.schemas.run_state import RunState
 from app.schemas.task import TaskSpec
 from app.schemas.trace import TraceEvent
 from app.schemas.verification import VerificationCommandResult, VerificationResult
+from app.tools.patch import apply_patch
+from app.tools.read_only import read_file, search_code
+from app.tools.schemas import ToolResult
 from app.tracing.recorder import TraceRecorder
 from app.workspace.command_policy import CommandPolicy
 from app.workspace.executor import execute_verification_command
 from app.workspace.worktree import WorkspaceCleanupResult, cleanup_worktree, prepare_worktree
+
+
+def _record_tool_started(recorder: TraceRecorder, run_id: str, tool_name: str, workspace_path: Path) -> Path:
+    return recorder.record(
+        TraceEvent(
+            run_id=run_id,
+            event_type="run.tool.started",
+            message=f"Started tool {tool_name}",
+            payload={"tool_name": tool_name, "workspace_path": str(workspace_path)},
+        )
+    )
+
+
+def _record_tool_completed(recorder: TraceRecorder, run_id: str, result: ToolResult) -> Path:
+    return recorder.record(
+        TraceEvent(
+            run_id=run_id,
+            event_type="run.tool.completed",
+            message=f"Completed tool {result.tool_name}",
+            payload=summarize_tool_result(result) | {"workspace_path": result.workspace_path},
+        )
+    )
 
 
 def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:

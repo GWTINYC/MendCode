@@ -12,6 +12,7 @@ from app.orchestrator.fixed_flow import load_fixed_flow_artifacts
 from app.orchestrator.runner import run_task_preview
 from app.schemas.task import TaskSpec
 from app.schemas.verification import VerificationCommandResult
+from app.tools.schemas import ToolResult
 from app.workspace.worktree import WorkspaceCleanupResult
 
 PYTHON = shlex.quote(sys.executable)
@@ -263,6 +264,85 @@ def test_run_task_preview_accepts_direct_target_path_without_search_query(tmp_pa
 
     assert result.status == "completed"
     assert result.selected_files == ["target.txt"]
+
+
+def test_run_task_preview_records_tool_events_for_fixed_flow(tmp_path, monkeypatch):
+    repo_path = init_git_repo(tmp_path)
+    target = repo_path / "target.txt"
+    target.write_text("wrong\n", encoding="utf-8")
+    subprocess.run(["git", "add", "target.txt"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "add target"], cwd=repo_path, check=True, capture_output=True, text=True)
+
+    monkeypatch.setattr(
+        "app.orchestrator.runner.search_code",
+        lambda **kwargs: ToolResult(
+            tool_name="search_code",
+            status="passed",
+            summary="Found 1 match",
+            payload={
+                "query": "wrong",
+                "glob": "*.txt",
+                "total_matches": 1,
+                "matches": [
+                    {
+                        "relative_path": "target.txt",
+                        "line_number": 1,
+                        "line_text": "wrong",
+                    }
+                ],
+            },
+            error_message=None,
+            workspace_path=str(kwargs["workspace_path"]),
+        ),
+    )
+    monkeypatch.setattr(
+        "app.orchestrator.runner.read_file",
+        lambda **kwargs: ToolResult(
+            tool_name="read_file",
+            status="passed",
+            summary="Read target.txt",
+            payload={"relative_path": "target.txt", "content": "wrong\n"},
+            error_message=None,
+            workspace_path=str(kwargs["workspace_path"]),
+        ),
+    )
+    monkeypatch.setattr(
+        "app.orchestrator.runner.apply_patch",
+        lambda **kwargs: ToolResult(
+            tool_name="apply_patch",
+            status="passed",
+            summary="Patched target.txt",
+            payload={
+                "relative_path": "target.txt",
+                "replacements_applied": 1,
+                "replace_all": False,
+            },
+            error_message=None,
+            workspace_path=str(kwargs["workspace_path"]),
+        ),
+    )
+
+    task = TaskSpec(
+        task_id="demo-ci-001",
+        task_type="ci_fix",
+        title="Fixed-flow success",
+        repo_path=str(repo_path),
+        entry_artifacts={
+            "search_query": "wrong",
+            "target_path_glob": "*.txt",
+            "old_text": "wrong",
+            "new_text": "fixed",
+        },
+        verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+    )
+
+    result = run_task_preview(task, build_settings(tmp_path))
+    events = [json.loads(line) for line in Path(result.trace_path).read_text(encoding="utf-8").splitlines()]
+
+    assert [event["event_type"] for event in events].count("run.tool.started") == 3
+    assert [event["event_type"] for event in events].count("run.tool.completed") == 3
+    assert result.selected_files == ["target.txt"]
+    assert result.applied_patch is True
 
 
 def test_run_task_preview_marks_run_failed_when_a_command_fails(tmp_path):
