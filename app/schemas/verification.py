@@ -15,9 +15,9 @@ class VerificationCommandResult(BaseModel):
     duration_ms: int
     stdout_excerpt: str = ""
     stderr_excerpt: str = ""
-    timed_out: bool = Field(default=False, exclude=True)
-    rejected: bool = Field(default=False, exclude=True)
-    cwd: str | None = Field(default=None, exclude=True)
+    timed_out: bool = False
+    rejected: bool = False
+    cwd: str | None = None
 
     @model_validator(mode="after")
     def validate_status_flags(self) -> "VerificationCommandResult":

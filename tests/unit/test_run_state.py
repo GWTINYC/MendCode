@@ -35,6 +35,7 @@ def test_run_state_serializes_expected_fields():
         "current_step": "summarize",
         "summary": "Task preview completed",
         "trace_path": "/tmp/demo.jsonl",
+        "workspace_path": None,
         "verification": None,
     }
 
