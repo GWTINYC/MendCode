@@ -19,7 +19,7 @@ demo_fixture_root = repo_root / "data" / "tasks" / "demos"
 
 def init_git_repo(path: Path) -> Path:
     repo_path = path / "repo"
-    repo_path.mkdir()
+    repo_path.mkdir(parents=True)
     subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True, text=True)
     subprocess.run(
         ["git", "config", "user.email", "test@example.com"],
@@ -371,6 +371,25 @@ def test_task_run_reports_unauthorized_tool_stage(monkeypatch, tmp_path):
     assert "failed" in result.stdout
     assert "locate" in result.stdout
     assert "Unable to run search_code" in result.stdout
+
+
+def test_eval_run_writes_summary_files(monkeypatch, tmp_path):
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("app.cli.main.console.width", 200, raising=False)
+    task_file = write_task_file(tmp_path / "task-one")
+    failing_task_file = write_failing_task_file(tmp_path / "task-two")
+
+    result = runner.invoke(
+        app,
+        ["eval", "run", str(task_file), str(failing_task_file)],
+        terminal_width=200,
+    )
+
+    assert result.exit_code == 0
+    assert "Batch Eval" in result.stdout
+    assert "task_count" in result.stdout
+    assert "summary_json_path" in result.stdout
+    assert "summary_md_path" in result.stdout
 
 
 def test_success_demo_completes(monkeypatch):
