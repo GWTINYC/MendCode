@@ -10,6 +10,7 @@ from app.cli.main import app
 
 runner = CliRunner()
 PYTHON = shlex.quote(sys.executable)
+repo_root = Path(__file__).resolve().parents[2]
 
 
 def init_git_repo(path: Path) -> Path:
@@ -95,6 +96,48 @@ def write_task_file(path: Path) -> Path:
     return task_file
 
 
+def write_unauthorized_tool_task_file(path: Path) -> Path:
+    repo_path = init_git_repo(path)
+    (repo_path / "target.txt").write_text("wrong\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    task_file = path / "task-unauthorized.json"
+    task_file.write_text(
+        json.dumps(
+            {
+                "task_id": "demo-ci-unauthorized",
+                "task_type": "ci_fix",
+                "title": "Unauthorized fixed-flow demo",
+                "repo_path": str(repo_path),
+                "entry_artifacts": {
+                    "search_query": "wrong",
+                    "target_path_glob": "*.txt",
+                    "old_text": "wrong",
+                    "new_text": "fixed",
+                },
+                "verification_commands": [f"{PYTHON} -c \"print('ok')\""],
+                "allowed_tools": ["read_file", "apply_patch"],
+                "metadata": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    return task_file
+
+
 def write_failing_task_file(path: Path) -> Path:
     repo_path = init_git_repo(path)
     task_file = path / "task-fail.json"
@@ -135,6 +178,31 @@ def test_task_validate_command_accepts_valid_file(monkeypatch, tmp_path):
     assert result.exit_code == 0
     assert "Task file is valid" in result.stdout
     assert "demo-ci-001" in result.stdout
+
+
+def test_task_validate_accepts_each_demo_fixture():
+    demo_dir = repo_root / "data" / "tasks" / "demos"
+    fixture_paths = [
+        demo_dir / "success.json",
+        demo_dir / "unauthorized-tool.json",
+        demo_dir / "ambiguous-search.json",
+        demo_dir / "verification-fail.json",
+    ]
+
+    for fixture_path in fixture_paths:
+        result = runner.invoke(app, ["task", "validate", str(fixture_path)])
+
+        assert result.exit_code == 0
+        assert "Task file is valid" in result.stdout
+
+
+def test_task_show_accepts_success_demo_fixture():
+    fixture_path = repo_root / "data" / "tasks" / "demos" / "success.json"
+
+    result = runner.invoke(app, ["task", "show", str(fixture_path)])
+
+    assert result.exit_code == 0
+    assert "Successful fixed-flow README repair" in result.stdout
 
 
 def test_task_validate_missing_file_returns_error(monkeypatch, tmp_path):
@@ -263,3 +331,60 @@ def test_task_run_reports_failed_verification_without_cli_crash(monkeypatch, tmp
     assert "failed_count" in result.stdout
     assert "First non-passed command: failed" in result.stdout
     assert f'{PYTHON} -c "import sys; sys.exit(3)"' in result.stdout
+
+
+def test_task_run_reports_unauthorized_tool_stage(monkeypatch, tmp_path):
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("app.cli.main.console.width", 200, raising=False)
+    task_file = write_unauthorized_tool_task_file(tmp_path)
+
+    result = runner.invoke(app, ["task", "run", str(task_file)], terminal_width=200)
+
+    assert result.exit_code == 0
+    assert "failed" in result.stdout
+    assert "locate" in result.stdout
+    assert "Unable to run search_code" in result.stdout
+
+
+def test_success_demo_completes(monkeypatch):
+    fixture_path = repo_root / "data" / "tasks" / "demos" / "success.json"
+
+    result = runner.invoke(app, ["task", "run", str(fixture_path)], terminal_width=200)
+
+    assert result.exit_code == 0
+    assert "completed" in result.stdout
+    assert "summarize" in result.stdout
+    assert "Verification passed: 1/1 commands succeeded" in result.stdout
+
+
+def test_ambiguous_search_demo(monkeypatch):
+    fixture_path = repo_root / "data" / "tasks" / "demos" / "ambiguous-search.json"
+
+    result = runner.invoke(app, ["task", "run", str(fixture_path)], terminal_width=200)
+
+    assert result.exit_code == 0
+    assert "failed" in result.stdout
+    assert "locate" in result.stdout
+    assert "search_code returned 2 candidate files" in result.stdout
+
+
+def test_unauthorized_tool_stage(monkeypatch):
+    fixture_path = repo_root / "data" / "tasks" / "demos" / "unauthorized-tool.json"
+
+    result = runner.invoke(app, ["task", "run", str(fixture_path)], terminal_width=200)
+
+    assert result.exit_code == 0
+    assert "failed" in result.stdout
+    assert "locate" in result.stdout
+    assert "Unable to run search_code" in result.stdout
+
+
+def test_verification_fail(monkeypatch):
+    fixture_path = repo_root / "data" / "tasks" / "demos" / "verification-fail.json"
+
+    result = runner.invoke(app, ["task", "run", str(fixture_path)], terminal_width=200)
+
+    assert result.exit_code == 0
+    assert "failed" in result.stdout
+    assert "verify" in result.stdout
+    assert "Verification failed" in result.stdout
