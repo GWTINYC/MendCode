@@ -173,6 +173,46 @@ def test_load_fixed_flow_artifacts_rejects_blank_read_target_path():
     assert "read_target_path" in str(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "payload, expected_fragment",
+    [
+        (
+            {
+                "read_target_path": "target.txt",
+                "read_start_line": 0,
+                "old_text": "demo",
+                "new_text": "fixed",
+            },
+            "read_start_line",
+        ),
+        (
+            {
+                "read_target_path": "target.txt",
+                "read_end_line": 0,
+                "old_text": "demo",
+                "new_text": "fixed",
+            },
+            "read_end_line",
+        ),
+        (
+            {
+                "read_target_path": "target.txt",
+                "read_start_line": 5,
+                "read_end_line": 4,
+                "old_text": "demo",
+                "new_text": "fixed",
+            },
+            "read_end_line",
+        ),
+    ],
+)
+def test_load_fixed_flow_artifacts_rejects_invalid_read_line_bounds(payload, expected_fragment):
+    with pytest.raises(ValidationError) as excinfo:
+        load_fixed_flow_artifacts(payload)
+
+    assert expected_fragment in str(excinfo.value)
+
+
 @pytest.mark.xfail(reason="runner wiring pending for fixed-flow inputs", strict=False)
 def test_run_task_preview_fails_when_fixed_flow_inputs_are_missing(tmp_path):
     repo_path = init_git_repo(tmp_path)

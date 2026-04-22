@@ -21,6 +21,16 @@ class FixedFlowArtifacts(BaseModel):
             raise ValueError("read_target_path must not be empty")
         if self.read_target_path is None and (self.search_query is None or not self.search_query.strip()):
             raise ValueError("either read_target_path or search_query is required")
+        if self.read_start_line is not None and self.read_start_line <= 0:
+            raise ValueError("read_start_line must be greater than 0")
+        if self.read_end_line is not None and self.read_end_line <= 0:
+            raise ValueError("read_end_line must be greater than 0")
+        if (
+            self.read_start_line is not None
+            and self.read_end_line is not None
+            and self.read_end_line < self.read_start_line
+        ):
+            raise ValueError("read_end_line must be greater than or equal to read_start_line")
         return self
 
 
