@@ -106,7 +106,7 @@ def run_task(file_path: Path) -> None:
     ensure_data_directories(settings)
 
     try:
-        state = run_task_preview(task, settings.traces_dir)
+        state = run_task_preview(task, settings)
     except OSError as exc:
         typer.echo(f"Task run failed while writing trace output: {exc}")
         raise typer.Exit(code=1)
@@ -124,17 +124,19 @@ def run_task(file_path: Path) -> None:
     failed_count = state.verification.failed_count if state.verification else 0
     table.add_row("passed_count", str(passed_count))
     table.add_row("failed_count", str(failed_count))
+    table.add_row("workspace_path", state.workspace_path or "")
     table.add_row("trace_path", state.trace_path)
     console.print(table)
 
     if state.verification and state.verification.failed_count > 0:
-        first_failed = next(
-            (item for item in state.verification.command_results if item.status == "failed"),
+        first_non_passed = next(
+            (item for item in state.verification.command_results if item.status != "passed"),
             None,
         )
-        if first_failed is not None:
+        if first_non_passed is not None:
             console.print(
-                f"First failed command: {first_failed.command} (exit {first_failed.exit_code})"
+                f"First failed command: {first_non_passed.command} "
+                f"(exit {first_non_passed.exit_code})"
             )
 
 

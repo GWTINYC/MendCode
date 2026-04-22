@@ -1,5 +1,6 @@
 import json
 import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -11,7 +12,32 @@ runner = CliRunner()
 PYTHON = shlex.quote(sys.executable)
 
 
+def init_git_repo(path: Path) -> Path:
+    repo_path = path / "repo"
+    repo_path.mkdir()
+    subprocess.run(["git", "init"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "config", "user.email", "test@example.com"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "config", "user.name", "Test User"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    (repo_path / "README.md").write_text("demo\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "init"], cwd=repo_path, check=True, capture_output=True, text=True)
+    return repo_path
+
+
 def write_task_file(path: Path) -> Path:
+    repo_path = init_git_repo(path)
     task_file = path / "task.json"
     task_file.write_text(
         json.dumps(
@@ -19,7 +45,7 @@ def write_task_file(path: Path) -> Path:
                 "task_id": "demo-ci-001",
                 "task_type": "ci_fix",
                 "title": "Fix failing unit test",
-                "repo_path": str(path),
+                "repo_path": str(repo_path),
                 "entry_artifacts": {"log": "pytest failed"},
                 "verification_commands": [f"{PYTHON} -c \"print('ok')\""],
                 "allowed_tools": ["read_file", "search_code"],
@@ -32,6 +58,7 @@ def write_task_file(path: Path) -> Path:
 
 
 def write_failing_task_file(path: Path) -> Path:
+    repo_path = init_git_repo(path)
     task_file = path / "task-fail.json"
     task_file.write_text(
         json.dumps(
@@ -39,7 +66,7 @@ def write_failing_task_file(path: Path) -> Path:
                 "task_id": "demo-ci-002",
                 "task_type": "ci_fix",
                 "title": "Fail verification",
-                "repo_path": str(path),
+                "repo_path": str(repo_path),
                 "entry_artifacts": {},
                 "verification_commands": [f"{PYTHON} -c \"import sys; sys.exit(3)\""],
                 "allowed_tools": ["read_file"],
@@ -126,6 +153,7 @@ def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
     assert "completed" in result.stdout
     assert "passed_count" in result.stdout
     assert "failed_count" in result.stdout
+    assert "workspace_path" in result.stdout
     assert len(trace_files) == 1
 
     trace_path = str(trace_files[0])
@@ -134,20 +162,18 @@ def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
     trace_lines = trace_files[0].read_text(encoding="utf-8").strip().splitlines()
     trace_events = [json.loads(line) for line in trace_lines]
 
-    assert [event["event_type"] for event in trace_events] == [
-        "run.started",
-        "run.verification.started",
-        "run.verification.command.completed",
-        "run.completed",
-    ]
+    assert "run.workspace.cleanup" in [event["event_type"] for event in trace_events]
     assert trace_events[0]["payload"]["task_id"] == "demo-ci-001"
     assert trace_events[0]["payload"]["task_type"] == "ci_fix"
     assert trace_events[0]["payload"]["summary"] == "Task preview started"
+    assert trace_events[0]["payload"]["workspace_path"].startswith(
+        str(tmp_path / ".worktrees" / "preview-")
+    )
     assert trace_events[1]["payload"]["command_count"] == 1
     assert trace_events[2]["payload"]["status"] == "passed"
-    assert trace_events[3]["payload"]["status"] == "completed"
-    assert trace_events[3]["payload"]["task_type"] == "ci_fix"
-    assert trace_events[3]["payload"]["summary"] == "Verification passed: 1/1 commands succeeded"
+    assert trace_events[-1]["payload"]["status"] == "completed"
+    assert trace_events[-1]["payload"]["task_type"] == "ci_fix"
+    assert trace_events[-1]["payload"]["summary"] == "Verification passed: 1/1 commands succeeded"
 
 
 def test_task_run_reports_passed_verification(monkeypatch, tmp_path):
