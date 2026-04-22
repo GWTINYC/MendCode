@@ -4,10 +4,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from app.config.settings import Settings
+from app.orchestrator.fixed_flow import load_fixed_flow_artifacts
 from app.orchestrator.runner import run_task_preview
 from app.schemas.task import TaskSpec
 from app.schemas.verification import VerificationCommandResult
+from app.tools.schemas import ToolResult
 from app.workspace.worktree import WorkspaceCleanupResult
 
 PYTHON = shlex.quote(sys.executable)
@@ -154,6 +159,381 @@ def test_run_task_preview_marks_run_passed_when_all_commands_succeed(tmp_path):
     assert result.verification.passed_count == 1
     assert result.verification.failed_count == 0
     assert result.summary == "Verification passed: 1/1 commands succeeded"
+
+
+def test_load_fixed_flow_artifacts_rejects_blank_read_target_path():
+    with pytest.raises(ValidationError) as excinfo:
+        load_fixed_flow_artifacts(
+            {
+                "read_target_path": "   ",
+                "old_text": "demo",
+                "new_text": "fixed",
+            }
+        )
+
+    assert "read_target_path" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "payload, expected_fragment",
+    [
+        (
+            {
+                "read_target_path": "target.txt",
+                "read_start_line": 0,
+                "old_text": "demo",
+                "new_text": "fixed",
+            },
+            "read_start_line",
+        ),
+        (
+            {
+                "read_target_path": "target.txt",
+                "read_end_line": 0,
+                "old_text": "demo",
+                "new_text": "fixed",
+            },
+            "read_end_line",
+        ),
+        (
+            {
+                "read_target_path": "target.txt",
+                "read_start_line": 5,
+                "read_end_line": 4,
+                "old_text": "demo",
+                "new_text": "fixed",
+            },
+            "read_end_line",
+        ),
+    ],
+)
+def test_load_fixed_flow_artifacts_rejects_invalid_read_line_bounds(payload, expected_fragment):
+    with pytest.raises(ValidationError) as excinfo:
+        load_fixed_flow_artifacts(payload)
+
+    assert expected_fragment in str(excinfo.value)
+
+
+def test_run_task_preview_fails_when_fixed_flow_inputs_are_missing(tmp_path):
+    repo_path = init_git_repo(tmp_path)
+    task = TaskSpec(
+        task_id="demo-ci-001",
+        task_type="ci_fix",
+        title="Missing fixed-flow inputs",
+        repo_path=str(repo_path),
+        entry_artifacts={
+            "old_text": "demo",
+            "new_text": "fixed",
+        },
+        verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+    )
+
+    result = run_task_preview(task, build_settings(tmp_path))
+
+    assert result.status == "failed"
+    assert result.current_step == "summarize"
+    assert (
+        result.summary
+        == "Fixed-flow input invalid: either read_target_path or search_query is required"
+    )
+
+
+def test_run_task_preview_accepts_direct_target_path_without_search_query(tmp_path):
+    repo_path = init_git_repo(tmp_path)
+    target = repo_path / "target.txt"
+    target.write_text("wrong\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    task = TaskSpec(
+        task_id="demo-ci-001",
+        task_type="ci_fix",
+        title="Direct path fixed flow",
+        repo_path=str(repo_path),
+        entry_artifacts={
+            "read_target_path": "target.txt",
+            "old_text": "wrong",
+            "new_text": "fixed",
+        },
+        verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+    )
+
+    result = run_task_preview(task, build_settings(tmp_path))
+
+    assert result.status == "completed"
+    assert result.selected_files == ["target.txt"]
+
+
+def test_run_task_preview_records_tool_events_for_fixed_flow(tmp_path, monkeypatch):
+    repo_path = init_git_repo(tmp_path)
+    target = repo_path / "target.txt"
+    target.write_text("wrong\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    monkeypatch.setattr(
+        "app.orchestrator.runner.search_code",
+        lambda **kwargs: ToolResult(
+            tool_name="search_code",
+            status="passed",
+            summary="Found 1 match",
+            payload={
+                "query": "wrong",
+                "glob": "*.txt",
+                "total_matches": 1,
+                "matches": [
+                    {
+                        "relative_path": "target.txt",
+                        "line_number": 1,
+                        "line_text": "wrong",
+                    }
+                ],
+            },
+            error_message=None,
+            workspace_path=str(kwargs["workspace_path"]),
+        ),
+    )
+    monkeypatch.setattr(
+        "app.orchestrator.runner.read_file",
+        lambda **kwargs: ToolResult(
+            tool_name="read_file",
+            status="passed",
+            summary="Read target.txt",
+            payload={"relative_path": "target.txt", "content": "wrong\n"},
+            error_message=None,
+            workspace_path=str(kwargs["workspace_path"]),
+        ),
+    )
+    monkeypatch.setattr(
+        "app.orchestrator.runner.apply_patch",
+        lambda **kwargs: ToolResult(
+            tool_name="apply_patch",
+            status="passed",
+            summary="Patched target.txt",
+            payload={
+                "relative_path": "target.txt",
+                "replacements_applied": 1,
+                "replace_all": False,
+            },
+            error_message=None,
+            workspace_path=str(kwargs["workspace_path"]),
+        ),
+    )
+
+    task = TaskSpec(
+        task_id="demo-ci-001",
+        task_type="ci_fix",
+        title="Fixed-flow success",
+        repo_path=str(repo_path),
+        entry_artifacts={
+            "search_query": "wrong",
+            "target_path_glob": "*.txt",
+            "old_text": "wrong",
+            "new_text": "fixed",
+        },
+        verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+    )
+
+    result = run_task_preview(task, build_settings(tmp_path))
+    events = [
+        json.loads(line)
+        for line in Path(result.trace_path).read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert [event["event_type"] for event in events].count("run.tool.started") == 3
+    assert [event["event_type"] for event in events].count("run.tool.completed") == 3
+    assert result.selected_files == ["target.txt"]
+    assert result.applied_patch is True
+
+
+def test_run_task_preview_runs_fixed_flow_before_verification(tmp_path):
+    repo_path = init_git_repo(tmp_path)
+    target = repo_path / "target.txt"
+    target.write_text("wrong\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    command = (
+        f"{PYTHON} -c "
+        "\"from pathlib import Path; "
+        "print(Path('target.txt').read_text(encoding='utf-8').strip())\""
+    )
+    task = TaskSpec(
+        task_id="demo-ci-001",
+        task_type="ci_fix",
+        title="Fixed-flow runs before verification",
+        repo_path=str(repo_path),
+        entry_artifacts={
+            "read_target_path": "target.txt",
+            "old_text": "wrong",
+            "new_text": "fixed",
+        },
+        verification_commands=[command],
+    )
+
+    result = run_task_preview(task, build_settings(tmp_path))
+
+    assert result.status == "completed"
+    assert result.applied_patch is True
+    assert result.verification is not None
+    assert result.verification.command_results[0].stdout_excerpt == "fixed\n"
+
+
+def test_run_task_preview_fails_when_inspected_slice_excludes_old_text(tmp_path):
+    repo_path = init_git_repo(tmp_path)
+    target = repo_path / "target.txt"
+    target.write_text("wrong\nkeep\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    task = TaskSpec(
+        task_id="demo-ci-001",
+        task_type="ci_fix",
+        title="Fixed-flow inspected slice excludes target text",
+        repo_path=str(repo_path),
+        entry_artifacts={
+            "read_target_path": "target.txt",
+            "read_start_line": 2,
+            "read_end_line": 2,
+            "old_text": "wrong",
+            "new_text": "fixed",
+        },
+        verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+    )
+
+    result = run_task_preview(task, build_settings(tmp_path))
+
+    assert result.status == "failed"
+    assert result.current_step == "summarize"
+    assert (
+        result.summary
+        == "Fixed-flow failed: inspected slice does not contain old_text"
+    )
+    assert result.selected_files == ["target.txt"]
+    assert result.applied_patch is False
+    assert [tool_result["tool_name"] for tool_result in result.tool_results] == ["read_file"]
+    assert (target.read_text(encoding="utf-8")) == "wrong\nkeep\n"
+
+
+def test_run_task_preview_fails_when_search_returns_multiple_files(tmp_path, monkeypatch):
+    repo_path = init_git_repo(tmp_path)
+    first_target = repo_path / "target_a.txt"
+    second_target = repo_path / "target_b.txt"
+    first_target.write_text("wrong\n", encoding="utf-8")
+    second_target.write_text("wrong\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "target_a.txt", "target_b.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add multiple targets"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    monkeypatch.setattr(
+        "app.orchestrator.runner.search_code",
+        lambda **kwargs: ToolResult(
+            tool_name="search_code",
+            status="passed",
+            summary="Found 2 matches",
+            payload={
+                "query": "wrong",
+                "glob": "*.txt",
+                "total_matches": 2,
+                "matches": [
+                    {
+                        "relative_path": "target_a.txt",
+                        "line_number": 1,
+                        "line_text": "wrong",
+                    },
+                    {
+                        "relative_path": "target_b.txt",
+                        "line_number": 1,
+                        "line_text": "wrong",
+                    },
+                ],
+            },
+            error_message=None,
+            workspace_path=str(kwargs["workspace_path"]),
+        ),
+    )
+
+    task = TaskSpec(
+        task_id="demo-ci-001",
+        task_type="ci_fix",
+        title="Fixed-flow ambiguous search",
+        repo_path=str(repo_path),
+        entry_artifacts={
+            "search_query": "wrong",
+            "target_path_glob": "*.txt",
+            "old_text": "wrong",
+            "new_text": "fixed",
+        },
+        verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+    )
+
+    result = run_task_preview(task, build_settings(tmp_path))
+
+    assert result.status == "failed"
+    assert result.current_step == "summarize"
+    assert result.summary == "Fixed-flow failed: search_code returned 2 candidate files"
+    assert result.selected_files == []
+    assert result.applied_patch is False
+    assert [tool_result["tool_name"] for tool_result in result.tool_results] == ["search_code"]
 
 
 def test_run_task_preview_marks_run_failed_when_a_command_fails(tmp_path):

@@ -50,17 +50,43 @@ def init_git_repo(path: Path) -> Path:
 
 def write_task_file(path: Path) -> Path:
     repo_path = init_git_repo(path)
+    (repo_path / "target.txt").write_text("wrong\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
     task_file = path / "task.json"
     task_file.write_text(
         json.dumps(
             {
                 "task_id": "demo-ci-001",
                 "task_type": "ci_fix",
-                "title": "Fix failing unit test",
+                "title": "Fixed-flow demo repair",
                 "repo_path": str(repo_path),
-                "entry_artifacts": {"log": "pytest failed"},
-                "verification_commands": [f"{PYTHON} -c \"print('ok')\""],
-                "allowed_tools": ["read_file", "search_code"],
+                "entry_artifacts": {
+                    "search_query": "wrong",
+                    "target_path_glob": "*.txt",
+                    "old_text": "wrong",
+                    "new_text": "fixed",
+                },
+                "verification_commands": [
+                    f"{PYTHON} -c "
+                    "\"from pathlib import Path; import sys; "
+                    "sys.exit(0 if Path('target.txt').read_text(encoding='utf-8') == "
+                    "'fixed\\n' else 1)\""
+                ],
+                "allowed_tools": ["read_file", "search_code", "apply_patch"],
                 "metadata": {},
             }
         ),
@@ -140,13 +166,13 @@ def test_task_show_writes_trace_file(monkeypatch, tmp_path):
     trace_files = list(trace_dir.glob("*.jsonl"))
 
     assert result.exit_code == 0
-    assert "Fix failing unit test" in result.stdout
+    assert "Fixed-flow demo repair" in result.stdout
     assert len(trace_files) == 1
 
     trace_payload = json.loads(trace_files[0].read_text(encoding="utf-8").strip())
     assert trace_payload["event_type"] == "task.show"
     assert trace_payload["payload"]["task_id"] == "demo-ci-001"
-    assert trace_payload["payload"]["title"] == "Fix failing unit test"
+    assert trace_payload["payload"]["title"] == "Fixed-flow demo repair"
 
 
 def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
@@ -165,7 +191,11 @@ def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
     assert "completed" in result.stdout
     assert "passed_count" in result.stdout
     assert "failed_count" in result.stdout
+    assert "selected_files" in result.stdout
+    assert "applied_patch" in result.stdout
     assert "workspace_path" in result.stdout
+    assert "target.txt" in result.stdout
+    assert "yes" in result.stdout
     assert len(trace_files) == 1
 
     trace_path = str(trace_files[0])
@@ -181,11 +211,29 @@ def test_task_run_writes_trace_and_prints_summary(monkeypatch, tmp_path):
     assert trace_events[0]["payload"]["workspace_path"].startswith(
         str(tmp_path / ".worktrees" / "preview-")
     )
-    assert trace_events[1]["payload"]["command_count"] == 1
-    assert trace_events[2]["payload"]["status"] == "passed"
+    assert trace_events[1]["event_type"] == "run.tool.started"
+    assert trace_events[1]["payload"]["tool_name"] == "search_code"
+    assert trace_events[2]["event_type"] == "run.tool.completed"
+    assert trace_events[2]["payload"]["tool_name"] == "search_code"
+    assert trace_events[7]["payload"]["command_count"] == 1
+    assert trace_events[8]["payload"]["status"] == "passed"
     assert trace_events[-1]["payload"]["status"] == "completed"
     assert trace_events[-1]["payload"]["task_type"] == "ci_fix"
     assert trace_events[-1]["payload"]["summary"] == "Verification passed: 1/1 commands succeeded"
+
+
+def test_task_run_prints_fixed_flow_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("app.cli.main.console.width", 200, raising=False)
+    task_file = write_task_file(tmp_path)
+
+    result = runner.invoke(app, ["task", "run", str(task_file)], terminal_width=200)
+
+    assert result.exit_code == 0
+    assert "selected_files" in result.stdout
+    assert "applied_patch" in result.stdout
+    assert "target.txt" in result.stdout
+    assert "yes" in result.stdout
 
 
 def test_task_run_reports_passed_verification(monkeypatch, tmp_path):

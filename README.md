@@ -5,7 +5,7 @@
 ## Current Capabilities
 
 - Python project skeleton with `pyproject.toml`
-- CLI health check, task file inspection, and `task run` verification execution inside a per-run git worktree
+- CLI health check, task file inspection, and `task run` fixed-flow execution inside a per-run git worktree
 - Command-policy guarded verification execution with timeout and trace output
 - FastAPI health endpoint
 - JSONL trace output for task runs
@@ -39,7 +39,7 @@ python -m app.cli.main task show data/tasks/demo.json
 python -m app.cli.main task run data/tasks/demo.json
 ```
 
-`task run` creates a per-run workspace under `.worktrees/preview-<id>/`, executes verification commands there, preserves successful workspaces by default, and records `workspace_path` plus cleanup results in trace output.
+`task run` creates a per-run workspace under `.worktrees/preview-<id>/`, can execute a narrow `read -> search -> patch -> verify` demo task using structured `entry_artifacts`, preserves successful workspaces by default, and records `workspace_path` plus cleanup results in trace output.
 
 ## API
 
