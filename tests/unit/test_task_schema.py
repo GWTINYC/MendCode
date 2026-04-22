@@ -91,11 +91,24 @@ def test_task_spec_defaults_base_ref_to_none(tmp_path):
     assert task.base_ref is None
 
 
-def test_load_task_spec_from_fixture():
-    fixture_path = Path(__file__).resolve().parents[2] / "data" / "tasks" / "demo.json"
+def test_demo_task_suite_files_exist():
+    demo_dir = Path(__file__).resolve().parents[2] / "data" / "tasks" / "demos"
+
+    assert (demo_dir / "success.json").exists()
+    assert (demo_dir / "unauthorized-tool.json").exists()
+    assert (demo_dir / "ambiguous-search.json").exists()
+    assert (demo_dir / "verification-fail.json").exists()
+
+
+def test_load_task_spec_from_success_demo_fixture():
+    fixture_path = Path(__file__).resolve().parents[2] / "data" / "tasks" / "demos" / "success.json"
     task = load_task_spec(fixture_path)
 
-    assert task.task_id == "demo-ci-001"
+    assert task.task_id == "demo-ci-success"
     assert task.allowed_tools == ["read_file", "search_code", "apply_patch"]
     assert task.entry_artifacts["search_query"] == "JSONL trace output for task runs"
     assert task.entry_artifacts["new_text"] == "JSONL trace output for fixed-flow task runs"
+
+
+def test_old_single_demo_entry_is_removed():
+    assert not (Path(__file__).resolve().parents[2] / "data" / "tasks" / "demo.json").exists()

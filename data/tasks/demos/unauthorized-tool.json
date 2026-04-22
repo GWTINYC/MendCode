@@ -1,0 +1,17 @@
+{
+  "task_id": "demo-ci-unauthorized-tool",
+  "task_type": "ci_fix",
+  "title": "Unauthorized tool rejection during locate",
+  "repo_path": ".",
+  "entry_artifacts": {
+    "search_query": "JSONL trace output for task runs",
+    "target_path_glob": "README.md",
+    "old_text": "JSONL trace output for task runs",
+    "new_text": "JSONL trace output for fixed-flow task runs"
+  },
+  "verification_commands": [
+    "python -c \"print('verification should not run in unauthorized demo')\""
+  ],
+  "allowed_tools": ["read_file", "apply_patch"],
+  "metadata": {}
+}

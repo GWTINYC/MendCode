@@ -1,0 +1,17 @@
+{
+  "task_id": "demo-ci-ambiguous-search",
+  "task_type": "ci_fix",
+  "title": "Ambiguous search failure during locate",
+  "repo_path": ".",
+  "entry_artifacts": {
+    "search_query": "ambiguous needle",
+    "target_path_glob": "data/demo-fixtures/ambiguous-search/*.txt",
+    "old_text": "ambiguous needle",
+    "new_text": "fixed ambiguous needle"
+  },
+  "verification_commands": [
+    "python -c \"print('verification should not run in ambiguous-search demo')\""
+  ],
+  "allowed_tools": ["read_file", "search_code", "apply_patch"],
+  "metadata": {}
+}
