@@ -170,8 +170,15 @@ def search_code(
 ) -> ToolResult:
     if not query.strip():
         return _reject_search_code(workspace_path, query, glob, "query must not be empty")
+    if max_results is not None and max_results < 0:
+        return _reject_search_code(
+            workspace_path,
+            query,
+            glob,
+            "max_results must be greater than or equal to 0",
+        )
 
-    command = ["rg", "--line-number", "--no-heading"]
+    command = ["rg", "--fixed-strings", "--line-number", "--no-heading"]
     if glob is not None:
         command.extend(["--glob", glob])
     command.append(query)

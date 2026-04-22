@@ -242,6 +242,22 @@ def test_search_code_rejects_empty_query_preserves_glob(tmp_path: Path) -> None:
     assert result.error_message == "query must not be empty"
 
 
+def test_search_code_treats_query_as_literal_string(tmp_path: Path) -> None:
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+    (workspace_path / "src.py").write_text("arr[0] = 1\n", encoding="utf-8")
+
+    result = search_code(workspace_path=workspace_path, query="arr[0]")
+
+    assert result.status == "passed"
+    assert result.payload == {
+        "query": "arr[0]",
+        "glob": None,
+        "total_matches": 1,
+        "matches": [{"relative_path": "src.py", "line_number": 1, "line_text": "arr[0] = 1"}],
+    }
+
+
 def test_search_code_applies_glob_filter(tmp_path: Path, monkeypatch) -> None:
     workspace_path = tmp_path / "workspace"
     workspace_path.mkdir()
@@ -261,7 +277,7 @@ def test_search_code_applies_glob_filter(tmp_path: Path, monkeypatch) -> None:
     result = search_code(workspace_path=workspace_path, query="alpha", glob="*.py")
 
     assert result.status == "passed"
-    assert calls == [(["rg", "--line-number", "--no-heading", "--glob", "*.py", "alpha"], workspace_path)]
+    assert calls == [(["rg", "--fixed-strings", "--line-number", "--no-heading", "--glob", "*.py", "alpha"], workspace_path)]
     assert result.payload == {
         "query": "alpha",
         "glob": "*.py",
@@ -292,6 +308,22 @@ def test_search_code_limits_results(tmp_path: Path, monkeypatch) -> None:
         {"relative_path": "src.py", "line_number": 1, "line_text": "alpha"},
         {"relative_path": "src.py", "line_number": 2, "line_text": "alpha"},
     ]
+
+
+def test_search_code_rejects_negative_max_results(tmp_path: Path) -> None:
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+
+    result = search_code(workspace_path=workspace_path, query="alpha", max_results=-1)
+
+    assert result.status == "rejected"
+    assert result.payload == {
+        "query": "alpha",
+        "glob": None,
+        "total_matches": 0,
+        "matches": [],
+    }
+    assert result.error_message == "max_results must be greater than or equal to 0"
 
 
 def test_search_code_returns_no_matches_as_passed(tmp_path: Path, monkeypatch) -> None:
