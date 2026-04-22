@@ -346,6 +346,33 @@ README 一开始仍使用 `Phase 0 Capabilities` 标题，但仓库已经具备 
 
 ---
 
+## 问题 11：没有 workspace 隔离时，verification 命令会直接对仓库工作目录产生副作用
+
+- 时间：Phase 1B command policy / worktree 落地
+- 阶段：runner 执行边界治理
+- 状态：已解决
+
+### 现象
+
+verification 命令原先直接在 `task.repo_path` 下执行，后续一旦引入补丁修改能力，真实仓库会直接暴露给任务运行副作用。
+
+### 根因
+
+- 初版 runner 只追求跑通验证链路，没有 workspace 抽象
+- 命令执行边界和 repo 工作目录耦合在一起
+
+### 解决方案
+
+- 为每次 run 创建独立 `.worktrees/preview-<id>/`
+- verification 默认在 worktree 中执行
+- trace 记录 `workspace_path` 与 cleanup 结果
+
+### 后续约束
+
+- 后续 `read_file` / `search_code` / `apply_patch` 都应优先围绕 `workspace_path`，而不是直接操作 `task.repo_path`
+
+---
+
 ## 5. 下一步维护建议
 
 - 后续进入 Phase 1B 时，继续按这份文档追加真实问题，不要等到阶段结束再回忆补录

@@ -716,6 +716,12 @@ L3 长期记忆：
   - 跑完整验证集
   - 确认当前 worktree 分支已经达到可收尾状态
 
+补充当前收敛状态：
+
+- command policy 已落地：验证命令必须经过受控 executor，具备 timeout、rejected、timed_out 语义
+- worktree manager 已落地：`task run` 默认在 `.worktrees/preview-<id>/` 中执行 verification
+- runner 已从“直接执行命令”收敛为“编排 workspace、executor、trace 和 cleanup”
+
 ### Phase 2：补足上下文工程
 
 目标：让 Agent 从“能跑”提升到“能更稳地定位”。
