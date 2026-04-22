@@ -10,7 +10,7 @@ repo_root = Path(__file__).resolve().parents[2]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
-from app.cli.main import app
+from app.cli.main import app  # noqa: E402
 
 runner = CliRunner()
 PYTHON = shlex.quote(sys.executable)
@@ -390,7 +390,10 @@ def test_success_demo_completes(monkeypatch):
     assert trace_path.is_relative_to(repo_root / "data" / "traces")
     assert workspace_path.is_relative_to(repo_root / ".worktrees")
     assert trace_path.exists()
-    trace_events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    trace_events = [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
     assert trace_events[0]["payload"]["task_id"] == "demo-ci-success"
     assert trace_events[0]["payload"]["workspace_path"].startswith(
         str(repo_root / ".worktrees" / "preview-")
@@ -413,7 +416,10 @@ def test_ambiguous_search_demo(monkeypatch):
     assert trace_path.is_relative_to(repo_root / "data" / "traces")
     assert workspace_path.is_relative_to(repo_root / ".worktrees")
     assert trace_path.exists()
-    trace_events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    trace_events = [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
     assert trace_events[0]["payload"]["task_id"] == "demo-ci-ambiguous-search"
     assert trace_events[0]["payload"]["workspace_path"].startswith(
         str(repo_root / ".worktrees" / "preview-")
@@ -436,7 +442,10 @@ def test_unauthorized_tool_stage(monkeypatch):
     assert trace_path.is_relative_to(repo_root / "data" / "traces")
     assert workspace_path.is_relative_to(repo_root / ".worktrees")
     assert trace_path.exists()
-    trace_events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    trace_events = [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
     assert trace_events[0]["payload"]["task_id"] == "demo-ci-unauthorized-tool"
     assert trace_events[0]["payload"]["workspace_path"].startswith(
         str(repo_root / ".worktrees" / "preview-")
@@ -459,8 +468,26 @@ def test_verification_fail(monkeypatch):
     assert trace_path.is_relative_to(repo_root / "data" / "traces")
     assert workspace_path.is_relative_to(repo_root / ".worktrees")
     assert trace_path.exists()
-    trace_events = [json.loads(line) for line in trace_path.read_text(encoding="utf-8").splitlines()]
+    trace_events = [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
     assert trace_events[0]["payload"]["task_id"] == "demo-ci-verification-fail"
     assert trace_events[0]["payload"]["workspace_path"].startswith(
         str(repo_root / ".worktrees" / "preview-")
     )
+
+
+def test_readme_references_demo_task_suite_paths():
+    readme = (repo_root / "README.md").read_text(encoding="utf-8")
+    expected_paths = [
+        "data/tasks/demos/success.json",
+        "data/tasks/demos/unauthorized-tool.json",
+        "data/tasks/demos/ambiguous-search.json",
+        "data/tasks/demos/verification-fail.json",
+    ]
+
+    for path in expected_paths:
+        assert path in readme
+
+    assert "data/tasks/demo.json" not in readme

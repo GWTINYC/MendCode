@@ -21,12 +21,16 @@ pip install -e ".[dev]"
 
 ## CLI
 
+Installed usage:
+
 ```bash
 mendcode version
 mendcode health
-mendcode task validate data/tasks/demo.json
-mendcode task show data/tasks/demo.json
-mendcode task run data/tasks/demo.json
+mendcode task validate data/tasks/demos/success.json
+mendcode task run data/tasks/demos/success.json
+mendcode task run data/tasks/demos/unauthorized-tool.json
+mendcode task run data/tasks/demos/ambiguous-search.json
+mendcode task run data/tasks/demos/verification-fail.json
 ```
 
 In this nested worktree development setup, `python -m app.cli.main ...` is the authoritative invocation path. The `mendcode ...` examples remain valid for normal installed usage, but the branch-accurate commands are:
@@ -34,12 +38,21 @@ In this nested worktree development setup, `python -m app.cli.main ...` is the a
 ```bash
 python -m app.cli.main version
 python -m app.cli.main health
-python -m app.cli.main task validate data/tasks/demo.json
-python -m app.cli.main task show data/tasks/demo.json
-python -m app.cli.main task run data/tasks/demo.json
+python -m app.cli.main task validate data/tasks/demos/success.json
+python -m app.cli.main task run data/tasks/demos/success.json
+python -m app.cli.main task run data/tasks/demos/unauthorized-tool.json
+python -m app.cli.main task run data/tasks/demos/ambiguous-search.json
+python -m app.cli.main task run data/tasks/demos/verification-fail.json
 ```
 
-`task run` creates a per-run workspace under `.worktrees/preview-<id>/`, can execute a narrow `read -> search -> patch -> verify` demo task using structured `entry_artifacts`, preserves successful workspaces by default, and records `workspace_path` plus cleanup results in trace output.
+`task run` creates a per-run workspace under `.worktrees/preview-<id>/`, can execute the demo task suite using structured `entry_artifacts`, preserves successful workspaces by default, and records `workspace_path` plus cleanup results in trace output.
+
+Demo coverage:
+
+- `success.json`: proves the fixed `read -> search -> patch -> verify` happy path.
+- `unauthorized-tool.json`: proves task-declared tool authorization is enforced.
+- `ambiguous-search.json`: proves locate-stage failure is surfaced when search is not unique.
+- `verification-fail.json`: proves verify-stage failure is surfaced cleanly.
 
 ## API
 
