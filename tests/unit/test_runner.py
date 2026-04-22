@@ -375,6 +375,42 @@ def test_run_task_preview_runs_fixed_flow_before_verification(tmp_path):
     assert result.verification.command_results[0].stdout_excerpt == "fixed\n"
 
 
+def test_run_task_preview_fails_when_inspected_slice_excludes_old_text(tmp_path):
+    repo_path = init_git_repo(tmp_path)
+    target = repo_path / "target.txt"
+    target.write_text("wrong\nkeep\n", encoding="utf-8")
+    subprocess.run(["git", "add", "target.txt"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(["git", "commit", "-m", "add target"], cwd=repo_path, check=True, capture_output=True, text=True)
+
+    task = TaskSpec(
+        task_id="demo-ci-001",
+        task_type="ci_fix",
+        title="Fixed-flow inspected slice excludes target text",
+        repo_path=str(repo_path),
+        entry_artifacts={
+            "read_target_path": "target.txt",
+            "read_start_line": 2,
+            "read_end_line": 2,
+            "old_text": "wrong",
+            "new_text": "fixed",
+        },
+        verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+    )
+
+    result = run_task_preview(task, build_settings(tmp_path))
+
+    assert result.status == "failed"
+    assert result.current_step == "summarize"
+    assert (
+        result.summary
+        == "Fixed-flow failed: inspected slice does not contain old_text"
+    )
+    assert result.selected_files == ["target.txt"]
+    assert result.applied_patch is False
+    assert [tool_result["tool_name"] for tool_result in result.tool_results] == ["read_file"]
+    assert (target.read_text(encoding="utf-8")) == "wrong\nkeep\n"
+
+
 def test_run_task_preview_fails_when_search_returns_multiple_files(tmp_path, monkeypatch):
     repo_path = init_git_repo(tmp_path)
     first_target = repo_path / "target_a.txt"

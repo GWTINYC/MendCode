@@ -353,6 +353,25 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
                 tool_results=tool_results,
                 cleanup_success_workspace=settings.cleanup_success_workspace,
             )
+        if (
+            (artifacts.read_start_line is not None or artifacts.read_end_line is not None)
+            and artifacts.old_text not in str(read_result.payload.get("content", ""))
+        ):
+            return _finalize_run_state(
+                recorder=recorder,
+                run_id=run_id,
+                task=task,
+                trace_path=trace_path,
+                repo_path=repo_path,
+                workspace_path=workspace_path,
+                status="failed",
+                summary="Fixed-flow failed: inspected slice does not contain old_text",
+                verification=None,
+                selected_files=selected_files,
+                applied_patch=applied_patch,
+                tool_results=tool_results,
+                cleanup_success_workspace=settings.cleanup_success_workspace,
+            )
 
         trace_path = _record_tool_started(recorder, run_id, "apply_patch", workspace_path)
         patch_result = apply_patch(
