@@ -29,7 +29,17 @@ mendcode task show data/tasks/demo.json
 mendcode task run data/tasks/demo.json
 ```
 
-`task run` now creates a temporary workspace under `.worktrees/preview-<id>/`, executes verification commands there, and records `workspace_path` plus cleanup results in trace output.
+In this nested worktree development setup, `python -m app.cli.main ...` is the authoritative invocation path. The `mendcode ...` examples remain valid for normal installed usage, but the branch-accurate commands are:
+
+```bash
+python -m app.cli.main version
+python -m app.cli.main health
+python -m app.cli.main task validate data/tasks/demo.json
+python -m app.cli.main task show data/tasks/demo.json
+python -m app.cli.main task run data/tasks/demo.json
+```
+
+`task run` creates a per-run workspace under `.worktrees/preview-<id>/`, executes verification commands there, preserves successful workspaces by default, and records `workspace_path` plus cleanup results in trace output.
 
 ## API
 
