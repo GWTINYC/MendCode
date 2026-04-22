@@ -59,7 +59,8 @@
 
 - 更新根方案文档，使其与仓库真实状态对齐
 - 在已完成 Phase 1A 的基础上，继续推进 Phase 1B 的真实执行链
-- 当前第一优先级是 `run_verification`，用最小成本打通真实验证命令执行
+- Phase 1B 第一刀 `run_verification` 已基本打通：schema、runner、CLI 摘要与 trace 都已连通
+- 当前收尾重点变成整体验证、文档同步，以及为下一步 command policy / workspace 隔离做边界收敛
 
 ### 2.3 对初稿的评价
 
@@ -628,8 +629,21 @@ L3 长期记忆：
 - Phase 0 已完成并合并回 `main`
 - 已具备 schema、settings、paths、trace recorder、CLI、API 与测试基线
 - Phase 1A 已完成：`RunState`、最小 runner、`task run`、开始/结束 trace 已落地
-- 当前不再继续扩充 Phase 0，而是进入 Phase 1B 的真实执行链建设
-- 当前正在设计 Phase 1B 第一刀：顺序执行 `verification_commands` 并输出验证摘要
+- Phase 1B 第一切片已完成主要实现：
+  - 新增 verification schema 与结果汇总结构
+  - `RunState` 已可携带 verification 摘要
+  - runner 已顺序执行 `verification_commands`
+  - trace 已覆盖 `run.verification.started` 与 `run.verification.command.completed`
+  - CLI `task run` 已展示 `passed_count` / `failed_count`，失败时可打印首条失败命令
+- Phase 1B 下一阶段方向已确认：
+  - 先收口 command policy
+  - 再接 worktree manager
+  - runner 逐步退回到编排职责，不继续堆策略与工作区副作用
+- 开始下一阶段开发前，已先完成当前 worktree 的基线清理：
+  - 修复 CLI 汇总输出与 integration test 契约不一致的问题
+  - 将环境敏感的 `pytest -q` 测试命令收敛为可控命令
+  - 清理 `tests/unit/test_runner.py` 的既有 lint 问题
+  - 当前基线重新恢复为 `pytest -q` / `ruff check .` 全绿
 
 ### Phase 1：打通最小修复闭环
 
@@ -668,8 +682,15 @@ L3 长期记忆：
 
 - Phase 0 前置条件已经满足
 - Phase 1A 已完成，说明系统已经具备最小运行态骨架
-- 下一步应优先实现 `run_verification`，再进入 workspace / worktree 与基础工具
-- 在 `run_verification` 未落地前，不应过早进入补丁修改链路
+- Phase 1B 第一切片的 `run_verification` 已落地，说明系统已经具备真实验证执行能力
+- 下一步应优先收敛 command policy、workspace / worktree 与基础工具，而不是继续堆叠 CLI 表面能力
+- 在 workspace / worktree 未落地前，不应过早进入自动补丁修改链路
+- 当前推荐实现顺序已经固定：
+  1. `app/workspace/command_policy.py`
+  2. `app/workspace/executor.py`
+  3. `app/workspace/worktree.py`
+  4. runner 接线与 trace 扩展
+  5. 再进入 `read_file` / `search_code` / `apply_patch`
 
 ### Phase 2：补足上下文工程
 
@@ -865,8 +886,14 @@ L3 长期记忆：
 
 - 已完成：1、2、3、4、9 的基础子集，以及对应单元测试框架
 - 已完成：5，也就是最小 orchestrator runner 与 `task run`
-- 下一优先级：6，也就是 `run_verification`
-- 之后依次推进：7 的 worktree manager、8 的 `read_file` / `search_code` / `apply_patch`
+- 已基本完成：6，也就是 `run_verification`
+- 下一优先级：7 的 worktree manager / workspace 隔离，以及 6 的 command policy 收口
+- 当前已经完成这一步的设计收敛：
+  - 采用“小而清晰的执行边界拆分”
+  - 不把 command policy 和 worktree 继续堆进 runner
+  - 在 `app/workspace/` 下落 `command_policy.py`、`executor.py`、`worktree.py`
+  - 先完成受控执行，再切换到 worktree 执行
+- 之后依次推进：8 的 `read_file` / `search_code` / `apply_patch`
 
 当前对 `run_verification` 的收敛策略：
 
@@ -874,7 +901,13 @@ L3 长期记忆：
 - 顺序执行，不并行
 - 记录退出码、耗时、输出摘要
 - 失败视为业务结果而不是 CLI 崩溃
+- 当前 CLI 已显示 verification 汇总结果，并在失败时暴露首条失败命令
 - 暂不引入白名单、超时系统和 worktree 隔离
+- 下一阶段对 `run_verification` 的收敛目标已经明确：
+  - 新增受控 timeout
+  - 补充策略拒绝 / 超时的独立语义
+  - 将执行目录从 `task.repo_path` 切换到 `workspace_path`
+  - 在 trace 中补充 `workspace_path` 与 cleanup 结果
 
 ---
 

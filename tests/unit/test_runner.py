@@ -6,7 +6,6 @@ from pathlib import Path
 from app.orchestrator.runner import run_task_preview
 from app.schemas.task import TaskSpec
 
-
 PYTHON = shlex.quote(sys.executable)
 
 
@@ -168,7 +167,8 @@ def test_run_task_preview_records_exact_oserror_text_without_trimming(tmp_path, 
 
     result = run_task_preview(task, tmp_path)
     trace_file = Path(result.trace_path)
-    events = [json.loads(line) for line in trace_file.read_text(encoding="utf-8").strip().splitlines()]
+    trace_lines = trace_file.read_text(encoding="utf-8").strip().splitlines()
+    events = [json.loads(line) for line in trace_lines]
 
     assert result.status == "failed"
     assert result.verification is not None

@@ -120,8 +120,22 @@ def run_task(file_path: Path) -> None:
     table.add_row("status", state.status)
     table.add_row("current_step", state.current_step)
     table.add_row("summary", state.summary)
+    passed_count = state.verification.passed_count if state.verification else 0
+    failed_count = state.verification.failed_count if state.verification else 0
+    table.add_row("passed_count", str(passed_count))
+    table.add_row("failed_count", str(failed_count))
     table.add_row("trace_path", state.trace_path)
     console.print(table)
+
+    if state.verification and state.verification.failed_count > 0:
+        first_failed = next(
+            (item for item in state.verification.command_results if item.status == "failed"),
+            None,
+        )
+        if first_failed is not None:
+            console.print(
+                f"First failed command: {first_failed.command} (exit {first_failed.exit_code})"
+            )
 
 
 if __name__ == "__main__":

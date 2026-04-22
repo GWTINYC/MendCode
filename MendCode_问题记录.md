@@ -217,6 +217,101 @@ README 一开始仍使用 `Phase 0 Capabilities` 标题，但仓库已经具备 
 
 ---
 
+## 问题 7：CLI 集成测试若复用真实项目命令，容易引入环境耦合和伪失败
+
+- 时间：Phase 1B / Task 4
+- 阶段：CLI verification 集成测试收敛
+- 状态：已解决
+
+### 现象
+
+最初的 CLI 集成测试把 `verification_commands` 写成 `pytest -q`。在临时目录里执行 `task run` 时，这个命令会依赖外部测试环境和当前工作目录，导致测试失败原因并不一定来自 CLI 行为本身。
+
+### 根因
+
+- 集成测试复用了“像真实命令”的验证方式，而不是“可控命令”
+- `pytest -q` 对执行目录、测试发现结果和环境状态都敏感
+- 这会把本应验证 CLI 输出契约的测试，变成混合了环境依赖的脆弱测试
+
+### 解决方案
+
+- 把 CLI 集成测试中的验证命令收敛为可控的 `python -c ...` 命令
+- 成功路径和失败路径都用可预测的单条命令表达
+- 让测试红灯聚焦在 CLI 汇总输出和退出码语义，而不是外部环境
+
+### 后续约束
+
+- 后续凡是验证 CLI / runner 汇总语义的集成测试，优先使用可控命令，不直接复用真实项目级命令
+- 只有在专门做端到端或 smoke 场景时，才引入 `pytest` 这类环境敏感命令
+
+---
+
+## 问题 8：若继续把 command policy 和 workspace 副作用堆进 runner，后续工具链会快速失控
+
+- 时间：Phase 1B 下一阶段设计收敛
+- 阶段：command policy / worktree 方案确定
+- 状态：部分解决
+
+### 现象
+
+在 Phase 1B 第一切片完成后，runner 已经同时承担运行编排、命令执行、trace 汇总三类职责。如果下一步继续把白名单、超时、worktree 创建和 cleanup 也直接加进 `app/orchestrator/runner.py`，这个文件会很快同时负责策略层、执行层和 workspace 层。
+
+### 根因
+
+- 当前仓库还处在“最小执行链刚刚跑通”的阶段，短期上容易继续采用“哪里能塞就塞哪里”的方式推进
+- runner 处在主链中心，天然容易被当成所有逻辑的承载点
+- 如果此时不先划清边界，后续接 `read_file` / `search_code` / `apply_patch` 时会进一步放大耦合
+
+### 解决方案
+
+- 在设计上先收敛为“小而清晰的执行边界拆分”
+- 新增 `app/workspace/command_policy.py`、`app/workspace/executor.py`、`app/workspace/worktree.py`
+- 让 runner 回到“编排 + 汇总 + trace”职责，不直接承担全部策略判断与工作区副作用
+- 开发顺序固定为“先 command policy，再 worktree manager”
+
+### 后续约束
+
+- 后续新增执行边界或工作区相关能力时，优先放在 `app/workspace/`，不要继续堆进 runner
+- 如果某个能力同时涉及策略判断和命令执行，默认拆成 policy 与 executor 两层，而不是写成一个大函数
+
+---
+
+## 问题 9：新建 worktree 若只基于最近提交，可能缺失主工作区未提交但已确认的收敛改动，导致基线再次变脏
+
+- 时间：Phase 1B 开发前基线清理
+- 阶段：隔离 worktree 启动与基线恢复
+- 状态：已解决
+
+### 现象
+
+为执行 Phase 1B 计划新建隔离 worktree 后，`pytest -q` 和 `ruff check .` 立刻暴露出基线问题：
+
+- CLI 仍停留在较早版本，没有展示 verification 汇总字段
+- `tests/integration/test_cli.py` 仍包含环境敏感的 `pytest -q` 命令和旧 trace 契约
+- `tests/unit/test_runner.py` 仍有既有 lint 问题
+
+这说明新 worktree 虽然基于最新提交，但没有包含主工作区里尚未提交、却已经确认过的收敛改动。
+
+### 根因
+
+- `git worktree add` 只基于已提交历史创建工作区，不会自动带入主工作区的未提交改动
+- 当前阶段上一轮收敛结果还没有全部进入提交历史
+- 因此新 worktree 的“提交基线”与主工作区的“真实开发基线”发生了偏差
+
+### 解决方案
+
+- 先停止 Phase 1B 新功能开发，优先恢复新 worktree 基线
+- 将 CLI 汇总输出与对应测试收敛到当前 runner 契约
+- 将环境敏感的集成测试命令改为可控命令
+- 修复既有 lint 问题，并重新验证 `pytest -q` 与 `ruff check .`
+
+### 后续约束
+
+- 以后从主工作区切新 worktree 前，先确认关键收敛改动是否已经提交，避免把“未提交共识”丢在旧工作区
+- 如果必须从一个仍有未提交收敛改动的主工作区切新 worktree，进入开发前先做一次基线校准，不要直接开始新功能任务
+
+---
+
 ## 5. 下一步维护建议
 
 - 后续进入 Phase 1B 时，继续按这份文档追加真实问题，不要等到阶段结束再回忆补录
