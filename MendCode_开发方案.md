@@ -715,12 +715,23 @@ L3 长期记忆：
   - 同步 README / 根方案文档 / 问题记录
   - 跑完整验证集
   - 确认当前 worktree 分支已经达到可收尾状态
+- Task 5 现已完成：
+  - README、开发方案、问题记录已与 command policy / worktree 实现保持同步
+  - 已完成完整验证：`python -m pytest -q`、`ruff check .` 均通过
+  - 当前 `phase-1b-command-policy-worktree` 已达到本地合并回 `main` 的收尾条件
+- 当前收尾原则也已固定：
+  - 先把 Phase 1B command policy / worktree 切片合回 `main`
+  - 合并后再进入下一阶段基础工具能力，不在本分支继续堆新功能
 
 补充当前收敛状态：
 
 - command policy 已落地：验证命令必须经过受控 executor，具备 timeout、rejected、timed_out 语义
 - worktree manager 已落地：`task run` 默认在 `.worktrees/preview-<id>/` 中执行 verification
 - runner 已从“直接执行命令”收敛为“编排 workspace、executor、trace 和 cleanup”
+- 当前 worktree 内的权威验证 / 运行方式已明确：
+  - 测试优先使用 `python -m pytest`
+  - CLI smoke 优先使用 `python -m app.cli.main ...`
+  - 嵌套 worktree 场景下，不再把外层 editable install 的 `pytest` / `mendcode` 入口当作收尾依据
 
 ### Phase 2：补足上下文工程
 
