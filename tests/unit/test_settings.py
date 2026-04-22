@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.config.settings import get_settings
+from app.config.settings import Settings, get_settings
 from app.core.paths import ensure_data_directories
 
 
@@ -19,6 +19,22 @@ def test_settings_exposes_evals_directory(monkeypatch, tmp_path):
     monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
 
     settings = get_settings()
+
+    assert settings.evals_dir == tmp_path / "data" / "evals"
+
+
+def test_settings_defaults_evals_directory_when_omitted(tmp_path):
+    settings = Settings(
+        app_name="MendCode",
+        app_version="0.1.0",
+        project_root=tmp_path,
+        data_dir=tmp_path / "data",
+        tasks_dir=tmp_path / "data" / "tasks",
+        traces_dir=tmp_path / "data" / "traces",
+        workspace_root=tmp_path / ".worktrees",
+        verification_timeout_seconds=60,
+        cleanup_success_workspace=False,
+    )
 
     assert settings.evals_dir == tmp_path / "data" / "evals"
 

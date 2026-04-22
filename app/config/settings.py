@@ -1,7 +1,7 @@
 from os import getenv
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app import APP_NAME, __version__
 
@@ -15,10 +15,16 @@ class Settings(BaseModel):
     data_dir: Path
     tasks_dir: Path
     traces_dir: Path
-    evals_dir: Path
+    evals_dir: Path | None = None
     workspace_root: Path
     verification_timeout_seconds: int
     cleanup_success_workspace: bool
+
+    @model_validator(mode="after")
+    def _default_evals_dir(self) -> "Settings":
+        if self.evals_dir is None:
+            self.evals_dir = self.data_dir / "evals"
+        return self
 
 
 def get_settings() -> Settings:
