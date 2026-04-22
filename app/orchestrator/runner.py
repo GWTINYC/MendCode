@@ -19,7 +19,12 @@ from app.workspace.executor import execute_verification_command
 from app.workspace.worktree import WorkspaceCleanupResult, cleanup_worktree, prepare_worktree
 
 
-def _record_tool_started(recorder: TraceRecorder, run_id: str, tool_name: str, workspace_path: Path) -> Path:
+def _record_tool_started(
+    recorder: TraceRecorder,
+    run_id: str,
+    tool_name: str,
+    workspace_path: Path,
+) -> Path:
     return recorder.record(
         TraceEvent(
             run_id=run_id,
@@ -123,7 +128,11 @@ def _finalize_run_state(
         workspace_path=str(workspace_path) if workspace_path is not None else None,
         cleanup_attempted=False,
         cleanup_succeeded=False,
-        cleanup_reason="workspace preserved" if workspace_path is not None else "workspace not created",
+        cleanup_reason=(
+            "workspace preserved"
+            if workspace_path is not None
+            else "workspace not created"
+        ),
     )
     if (
         status == "completed"
@@ -319,7 +328,10 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
                     repo_path=repo_path,
                     workspace_path=workspace_path,
                     status="failed",
-                    summary=f"Fixed-flow failed: search_code returned {len(matches)} candidate files",
+                    summary=(
+                        "Fixed-flow failed: "
+                        f"search_code returned {len(matches)} candidate files"
+                    ),
                     verification=None,
                     selected_files=[],
                     applied_patch=applied_patch,

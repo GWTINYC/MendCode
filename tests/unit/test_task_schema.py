@@ -96,5 +96,6 @@ def test_load_task_spec_from_fixture():
     task = load_task_spec(fixture_path)
 
     assert task.task_id == "demo-ci-001"
-    assert task.allowed_tools == ["read_file", "search_code"]
-    assert task.entry_artifacts["log"] == "pytest failed: test_example"
+    assert task.allowed_tools == ["read_file", "search_code", "apply_patch"]
+    assert task.entry_artifacts["search_query"] == "JSONL trace output for task runs"
+    assert task.entry_artifacts["new_text"] == "JSONL trace output for fixed-flow task runs"

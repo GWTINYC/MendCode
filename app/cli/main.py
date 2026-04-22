@@ -124,6 +124,8 @@ def run_task(file_path: Path) -> None:
     failed_count = state.verification.failed_count if state.verification else 0
     table.add_row("passed_count", str(passed_count))
     table.add_row("failed_count", str(failed_count))
+    table.add_row("selected_files", ", ".join(state.selected_files))
+    table.add_row("applied_patch", "yes" if state.applied_patch else "no")
     table.add_row("workspace_path", state.workspace_path or "")
     table.add_row("trace_path", state.trace_path)
     console.print(table)

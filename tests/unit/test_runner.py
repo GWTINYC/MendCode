@@ -242,8 +242,20 @@ def test_run_task_preview_accepts_direct_target_path_without_search_query(tmp_pa
     repo_path = init_git_repo(tmp_path)
     target = repo_path / "target.txt"
     target.write_text("wrong\n", encoding="utf-8")
-    subprocess.run(["git", "add", "target.txt"], cwd=repo_path, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "commit", "-m", "add target"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
     task = TaskSpec(
         task_id="demo-ci-001",
@@ -268,8 +280,20 @@ def test_run_task_preview_records_tool_events_for_fixed_flow(tmp_path, monkeypat
     repo_path = init_git_repo(tmp_path)
     target = repo_path / "target.txt"
     target.write_text("wrong\n", encoding="utf-8")
-    subprocess.run(["git", "add", "target.txt"], cwd=repo_path, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "commit", "-m", "add target"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
     monkeypatch.setattr(
         "app.orchestrator.runner.search_code",
@@ -335,7 +359,10 @@ def test_run_task_preview_records_tool_events_for_fixed_flow(tmp_path, monkeypat
     )
 
     result = run_task_preview(task, build_settings(tmp_path))
-    events = [json.loads(line) for line in Path(result.trace_path).read_text(encoding="utf-8").splitlines()]
+    events = [
+        json.loads(line)
+        for line in Path(result.trace_path).read_text(encoding="utf-8").splitlines()
+    ]
 
     assert [event["event_type"] for event in events].count("run.tool.started") == 3
     assert [event["event_type"] for event in events].count("run.tool.completed") == 3
@@ -347,12 +374,25 @@ def test_run_task_preview_runs_fixed_flow_before_verification(tmp_path):
     repo_path = init_git_repo(tmp_path)
     target = repo_path / "target.txt"
     target.write_text("wrong\n", encoding="utf-8")
-    subprocess.run(["git", "add", "target.txt"], cwd=repo_path, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "commit", "-m", "add target"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
     command = (
         f"{PYTHON} -c "
-        "\"from pathlib import Path; print(Path('target.txt').read_text(encoding='utf-8').strip())\""
+        "\"from pathlib import Path; "
+        "print(Path('target.txt').read_text(encoding='utf-8').strip())\""
     )
     task = TaskSpec(
         task_id="demo-ci-001",
@@ -379,8 +419,20 @@ def test_run_task_preview_fails_when_inspected_slice_excludes_old_text(tmp_path)
     repo_path = init_git_repo(tmp_path)
     target = repo_path / "target.txt"
     target.write_text("wrong\nkeep\n", encoding="utf-8")
-    subprocess.run(["git", "add", "target.txt"], cwd=repo_path, check=True, capture_output=True, text=True)
-    subprocess.run(["git", "commit", "-m", "add target"], cwd=repo_path, check=True, capture_output=True, text=True)
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
 
     task = TaskSpec(
         task_id="demo-ci-001",

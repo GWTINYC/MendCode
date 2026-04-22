@@ -71,12 +71,15 @@
 - 任务 schema、run state、trace 和 verification 结果结构
 - `task run`、受控 verification、workspace / worktree 隔离
 - 工具层的最小 `read_file` / `search_code` / `apply_patch`
+- 基于结构化 `entry_artifacts` 的固定流工具闭环：
+  - `search_code -> read_file -> apply_patch -> verify`
+  - tool-level trace：`run.tool.started` / `run.tool.completed`
+  - runner 已能沉淀 `selected_files`、`applied_patch`、`tool_results`
 
 当前真正还没有闭环的能力是：
 
-- orchestrator 还不会围绕任务主动调用工具
-- trace 还没有沉淀工具调用层的动作轨迹
-- demo 任务还没有覆盖“真实读、搜、改、验”的闭环
+- 当前 loop 仍是固定流，不具备 planner / model 驱动的动态决策
+- demo 任务、CLI 展示和 README 还没有全部切到新的 fixed-flow 闭环
 - eval 还没有把策略演进变成可比较结果
 
 因此，接下来的大方向不应该是先做更重的上下文平台，也不应该继续扩工具细节，而应该优先把“工具层接入最小 loop”打通，再根据真实 demo 暴露的问题补上下文工程。
@@ -782,6 +785,43 @@ L3 长期记忆：
 ### Phase 2：打通最小 Agent loop
 
 目标：让系统从“有工具、能验证”升级成“能围绕任务完成一轮最小读搜改验”。
+
+当前进度：
+
+- Phase 2A 工具层已完成并通过验证：
+  - `ToolResult` 契约已统一
+  - `read_file` / `search_code` / `apply_patch` 已落地
+  - workspace 路径边界已通过 `guard` 收口
+- Phase 2B 当前已完成中段实现：
+  - 已补 `docs/superpowers/specs/2026-04-22-phase-2b-fixed-loop-design.md`
+  - 已补 `docs/superpowers/plans/2026-04-22-phase-2b-fixed-loop.md`
+  - Task 1 和 Task 2 已合并收口：
+    - `app/orchestrator/fixed_flow.py` 已支持结构化 artifacts 解析与校验
+    - `RunState` 已扩展 `current_step`、`selected_files`、`applied_patch`、`tool_results`
+  - Task 3 和 Task 4 已合并收口：
+    - `run_task_preview()` 已能串起 `search_code` / `read_file` / `apply_patch`
+    - 已记录 `run.tool.started` / `run.tool.completed`
+    - 已对“搜索结果不唯一”与“inspected slice 不包含 old_text”做 fail-closed
+  - 当前收口验证结果：
+    - `python -m pytest tests/unit/test_run_state.py tests/unit/test_runner.py -v` 通过，`34 passed`
+    - `ruff check app/orchestrator/runner.py tests/unit/test_runner.py` 通过
+- Task 5 现已完成：
+  - `data/tasks/demo.json` 已切换为真实 fixed-flow repair demo
+  - `app/cli/main.py` 已展示 `selected_files` 与 `applied_patch`
+  - `tests/integration/test_cli.py` 已改为覆盖 fixed-flow CLI 输出与 trace 顺序
+  - README 已同步说明 `task run` 的 fixed-flow demo 能力
+  - 已完成真实 demo 验证：`python -m app.cli.main task run data/tasks/demo.json` 本地通过
+- 当前最新 focused 验证结果：
+  - `python -m pytest tests/unit/test_run_state.py tests/unit/test_runner.py tests/integration/test_cli.py -v` 通过，`43 passed`
+  - `ruff check app/cli/main.py tests/integration/test_cli.py` 通过
+- Task 6 现已完成：
+  - `python -m pytest -v` 通过，`130 passed`
+  - `ruff check .` 通过
+  - 真实 demo `python -m app.cli.main task run data/tasks/demo.json` 已跑通
+- 当前下一优先级已经切换到本切片收尾：
+  - 做一次最终 review / commit 整理
+  - 准备把 `phase-2a-readonly-tools` 这条线收口
+  - 不在当前切片继续横向扩 planner、上下文平台或更多工具面
 
 交付：
 
