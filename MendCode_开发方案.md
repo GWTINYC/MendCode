@@ -727,6 +727,11 @@ L3 长期记忆：
   - `.gitignore` 已补齐 `data/traces/`、`.pytest_cache/`、`.ruff_cache/`、`__pycache__/`、`*.py[cod]`
   - 仓库中被误纳入版本管理的 Python 字节码文件已清理
   - README 的重复 capability 描述已去重，避免合并后文案继续漂移
+- 当前下一开发切片已收敛为基础工具第一刀：
+  - 只做 `read_file` 与 `search_code`
+  - 暂不把 `apply_patch` 混入这一轮
+  - 暂不接 orchestrator 自动调用
+  - 先冻结工具层结果契约、路径边界和测试基线，再进入下一刀
 
 补充当前收敛状态：
 
