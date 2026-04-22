@@ -480,14 +480,20 @@ def test_verification_fail(monkeypatch):
 
 def test_readme_references_demo_task_suite_paths():
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
-    expected_paths = [
-        "data/tasks/demos/success.json",
-        "data/tasks/demos/unauthorized-tool.json",
-        "data/tasks/demos/ambiguous-search.json",
-        "data/tasks/demos/verification-fail.json",
+    expected_commands = [
+        "mendcode task validate data/tasks/demos/success.json",
+        "mendcode task run data/tasks/demos/success.json",
+        "mendcode task run data/tasks/demos/unauthorized-tool.json",
+        "mendcode task run data/tasks/demos/ambiguous-search.json",
+        "mendcode task run data/tasks/demos/verification-fail.json",
+        "python -m app.cli.main task validate data/tasks/demos/success.json",
+        "python -m app.cli.main task run data/tasks/demos/success.json",
+        "python -m app.cli.main task run data/tasks/demos/unauthorized-tool.json",
+        "python -m app.cli.main task run data/tasks/demos/ambiguous-search.json",
+        "python -m app.cli.main task run data/tasks/demos/verification-fail.json",
     ]
 
-    for path in expected_paths:
-        assert path in readme
+    for command in expected_commands:
+        assert command in readme
 
     assert "data/tasks/demo.json" not in readme
