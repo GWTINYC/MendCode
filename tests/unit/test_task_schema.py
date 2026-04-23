@@ -98,6 +98,7 @@ def test_demo_task_suite_files_exist():
     assert (demo_dir / "unauthorized-tool.json").exists()
     assert (demo_dir / "ambiguous-search.json").exists()
     assert (demo_dir / "verification-fail.json").exists()
+    assert (demo_dir / "python-unit-fix.json").exists()
 
 
 def test_load_task_spec_from_success_demo_fixture():
@@ -108,6 +109,24 @@ def test_load_task_spec_from_success_demo_fixture():
     assert task.allowed_tools == ["read_file", "search_code", "apply_patch"]
     assert task.entry_artifacts["search_query"] == "JSONL trace output for task runs"
     assert task.entry_artifacts["new_text"] == "JSONL trace output for fixed-flow task runs"
+
+
+def test_load_task_spec_from_python_unit_fix_demo_fixture():
+    fixture_path = (
+        Path(__file__).resolve().parents[2]
+        / "data"
+        / "tasks"
+        / "demos"
+        / "python-unit-fix.json"
+    )
+    task = load_task_spec(fixture_path)
+
+    assert task.task_id == "demo-ci-python-unit-fix"
+    assert task.entry_artifacts["search_query"] == "return a - b"
+    assert (
+        task.entry_artifacts["target_path_glob"]
+        == "data/demo-fixtures/python-unit-fix/buggy_math.py"
+    )
 
 
 def test_old_single_demo_entry_is_removed():

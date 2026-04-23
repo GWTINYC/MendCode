@@ -208,6 +208,7 @@ def test_task_validate_accepts_each_demo_fixture(monkeypatch):
         (demo_dir / "unauthorized-tool.json", "demo-ci-unauthorized-tool"),
         (demo_dir / "ambiguous-search.json", "demo-ci-ambiguous-search"),
         (demo_dir / "verification-fail.json", "demo-ci-verification-fail"),
+        (demo_dir / "python-unit-fix.json", "demo-ci-python-unit-fix"),
     ]
 
     for fixture_path, task_id in fixture_cases:
@@ -417,6 +418,18 @@ def test_success_demo_completes(monkeypatch):
     assert trace_events[0]["payload"]["workspace_path"].startswith(
         str(repo_root / ".worktrees" / "preview-")
     )
+
+
+def test_python_unit_fix_demo_completes(monkeypatch):
+    fixture_root = configure_repo_native_demo_env(monkeypatch)
+    fixture_path = fixture_root / "python-unit-fix.json"
+
+    result = runner.invoke(app, ["task", "run", str(fixture_path)], terminal_width=200)
+
+    assert result.exit_code == 0
+    assert "demo-ci-python-unit-fix" in result.stdout
+    assert "completed" in result.stdout
+    assert "Verification passed: 1/1 commands succeeded" in result.stdout
 
 
 def test_ambiguous_search_demo(monkeypatch):
