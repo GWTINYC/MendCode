@@ -10,7 +10,7 @@
     "new_text": "return a + b"
   },
   "verification_commands": [
-    "python -m pytest data/demo-fixtures/python-unit-fix/tests/test_buggy_math.py -q"
+    "python -m pytest data/demo-fixtures/python-unit-fix/checks/buggy_math_check.py -q"
   ],
   "allowed_tools": ["read_file", "search_code", "apply_patch"],
   "metadata": {}
