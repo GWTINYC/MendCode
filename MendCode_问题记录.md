@@ -917,3 +917,37 @@ Task 2 规格审查时，单独运行 `pytest tests/unit/test_batch_eval.py` 出
 - 不要在还没稳定 eval 语义前做复杂生命周期管理
 - 但一旦开始频繁跑 batch eval，就必须有清理策略
 - 清理策略必须优先保护失败样本的可复盘性
+
+## 问题 28：删除默认 `data/tasks/demo.json` 会让最自然的用户 quickstart 命令失败
+
+- 时间：2026-04-23
+- 阶段：User-facing MVP / Quickstart 收口
+- 状态：已解决
+
+### 现象
+
+从内部开发视角看，repo-native demo suite 已经替代旧的单文件 demo；但从用户视角看，最自然会尝试的命令仍然是：
+
+- `mendcode task validate data/tasks/demo.json`
+- `mendcode task show data/tasks/demo.json`
+- `mendcode task run data/tasks/demo.json`
+
+此前 `data/tasks/demo.json` 已被移除，导致这三条命令直接返回 `Task file not found`。
+
+### 根因
+
+- 开发过程优先收口 demo suite，忽略了“默认入口”的用户心智
+- README 虽然提供了新 demo suite 路径，但缺少最短 quickstart
+- 测试曾经锁住“旧 demo 被移除”，这与用户可用 MVP 的目标冲突
+
+### 解决方案
+
+- 恢复 `data/tasks/demo.json`，作为默认 quickstart 成功任务
+- README 增加 5 条最短命令
+- 测试改为锁住默认 demo 可加载、可预览、可运行
+
+### 后续约束
+
+- demo suite 可以扩展，但必须保留一个稳定默认 demo
+- 用户文档第一屏必须有最短可复制命令
+- 删除旧入口前必须先确认它不是用户 quickstart 入口

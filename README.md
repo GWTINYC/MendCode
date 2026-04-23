@@ -21,11 +21,28 @@ pip install -e ".[dev]"
 
 ## CLI
 
+Quickstart:
+
+```bash
+mendcode version
+mendcode health
+mendcode task validate data/tasks/demo.json
+mendcode task show data/tasks/demo.json
+mendcode task run data/tasks/demo.json
+```
+
+The default task `data/tasks/demo.json` is the shortest user-facing experiment:
+it runs in an isolated worktree, patches README text, verifies the patch, and
+prints the trace/workspace paths.
+
 Installed usage:
 
 ```bash
 mendcode version
 mendcode health
+mendcode task validate data/tasks/demo.json
+mendcode task show data/tasks/demo.json
+mendcode task run data/tasks/demo.json
 mendcode task validate data/tasks/demos/success.json
 mendcode task run data/tasks/demos/success.json
 mendcode task run data/tasks/demos/unauthorized-tool.json
@@ -39,6 +56,9 @@ In this nested worktree development setup, `python -m app.cli.main ...` is the a
 ```bash
 python -m app.cli.main version
 python -m app.cli.main health
+python -m app.cli.main task validate data/tasks/demo.json
+python -m app.cli.main task show data/tasks/demo.json
+python -m app.cli.main task run data/tasks/demo.json
 python -m app.cli.main task validate data/tasks/demos/success.json
 python -m app.cli.main task run data/tasks/demos/success.json
 python -m app.cli.main task run data/tasks/demos/unauthorized-tool.json

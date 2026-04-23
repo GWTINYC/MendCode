@@ -513,12 +513,22 @@ def test_verification_fail(monkeypatch):
 def test_readme_references_demo_task_suite_paths():
     readme = (repo_root / "README.md").read_text(encoding="utf-8")
     expected_commands = [
+        "mendcode version",
+        "mendcode health",
+        "mendcode task validate data/tasks/demo.json",
+        "mendcode task show data/tasks/demo.json",
+        "mendcode task run data/tasks/demo.json",
         "mendcode task validate data/tasks/demos/success.json",
         "mendcode task run data/tasks/demos/success.json",
         "mendcode task run data/tasks/demos/unauthorized-tool.json",
         "mendcode task run data/tasks/demos/ambiguous-search.json",
         "mendcode task run data/tasks/demos/verification-fail.json",
         "mendcode task run data/tasks/demos/python-unit-fix.json",
+        "python -m app.cli.main version",
+        "python -m app.cli.main health",
+        "python -m app.cli.main task validate data/tasks/demo.json",
+        "python -m app.cli.main task show data/tasks/demo.json",
+        "python -m app.cli.main task run data/tasks/demo.json",
         "python -m app.cli.main task validate data/tasks/demos/success.json",
         "python -m app.cli.main task run data/tasks/demos/success.json",
         "python -m app.cli.main task run data/tasks/demos/unauthorized-tool.json",
@@ -530,7 +540,25 @@ def test_readme_references_demo_task_suite_paths():
     for command in expected_commands:
         assert command in readme
 
-    assert "data/tasks/demo.json" not in readme
+
+def test_default_demo_quickstart_commands_run(monkeypatch):
+    configure_repo_native_demo_env(monkeypatch)
+    demo_path = repo_root / "data" / "tasks" / "demo.json"
+
+    validate_result = runner.invoke(app, ["task", "validate", str(demo_path)])
+    show_result = runner.invoke(app, ["task", "show", str(demo_path)], terminal_width=200)
+    run_result = runner.invoke(app, ["task", "run", str(demo_path)], terminal_width=200)
+
+    assert validate_result.exit_code == 0
+    assert "demo-ci-default" in validate_result.stdout
+    assert show_result.exit_code == 0
+    assert "Task Preview" in show_result.stdout
+    assert "demo-ci-default" in show_result.stdout
+    assert run_result.exit_code == 0
+    assert "Task Run" in run_result.stdout
+    assert "demo-ci-default" in run_result.stdout
+    assert "completed" in run_result.stdout
+    assert "Verification passed: 1/1 commands succeeded" in run_result.stdout
 
 
 def test_readme_references_mvp_eval_commands():

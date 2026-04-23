@@ -111,6 +111,16 @@ def test_load_task_spec_from_success_demo_fixture():
     assert task.entry_artifacts["new_text"] == "JSONL trace output for fixed-flow task runs"
 
 
+def test_load_task_spec_from_default_demo_fixture():
+    fixture_path = Path(__file__).resolve().parents[2] / "data" / "tasks" / "demo.json"
+    task = load_task_spec(fixture_path)
+
+    assert task.task_id == "demo-ci-default"
+    assert task.allowed_tools == ["read_file", "search_code", "apply_patch"]
+    assert task.entry_artifacts["target_path_glob"] == "README.md"
+    assert task.entry_artifacts["new_text"] == "JSONL trace output for fixed-flow task runs"
+
+
 def test_load_task_spec_from_python_unit_fix_demo_fixture():
     fixture_path = (
         Path(__file__).resolve().parents[2]
@@ -127,7 +137,3 @@ def test_load_task_spec_from_python_unit_fix_demo_fixture():
         task.entry_artifacts["target_path_glob"]
         == "data/demo-fixtures/python-unit-fix/buggy_math.py"
     )
-
-
-def test_old_single_demo_entry_is_removed():
-    assert not (Path(__file__).resolve().parents[2] / "data" / "tasks" / "demo.json").exists()
