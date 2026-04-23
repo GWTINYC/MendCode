@@ -231,7 +231,7 @@ def test_run_task_preview_fails_when_fixed_flow_inputs_are_missing(tmp_path):
     result = run_task_preview(task, build_settings(tmp_path))
 
     assert result.status == "failed"
-    assert result.current_step == "summarize"
+    assert result.current_step == "bootstrap"
     assert (
         result.summary
         == "Fixed-flow input invalid: either read_target_path or search_query is required"
@@ -268,6 +268,7 @@ def test_run_task_preview_accepts_direct_target_path_without_search_query(tmp_pa
             "new_text": "fixed",
         },
         verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+        allowed_tools=["read_file", "apply_patch"],
     )
 
     result = run_task_preview(task, build_settings(tmp_path))
@@ -356,6 +357,7 @@ def test_run_task_preview_records_tool_events_for_fixed_flow(tmp_path, monkeypat
             "new_text": "fixed",
         },
         verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+        allowed_tools=["read_file", "search_code", "apply_patch"],
     )
 
     result = run_task_preview(task, build_settings(tmp_path))
@@ -405,6 +407,7 @@ def test_run_task_preview_runs_fixed_flow_before_verification(tmp_path):
             "new_text": "fixed",
         },
         verification_commands=[command],
+        allowed_tools=["read_file", "apply_patch"],
     )
 
     result = run_task_preview(task, build_settings(tmp_path))
@@ -447,12 +450,13 @@ def test_run_task_preview_fails_when_inspected_slice_excludes_old_text(tmp_path)
             "new_text": "fixed",
         },
         verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+        allowed_tools=["read_file", "apply_patch"],
     )
 
     result = run_task_preview(task, build_settings(tmp_path))
 
     assert result.status == "failed"
-    assert result.current_step == "summarize"
+    assert result.current_step == "inspect"
     assert (
         result.summary
         == "Fixed-flow failed: inspected slice does not contain old_text"
@@ -524,16 +528,80 @@ def test_run_task_preview_fails_when_search_returns_multiple_files(tmp_path, mon
             "new_text": "fixed",
         },
         verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+        allowed_tools=["read_file", "search_code", "apply_patch"],
     )
 
     result = run_task_preview(task, build_settings(tmp_path))
 
     assert result.status == "failed"
-    assert result.current_step == "summarize"
+    assert result.current_step == "locate"
     assert result.summary == "Fixed-flow failed: search_code returned 2 candidate files"
     assert result.selected_files == []
     assert result.applied_patch is False
     assert [tool_result["tool_name"] for tool_result in result.tool_results] == ["search_code"]
+
+
+def test_run_task_preview_rejects_unauthorized_fixed_flow_tool(tmp_path):
+    repo_path = init_git_repo(tmp_path)
+    target = repo_path / "target.txt"
+    target.write_text("wrong\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "target.txt"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add target"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    task = TaskSpec(
+        task_id="demo-ci-unauthorized",
+        task_type="ci_fix",
+        title="Unauthorized fixed-flow search",
+        repo_path=str(repo_path),
+        entry_artifacts={
+            "search_query": "wrong",
+            "target_path_glob": "*.txt",
+            "old_text": "wrong",
+            "new_text": "fixed",
+        },
+        verification_commands=[f"{PYTHON} -c \"print('ok')\""],
+        allowed_tools=["read_file", "apply_patch"],
+    )
+
+    result = run_task_preview(task, build_settings(tmp_path))
+    events = [
+        json.loads(line)
+        for line in Path(result.trace_path).read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert result.status == "failed"
+    assert result.current_step == "locate"
+    assert result.summary == "Fixed-flow failed: Unable to run search_code"
+    assert result.tool_results == [
+        {
+            "tool_name": "search_code",
+            "status": "rejected",
+            "summary": "Unable to run search_code",
+            "error_message": "tool is not allowed by task.allowed_tools",
+            "payload": {
+                "query": "wrong",
+                "glob": "*.txt",
+                "total_matches": 0,
+            },
+        }
+    ]
+    assert events[1]["event_type"] == "run.tool.started"
+    assert events[2]["event_type"] == "run.tool.completed"
+    assert events[2]["payload"]["tool_name"] == "search_code"
+    assert events[2]["payload"]["status"] == "rejected"
+    assert events[2]["payload"]["error_message"] == "tool is not allowed by task.allowed_tools"
 
 
 def test_run_task_preview_marks_run_failed_when_a_command_fails(tmp_path):
@@ -553,6 +621,7 @@ def test_run_task_preview_marks_run_failed_when_a_command_fails(tmp_path):
     result = run_task_preview(task, build_settings(tmp_path))
 
     assert result.status == "failed"
+    assert result.current_step == "verify"
     assert result.verification is not None
     assert result.verification.status == "failed"
     assert result.verification.passed_count == 1
@@ -574,6 +643,7 @@ def test_run_task_preview_fails_when_no_verification_commands_are_defined(tmp_pa
     result = run_task_preview(task, build_settings(tmp_path))
 
     assert result.status == "failed"
+    assert result.current_step == "verify"
     assert result.verification is not None
     assert result.verification.failed_count == 1
     assert result.summary == "Verification failed: no verification commands provided"
@@ -618,6 +688,7 @@ def test_run_task_preview_records_exact_oserror_text_without_trimming(tmp_path, 
     events = [json.loads(line) for line in trace_lines]
 
     assert result.status == "failed"
+    assert result.current_step == "verify"
     assert result.verification is not None
     assert result.verification.failed_count == 1
     assert result.verification.command_results[0].stderr_excerpt == exact_error
@@ -702,6 +773,7 @@ def test_run_task_preview_reports_workspace_setup_failure_detail(tmp_path, monke
     result = run_task_preview(task, build_settings(tmp_path))
 
     assert result.status == "failed"
+    assert result.current_step == "bootstrap"
     assert result.workspace_path is None
     assert result.verification is None
     assert "Workspace setup failed:" in result.summary

@@ -67,6 +67,7 @@ def _build_run_state(
     *,
     run_id: str,
     task: TaskSpec,
+    current_step: str,
     trace_path: Path,
     workspace_path: Path | None,
     status: str,
@@ -81,7 +82,7 @@ def _build_run_state(
         task_id=task.task_id,
         task_type=task.task_type,
         status=status,
-        current_step="summarize",
+        current_step=current_step,
         summary=summary,
         trace_path=str(trace_path),
         workspace_path=str(workspace_path) if workspace_path is not None else None,
@@ -113,6 +114,7 @@ def _finalize_run_state(
     recorder: TraceRecorder,
     run_id: str,
     task: TaskSpec,
+    current_step: str,
     trace_path: Path,
     repo_path: Path,
     workspace_path: Path | None,
@@ -168,6 +170,7 @@ def _finalize_run_state(
     return _build_run_state(
         run_id=run_id,
         task=task,
+        current_step=current_step,
         trace_path=trace_path,
         workspace_path=workspace_path,
         status=status,
@@ -179,6 +182,47 @@ def _finalize_run_state(
     )
 
 
+def _reject_tool_use(
+    *,
+    tool_name: str,
+    workspace_path: Path,
+    payload: dict[str, object],
+) -> ToolResult:
+    return ToolResult(
+        tool_name=tool_name,
+        status="rejected",
+        summary=f"Unable to run {tool_name}",
+        payload=payload,
+        error_message="tool is not allowed by task.allowed_tools",
+        workspace_path=str(workspace_path),
+    )
+
+
+def _run_fixed_flow_tool(
+    *,
+    recorder: TraceRecorder,
+    run_id: str,
+    workspace_path: Path,
+    allowed_tools: list[str],
+    tool_results: list[dict[str, object]],
+    tool_name: str,
+    rejection_payload: dict[str, object],
+    tool_call,
+) -> tuple[ToolResult, Path]:
+    trace_path = _record_tool_started(recorder, run_id, tool_name, workspace_path)
+    if tool_name not in allowed_tools:
+        result = _reject_tool_use(
+            tool_name=tool_name,
+            workspace_path=workspace_path,
+            payload=rejection_payload,
+        )
+    else:
+        result = tool_call()
+    tool_results.append(summarize_tool_result(result))
+    trace_path = _record_tool_completed(recorder, run_id, result)
+    return result, trace_path
+
+
 def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
     recorder = TraceRecorder(settings.traces_dir)
     run_id = f"preview-{uuid4().hex[:12]}"
@@ -187,6 +231,7 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
     selected_files: list[str] = []
     applied_patch = False
     tool_results: list[dict[str, object]] = []
+    current_step = "bootstrap"
 
     try:
         workspace_path = prepare_worktree(
@@ -244,6 +289,7 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
         return _build_run_state(
             run_id=run_id,
             task=task,
+            current_step=current_step,
             trace_path=trace_path,
             workspace_path=None,
             status="failed",
@@ -277,6 +323,7 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
                 recorder=recorder,
                 run_id=run_id,
                 task=task,
+                current_step=current_step,
                 trace_path=trace_path,
                 repo_path=repo_path,
                 workspace_path=workspace_path,
@@ -289,23 +336,36 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
                 cleanup_success_workspace=settings.cleanup_success_workspace,
             )
 
+        current_step = "locate"
         if artifacts.read_target_path is not None:
             selected_files = [artifacts.read_target_path]
         else:
-            trace_path = _record_tool_started(recorder, run_id, "search_code", workspace_path)
-            search_result = search_code(
+            search_result, trace_path = _run_fixed_flow_tool(
+                recorder=recorder,
+                run_id=run_id,
                 workspace_path=workspace_path,
-                query=artifacts.search_query or "",
-                glob=artifacts.target_path_glob,
-                max_results=2,
+                allowed_tools=task.allowed_tools,
+                tool_results=tool_results,
+                tool_name="search_code",
+                rejection_payload={
+                    "query": artifacts.search_query or "",
+                    "glob": artifacts.target_path_glob,
+                    "total_matches": 0,
+                    "matches": [],
+                },
+                tool_call=lambda: search_code(
+                    workspace_path=workspace_path,
+                    query=artifacts.search_query or "",
+                    glob=artifacts.target_path_glob,
+                    max_results=2,
+                ),
             )
-            tool_results.append(summarize_tool_result(search_result))
-            trace_path = _record_tool_completed(recorder, run_id, search_result)
             if search_result.status != "passed":
                 return _finalize_run_state(
                     recorder=recorder,
                     run_id=run_id,
                     task=task,
+                    current_step=current_step,
                     trace_path=trace_path,
                     repo_path=repo_path,
                     workspace_path=workspace_path,
@@ -324,6 +384,7 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
                     recorder=recorder,
                     run_id=run_id,
                     task=task,
+                    current_step=current_step,
                     trace_path=trace_path,
                     repo_path=repo_path,
                     workspace_path=workspace_path,
@@ -340,20 +401,28 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
                 )
             selected_files = [str(matches[0]["relative_path"])]
 
-        trace_path = _record_tool_started(recorder, run_id, "read_file", workspace_path)
-        read_result = read_file(
+        current_step = "inspect"
+        read_result, trace_path = _run_fixed_flow_tool(
+            recorder=recorder,
+            run_id=run_id,
             workspace_path=workspace_path,
-            relative_path=selected_files[0],
-            start_line=artifacts.read_start_line,
-            end_line=artifacts.read_end_line,
+            allowed_tools=task.allowed_tools,
+            tool_results=tool_results,
+            tool_name="read_file",
+            rejection_payload={"relative_path": selected_files[0]},
+            tool_call=lambda: read_file(
+                workspace_path=workspace_path,
+                relative_path=selected_files[0],
+                start_line=artifacts.read_start_line,
+                end_line=artifacts.read_end_line,
+            ),
         )
-        tool_results.append(summarize_tool_result(read_result))
-        trace_path = _record_tool_completed(recorder, run_id, read_result)
         if read_result.status != "passed":
             return _finalize_run_state(
                 recorder=recorder,
                 run_id=run_id,
                 task=task,
+                current_step=current_step,
                 trace_path=trace_path,
                 repo_path=repo_path,
                 workspace_path=workspace_path,
@@ -373,6 +442,7 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
                 recorder=recorder,
                 run_id=run_id,
                 task=task,
+                current_step=current_step,
                 trace_path=trace_path,
                 repo_path=repo_path,
                 workspace_path=workspace_path,
@@ -385,20 +455,28 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
                 cleanup_success_workspace=settings.cleanup_success_workspace,
             )
 
-        trace_path = _record_tool_started(recorder, run_id, "apply_patch", workspace_path)
-        patch_result = apply_patch(
+        current_step = "patch"
+        patch_result, trace_path = _run_fixed_flow_tool(
+            recorder=recorder,
+            run_id=run_id,
             workspace_path=workspace_path,
-            relative_path=selected_files[0],
-            old_text=artifacts.old_text,
-            new_text=artifacts.new_text,
+            allowed_tools=task.allowed_tools,
+            tool_results=tool_results,
+            tool_name="apply_patch",
+            rejection_payload={"relative_path": selected_files[0]},
+            tool_call=lambda: apply_patch(
+                workspace_path=workspace_path,
+                relative_path=selected_files[0],
+                old_text=artifacts.old_text,
+                new_text=artifacts.new_text,
+            ),
         )
-        tool_results.append(summarize_tool_result(patch_result))
-        trace_path = _record_tool_completed(recorder, run_id, patch_result)
         if patch_result.status != "passed":
             return _finalize_run_state(
                 recorder=recorder,
                 run_id=run_id,
                 task=task,
+                current_step=current_step,
                 trace_path=trace_path,
                 repo_path=repo_path,
                 workspace_path=workspace_path,
@@ -412,6 +490,7 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
             )
         applied_patch = True
 
+    current_step = "verify"
     trace_path = recorder.record(
         TraceEvent(
             run_id=run_id,
@@ -500,11 +579,14 @@ def run_task_preview(task: TaskSpec, settings: Settings) -> RunState:
             "Verification failed: "
             f"{verification.failed_count} of {len(command_results)} commands failed"
         )
+    if run_status == "completed":
+        current_step = "summarize"
 
     return _finalize_run_state(
         recorder=recorder,
         run_id=run_id,
         task=task,
+        current_step=current_step,
         trace_path=trace_path,
         repo_path=repo_path,
         workspace_path=workspace_path,
