@@ -848,3 +848,72 @@ Task 2 规格审查时，单独运行 `pytest tests/unit/test_batch_eval.py` 出
 - 以后 demo fixture 中如果需要故意失败的测试，不要放在会被项目级 pytest 自动发现的位置
 - demo verification 可以显式指定文件路径，但文件命名应避免 `test_*.py` 自动收集模式
 - 批量 demo 要证明目标修复失败，不应让仓库自身测试因此变红
+
+## 问题 26：batch eval 只统计 runner 状态，会把“预期失败 demo”误读成评测失败
+
+- 时间：2026-04-23
+- 阶段：Phase 2C / MVP eval 基线复盘
+- 状态：待跟进
+
+### 现象
+
+当前 5 条 demo 中，`unauthorized-tool.json`、`ambiguous-search.json`、`verification-fail.json` 本来就是用来证明失败路径表达是否正确的任务。运行 batch eval 后，summary 会显示类似：
+
+- `task_count = 5`
+- `completed_count = 2`
+- `failed_count = 3`
+
+从 runner 机械状态看这是正确的，但从 eval 语义看，3 条 failed demo 可能恰恰是“按预期失败”。如果后续只看 `failed_count`，就会误以为 baseline 有 3 个回归。
+
+### 根因
+
+- 当前 `BatchEvalSummary` 只复用 `RunState.status`
+- demo task 还没有声明 expected outcome
+- eval 层没有区分“任务运行失败”和“评测不符合预期”
+
+### 解决方案
+
+下一阶段应补最小 expected-outcome 语义，不做复杂平台：
+
+- 在 demo metadata 或独立 eval manifest 中声明：
+  - expected status
+  - expected current_step
+  - expected tool status / verification count
+- batch eval 继续保留 raw runner status
+- 同时新增 `matched_expectation` 或类似字段，表达“该 demo 是否符合预期”
+
+### 后续约束
+
+- eval 报表不能只展示 completed / failed，否则会误导策略判断
+- 失败路径 demo 必须被当作一等公民，不要为了让 completed_count 好看而删除
+- 下一步优先补 eval 语义，不要急着扩更多 demo
+
+## 问题 27：反复运行 demo / batch eval 会保留大量 preview worktree，长期可能造成磁盘和排查噪声
+
+- 时间：2026-04-23
+- 阶段：Phase 2C / MVP eval 基线复盘
+- 状态：待跟进
+
+### 现象
+
+当前 `task run` 会为每次运行创建 `.worktrees/preview-<id>/`。这对调试和 trace 回放有价值，但在 batch eval 和反复验证中会快速产生大量 preview worktree。它们被 Git 忽略，不会污染 `git status`，但会增加磁盘占用和人工排查噪声。
+
+### 根因
+
+- 当前默认策略更偏向可复盘：成功工作区也会保留
+- batch eval 会一次触发多条 task run
+- 还没有专门的 eval cleanup 策略或保留上限
+
+### 解决方案
+
+短期不急着实现自动清理，避免影响调试；但下一阶段需要设计最小策略：
+
+- 保持单任务调试默认可保留 worktree
+- batch eval 可提供显式 cleanup 开关或只保留失败/不符合预期的工作区
+- README 或问题记录中明确 `.worktrees/preview-*` 属于运行产物
+
+### 后续约束
+
+- 不要在还没稳定 eval 语义前做复杂生命周期管理
+- 但一旦开始频繁跑 batch eval，就必须有清理策略
+- 清理策略必须优先保护失败样本的可复盘性
