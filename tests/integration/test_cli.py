@@ -518,14 +518,25 @@ def test_readme_references_demo_task_suite_paths():
         "mendcode task run data/tasks/demos/unauthorized-tool.json",
         "mendcode task run data/tasks/demos/ambiguous-search.json",
         "mendcode task run data/tasks/demos/verification-fail.json",
+        "mendcode task run data/tasks/demos/python-unit-fix.json",
         "python -m app.cli.main task validate data/tasks/demos/success.json",
         "python -m app.cli.main task run data/tasks/demos/success.json",
         "python -m app.cli.main task run data/tasks/demos/unauthorized-tool.json",
         "python -m app.cli.main task run data/tasks/demos/ambiguous-search.json",
         "python -m app.cli.main task run data/tasks/demos/verification-fail.json",
+        "python -m app.cli.main task run data/tasks/demos/python-unit-fix.json",
     ]
 
     for command in expected_commands:
         assert command in readme
 
     assert "data/tasks/demo.json" not in readme
+
+
+def test_readme_references_mvp_eval_commands():
+    readme = (repo_root / "README.md").read_text(encoding="utf-8")
+
+    assert "python -m app.cli.main eval run" in readme
+    assert "summary.json" in readme
+    assert "summary.md" in readme
+    assert "python-unit-fix.json" in readme
