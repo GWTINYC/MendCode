@@ -1,0 +1,12 @@
+{
+  "task_id": "demo-ci-verification-fail",
+  "task_type": "ci_fix",
+  "title": "Verification-stage failure demo",
+  "repo_path": ".",
+  "entry_artifacts": {},
+  "verification_commands": [
+    "python -c \"import sys; sys.exit(3)\""
+  ],
+  "allowed_tools": [],
+  "metadata": {}
+}

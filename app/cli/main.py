@@ -9,6 +9,7 @@ from rich.table import Table
 
 from app.config.settings import get_settings
 from app.core.paths import ensure_data_directories
+from app.eval.batch import run_batch_eval
 from app.orchestrator.failure_parser import extract_failure_insight
 from app.orchestrator.runner import run_task_preview
 from app.schemas.task import TaskSpec, load_task_spec
@@ -16,7 +17,9 @@ from app.schemas.trace import TraceEvent
 from app.tracing.recorder import TraceRecorder
 
 app = typer.Typer(help="MendCode CLI")
+eval_app = typer.Typer(help="Batch evaluation commands")
 task_app = typer.Typer(help="Task file utilities")
+app.add_typer(eval_app, name="eval")
 app.add_typer(task_app, name="task")
 console = Console()
 
@@ -196,6 +199,28 @@ def run_task(file_path: Path) -> None:
                 f"{first_non_passed.command} "
                 f"(exit {first_non_passed.exit_code})"
             )
+
+
+@eval_app.command("run")
+def run_batch_eval_command(task_files: list[Path] = typer.Argument([])) -> None:
+    if not task_files:
+        typer.echo("At least one task file path is required.")
+        raise typer.Exit(code=1)
+
+    settings = get_settings()
+    ensure_data_directories(settings)
+    summary = run_batch_eval(task_files, settings)
+
+    table = Table(title="Batch Eval")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("run_id", summary.run_id)
+    table.add_row("task_count", str(summary.task_count))
+    table.add_row("completed_count", str(summary.completed_count))
+    table.add_row("failed_count", str(summary.failed_count))
+    table.add_row("summary_json_path", summary.summary_json_path)
+    table.add_row("summary_md_path", summary.summary_md_path)
+    console.print(table)
 
 
 if __name__ == "__main__":

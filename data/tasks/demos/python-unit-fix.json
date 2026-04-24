@@ -1,0 +1,17 @@
+{
+  "task_id": "demo-ci-python-unit-fix",
+  "task_type": "ci_fix",
+  "title": "Python unit test repair demo",
+  "repo_path": ".",
+  "entry_artifacts": {
+    "search_query": "return a - b",
+    "target_path_glob": "data/demo-fixtures/python-unit-fix/buggy_math.py",
+    "old_text": "return a - b",
+    "new_text": "return a + b"
+  },
+  "verification_commands": [
+    "python -m pytest data/demo-fixtures/python-unit-fix/checks/buggy_math_check.py -q"
+  ],
+  "allowed_tools": ["read_file", "search_code", "apply_patch"],
+  "metadata": {}
+}

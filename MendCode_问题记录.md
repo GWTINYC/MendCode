@@ -947,3 +947,107 @@ mendcode
 - 根目录只保留必要的长期文档
 - 新增文档前先判断是否可以并入现有产品方案、开发方案、路线图或问题记录
 - 避免多个文档描述同一条路线，导致后续更新遗漏
+
+---
+
+## 问题 25：如果不先定义统一 Action 协议，后续 Provider 和工具执行会耦合到厂商格式
+
+- 时间：2026-04-24
+- 阶段：TUI Agent / Phase A Action 协议
+- 状态：已解决
+
+### 现象
+
+最新产品方案要求同时支持 OpenAI、Anthropic 和 OpenAI-compatible。不同 provider 的 tool calling / tool use / JSON 输出格式并不一致。如果业务层直接消费厂商格式，后续 Agent loop、Permission Gate 和 Tool Executor 都会被 provider 细节污染。
+
+### 根因
+
+- OpenAI 与 Anthropic 的工具调用协议不同
+- OpenAI-compatible 国产模型不一定稳定支持原生 tool calling，可能只能用 JSON 文本协议
+- 如果没有内部统一协议，就无法稳定实现权限判断、trace、降级和工具执行
+
+### 解决方案
+
+- 新增 `MendCodeAction` 统一动作协议
+- 新增 `Observation` 统一观察结果协议
+- 使用 discriminator 区分 `assistant_message`、`tool_call`、`patch_proposal`、`user_confirmation_request`、`final_response`
+- 对工具名使用白名单类型，未知工具在 schema 层拒绝
+- 提供 `build_invalid_action_observation` 将非法 action 转为 rejected observation
+- 验证 action 和 observation 都能序列化进入 trace payload
+
+### 后续约束
+
+- Provider adapter 只能输出 MendCode Action，不应把厂商 tool calling 格式泄漏到业务层
+- Permission Gate 只判断 MendCode Action
+- Tool Executor 只消费已校验的 action
+- 任何新增 action 类型都必须先补 schema 和测试
+
+---
+
+## 问题 26：权限模式如果只停留在产品文档，动态工具调用会缺少可执行安全边界
+
+- 时间：2026-04-24
+- 阶段：TUI Agent / Phase B Permission Gate
+- 状态：已解决
+
+### 现象
+
+TUI 产品方案已经定义 Safe / Guided / Full / Custom，但如果代码中没有对应的 Permission Gate，后续 LLM Action loop 会直接执行模型请求的工具。这样模型一旦请求中高风险动作，系统无法稳定决定允许、拒绝还是请求用户确认。
+
+### 根因
+
+- 产品权限模式需要工程化成明确决策函数
+- 工具调用必须先经过风险分级，再进入 Tool Executor
+- 用户确认也应统一表达为 action，而不是散落在 TUI 层
+
+### 解决方案
+
+- 新增 `app/agent/permission.py`
+- 定义 `PermissionMode` 与 `PermissionDecision`
+- 建立首批工具风险等级
+- 实现 `decide_permission`
+- 实现 `build_confirmation_request`
+- 用单测锁住 Safe / Guided / Full / Custom 的默认行为
+
+### 后续约束
+
+- Agent loop 执行工具前必须先调用 Permission Gate
+- 新增工具时必须同步定义风险等级和权限测试
+- TUI 只负责展示确认请求，不应自行判断权限
+- 主工作区 apply、commit、push 等高风险动作必须单独建模，不能混入 worktree patch
+
+---
+
+## 问题 27：历史 worktree 分支落后于最新 TUI 主线，直接合并会覆盖当前产品方向
+
+- 时间：2026-04-24
+- 阶段：历史分支回收与主线校准
+- 状态：部分解决
+
+### 现象
+
+检查 worktree 时发现 `phase-2c-tool-policy-state` 分支仍有多笔提交未并入 `main`，包括 fixed-flow 工具权限、batch eval、demo suite 等内容。但该分支基于较旧路线，直接比较显示它还会删除或覆盖当前最新 TUI 方向文档、pytest failure parser 和 Agent MVP 相关改动。
+
+### 根因
+
+- 分支开发期间产品路线已经从 CLI/fixed-flow 转向 TUI Code Agent
+- 历史分支中既有仍然有价值的底座能力，也有已经降级的旧路线文档
+- 当前环境的 `.git` 元数据不可写，无法在会话内执行真正的 `git merge` / `commit`
+
+### 解决方案
+
+- 不做盲目 `git merge`
+- 按文件级别选择性迁入仍有价值的实现：
+  - `data/evals/` 配置与 batch eval runner
+  - eval schema 和单测
+  - fixed-flow runner 的 `allowed_tools` 检查
+  - 更精确的 runner `current_step`
+  - demo task suite 和 Python unit-fix fixture
+- 保留最新 TUI 产品方案、开发方案和路线图作为主线
+- 将 eval/demo 明确降级为辅助回归能力，不重新提升为产品主线
+
+### 后续约束
+
+- 历史 worktree 合并前必须先判断它是否落后于最新产品路线
+- 对“代码有价值但文档路线过期”的分支，优先选择性迁移代码，不直接合并整棵分支
+- 如果 `.git` 元数据不可写，只能完成工作区级迁移和验证，最终 commit / branch cleanup 需要在本地可写 Git 环境中执行

@@ -1,0 +1,17 @@
+{
+  "task_id": "demo-ci-success",
+  "task_type": "ci_fix",
+  "title": "Successful fixed-flow README repair",
+  "repo_path": ".",
+  "entry_artifacts": {
+    "search_query": "JSONL trace output for task runs",
+    "target_path_glob": "README.md",
+    "old_text": "JSONL trace output for task runs",
+    "new_text": "JSONL trace output for fixed-flow task runs"
+  },
+  "verification_commands": [
+    "python -c \"from pathlib import Path; import sys; sys.exit(0 if 'JSONL trace output for fixed-flow task runs' in Path('README.md').read_text(encoding='utf-8') else 1)\""
+  ],
+  "allowed_tools": ["read_file", "search_code", "apply_patch"],
+  "metadata": {}
+}

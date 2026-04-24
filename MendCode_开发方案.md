@@ -38,6 +38,9 @@ mendcode
 - `search_code`
 - `apply_patch`
 - fixed-flow demo 兼容能力
+- fixed-flow 工具权限检查
+- batch eval 辅助回归能力
+- demo task suite 与 Python unit-fix fixture
 - `mendcode fix "<problem>" --test "<command>"` 过渡入口
 - pytest 失败日志解析
 
@@ -85,6 +88,11 @@ mendcode
 - 先做复杂 UI 而不做 Agent loop
 - 先做多 Agent、平台化 eval 或企业权限
 
+说明：
+
+- `task run`、fixed-flow demo、batch eval 只作为兼容入口和回归验证工具保留。
+- 这些能力可以帮助验证底座稳定性，但不改变 `mendcode` TUI Agent 的主线优先级。
+
 ---
 
 ## 6. 阶段一：Action 协议与 Observation
@@ -111,6 +119,20 @@ mendcode
 - 非法 action 能返回结构化错误
 - action 和 observation 都能写入 trace
 
+当前进展：
+
+- 已新增 `app/schemas/agent_action.py`
+- 已定义 `MendCodeAction` 统一动作协议
+- 已支持 `assistant_message` / `tool_call` / `patch_proposal` / `user_confirmation_request` / `final_response`
+- 已定义 `Observation`
+- 已提供 `parse_mendcode_action`
+- 已提供 `build_invalid_action_observation`
+- 已通过单测覆盖合法 action、未知工具拒绝、非法 action observation 和 trace payload 序列化
+
+下一步应进入阶段二：
+
+`PermissionMode -> tool risk level -> permission decision -> confirmation request`
+
 ---
 
 ## 7. 阶段二：Permission Gate
@@ -133,6 +155,31 @@ mendcode
 - Guided Mode 允许 worktree patch
 - Guided Mode 对主工作区 apply 返回确认请求
 - 未授权工具不执行，并形成 observation
+
+当前进展：
+
+- 已新增 `app/agent/permission.py`
+- 已定义 `PermissionMode`: Safe / Guided / Full / Custom
+- 已定义 `PermissionDecision`
+- 已建立首批工具风险等级
+- Guided Mode 已允许只读工具、`run_command` 和 worktree patch
+- Safe Mode 会对中风险工具返回确认请求
+- Full Mode 允许已知工具
+- Custom Mode 默认要求显式配置
+- 已支持把需要确认的 tool call 转成 `user_confirmation_request`
+- 已把 fixed-flow runner 中的 `search_code` / `read_file` / `apply_patch` 纳入 `allowed_tools` 检查
+- runner 已能用 `bootstrap` / `locate` / `inspect` / `patch` / `verify` / `summarize` 记录更精确阶段
+
+当前尚未完成：
+
+- 主工作区 apply 的独立 action 和高风险判定
+- Permission Gate 与 Agent loop runner 的串联
+- 用户确认结果回写 observation
+- 自定义权限配置文件
+
+下一步应进入阶段三或先补阶段四前置：
+
+`Agent loop runner -> permission decision -> tool execution/confirmation observation`
 
 ---
 

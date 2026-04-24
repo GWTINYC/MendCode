@@ -48,6 +48,9 @@ mendcode
 - verification command 执行
 - JSONL trace
 - fixed-flow demo 兼容能力
+- fixed-flow 工具权限检查
+- batch eval 辅助回归能力
+- demo task suite 与 Python unit-fix fixture
 - `mendcode fix "<problem>" --test "<command>"` 过渡入口
 - pytest 风格失败日志解析
 
@@ -73,6 +76,12 @@ mendcode
 - 先做多 Agent 编排
 
 它们可以作为兼容能力、测试 fixture 或后续增强，但不应抢占 TUI Agent 主线。
+
+当前处理原则：
+
+- 已从历史分支迁回 demo suite 与 batch eval 的有用实现。
+- 它们的定位是“底座回归验证”和“演示辅助”，不是下一阶段主线。
+- 后续如果 eval 与 TUI Agent loop 抢资源，优先推进 TUI Agent loop。
 
 ---
 
@@ -111,6 +120,17 @@ mendcode
 - 能在无 TUI 的测试中模拟一轮 `tool_call -> observation -> next action`
 - 非法 action 不会让系统崩溃
 
+当前状态：
+
+- `MendCodeAction` schema 已落地
+- `Observation` schema 已落地
+- 合法 tool call 可解析
+- 未知工具会被 schema 拒绝
+- 非法 action 可转换为 rejected observation
+- action / observation 可写入 trace payload
+
+Phase A 的 schema 基础已具备。后续仍需在 Agent loop runner 中真正消费这些 schema。
+
 ### Phase B：Permission Gate
 
 目标：
@@ -130,6 +150,19 @@ mendcode
 - `read_file` / `search_code` 可自动通过
 - `apply to workspace` 必须确认
 - 未授权工具能形成清晰 observation
+
+当前状态：
+
+- Permission Gate 最小实现已落地
+- Safe / Guided / Full / Custom 模式已定义
+- 首批工具风险等级已定义
+- Guided Mode 已允许只读工具、验证命令和 worktree patch
+- Safe Mode 对中风险工具返回确认请求
+- 确认请求已统一为 `user_confirmation_request` action
+- fixed-flow runner 已接入 `allowed_tools` 检查，未授权工具会返回 rejected tool result 并进入 trace
+- runner 的阶段状态已从统一 `summarize` 收敛为更精确的 `bootstrap/locate/inspect/patch/verify/summarize`
+
+后续需要把 Permission Gate 接入 Agent loop，而不是停留在独立函数。
 
 ### Phase C：LLM Provider 抽象
 
