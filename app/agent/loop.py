@@ -29,6 +29,7 @@ from app.tools.schemas import ToolResult
 from app.tracing.recorder import TraceRecorder
 from app.workspace.command_policy import CommandPolicy
 from app.workspace.executor import execute_verification_command
+from app.workspace.project_detection import detect_project
 from app.workspace.worktree import prepare_worktree
 
 AgentLoopStatus = str
@@ -140,20 +141,11 @@ def _repo_status(repo_path: Path) -> Observation:
 
 
 def _detect_project(repo_path: Path) -> Observation:
-    markers = {
-        "python": ["pyproject.toml", "requirements.txt", "setup.py"],
-        "node": ["package.json"],
-    }
-    languages = [
-        language
-        for language, filenames in markers.items()
-        if any((repo_path / filename).exists() for filename in filenames)
-    ]
-    suggested_test = "python -m pytest -q" if "python" in languages else None
+    result = detect_project(repo_path)
     return Observation(
         status="succeeded",
         summary="Detected project",
-        payload={"languages": languages, "suggested_test": suggested_test},
+        payload=result.model_dump(mode="json"),
     )
 
 

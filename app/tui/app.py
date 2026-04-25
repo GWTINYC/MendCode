@@ -13,7 +13,9 @@ from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import Settings
 from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_responder
 from app.tui.commands import ChatCommand, CommandParseError, parse_chat_input
+from app.tui.intent import IntentContext, IntentRouter, build_intent_router
 from app.tui.state import TuiSessionState
+from app.workspace.project_detection import detect_project
 from app.workspace.review_actions import (
     ReviewActionResult,
     apply_worktree_changes,
@@ -24,22 +26,8 @@ from app.workspace.review_actions import (
 
 ReviewActionExecutor = Callable[[str, AgentSessionTurn], ReviewActionResult]
 
-_FIX_INTENT_TERMS = (
-    "fix",
-    "repair",
-    "resolve",
-    "make tests pass",
-    "failed",
-    "failing",
-    "bug",
-    "error",
-    "修复",
-    "解决",
-    "改一下",
-    "修改",
-    "失败",
-    "报错",
-)
+_CONFIRM_TERMS = {"start", "yes", "y", "confirm", "开始", "确认", "可以", "执行", "好", "好的"}
+_CANCEL_TERMS = {"cancel", "no", "n", "stop", "取消", "不用", "停止", "算了"}
 
 
 class AgentSessionLike(Protocol):
@@ -72,11 +60,6 @@ def _git_value(repo_path: Path, args: list[str], fallback: str) -> str:
 def _repo_dirty_status(repo_path: Path) -> str:
     status_lines = _git_value(repo_path, ["status", "--short"], "").splitlines()
     return f"dirty, {len(status_lines)} modified" if status_lines else "clean"
-
-
-def _looks_like_fix_request(message: str) -> bool:
-    normalized = message.strip().lower()
-    return any(term in normalized for term in _FIX_INTENT_TERMS)
 
 
 def _build_header_text(repo_path: Path, settings: Settings) -> str:
@@ -177,6 +160,7 @@ class MendCodeTextualApp(App[None]):
         settings: Settings,
         agent_session: AgentSessionLike | None = None,
         chat_responder: ChatResponder | None = None,
+        intent_router: IntentRouter | None = None,
         review_action_executor: ReviewActionExecutor | None = None,
     ) -> None:
         super().__init__()
@@ -187,6 +171,7 @@ class MendCodeTextualApp(App[None]):
         self.message_texts: list[str] = []
         self._agent_session = agent_session
         self._chat_responder = chat_responder
+        self._intent_router = intent_router
         self._review_action_executor = review_action_executor
 
     def compose(self) -> ComposeResult:
@@ -197,8 +182,8 @@ class MendCodeTextualApp(App[None]):
     def on_mount(self) -> None:
         self.append_message(
             "System",
-            "Chat naturally, or use /test <command> and /fix <problem> to run tools. "
-            "Type /help for commands.",
+            "Tell me what is broken. I will suggest a verification command before running tools. "
+            "Type /help for precise commands.",
         )
         self.query_one("#chat-input", Input).focus()
 
@@ -243,16 +228,26 @@ class MendCodeTextualApp(App[None]):
         if self.session_state.running:
             self.append_message("Error", "A request is already running.")
             return
-        if not _looks_like_fix_request(task):
+        if self._handle_pending_fix_reply(task):
+            return
+
+        try:
+            router = self._ensure_intent_router()
+            decision = router.route(
+                task,
+                IntentContext(
+                    repo_path=self.repo_path,
+                    verification_command=self.session_state.verification_command,
+                ),
+            )
+        except ProviderConfigurationError as exc:
+            self.append_message("Error", str(exc))
+            return
+
+        if decision.kind == "chat":
             self._start_chat(task)
             return
-        if self.session_state.verification_command is None:
-            self.append_message(
-                "System",
-                "Set a verification command first with /test <command>.",
-            )
-            return
-        self._start_turn(task)
+        self._prepare_fix(task, source=decision.source)
 
     def _handle_command(self, command: ChatCommand) -> None:
         if command.name == "help":
@@ -279,8 +274,8 @@ class MendCodeTextualApp(App[None]):
                 "Commands:",
                 "/help - show commands",
                 "/status - show repo and turn status",
-                "/test <command> - set verification command",
-                "/fix [problem] - start a fix with the argument or recent task",
+                "/test <command> - set or override verification command",
+                "/fix [problem] - prepare a fix with the argument or recent task",
                 "/diff - show latest worktree diff",
                 "/trace - show latest trace excerpt",
                 "/apply - apply latest verified worktree changes",
@@ -306,6 +301,7 @@ class MendCodeTextualApp(App[None]):
                 f"recent_task: {recent_task}",
                 f"running: {self.session_state.running}",
                 f"running_kind: {self.session_state.running_kind or 'none'}",
+                f"pending_fix: {self.session_state.pending_fix is not None}",
                 f"last_turn: {last_turn}",
             ]
         )
@@ -317,6 +313,11 @@ class MendCodeTextualApp(App[None]):
             self.append_message("Error", str(exc))
             return
         self.append_message("System", f"Verification command set: {command.strip()}")
+        if self.session_state.pending_fix is not None:
+            self.append_message(
+                "System",
+                f"已更新待确认修复的验证命令：{command.strip()}。回复“开始”后执行。",
+            )
 
     def _fix_task(self, command_args: str) -> None:
         if self.session_state.running:
@@ -329,13 +330,7 @@ class MendCodeTextualApp(App[None]):
                 "No task available. Describe a task or pass /fix <problem>.",
             )
             return
-        if self.session_state.verification_command is None:
-            self.append_message(
-                "System",
-                "Set a verification command first with /test <command>.",
-            )
-            return
-        self._start_turn(task)
+        self._prepare_fix(task, source="/fix")
 
     def _ensure_agent_session(self) -> AgentSessionLike:
         if self._agent_session is None:
@@ -352,15 +347,60 @@ class MendCodeTextualApp(App[None]):
             self._chat_responder = build_chat_responder(self.settings)
         return self._chat_responder
 
-    def _start_turn(self, task: str) -> None:
+    def _ensure_intent_router(self) -> IntentRouter:
+        if self._intent_router is None:
+            self._intent_router = build_intent_router(self.settings)
+        return self._intent_router
+
+    def _prepare_fix(self, task: str, *, source: str) -> None:
+        command = self.session_state.verification_command
+        if command is None:
+            command = detect_project(self.repo_path).suggested_test
+        if command is None:
+            self.append_message(
+                "System",
+                "我无法自动推测验证命令。请提供验证命令，例如 /test <command>。",
+            )
+            return
+
+        self.session_state.set_pending_fix(
+            problem_statement=task,
+            suggested_verification_command=command,
+            source=source,
+        )
+        self.append_message(
+            "System",
+            f"我建议用 `{command}` 验证。回复“开始”或 yes 后，我会在隔离 worktree 中修复。",
+        )
+
+    def _handle_pending_fix_reply(self, message: str) -> bool:
+        pending = self.session_state.pending_fix
+        if pending is None:
+            return False
+        normalized = message.strip().lower()
+        if normalized in _CANCEL_TERMS:
+            self.session_state.clear_pending_fix()
+            self.append_message("System", "已取消待确认的修复。")
+            return True
+        if normalized in _CONFIRM_TERMS:
+            self.session_state.clear_pending_fix()
+            self.session_state.set_verification_command(pending.suggested_verification_command)
+            self._start_turn(
+                pending.problem_statement,
+                verification_command=pending.suggested_verification_command,
+            )
+            return True
+        return False
+
+    def _start_turn(self, task: str, verification_command: str | None = None) -> None:
         if self.session_state.running:
             self.append_message("Error", "A request is already running.")
             return
-        verification_command = self.session_state.verification_command
-        if verification_command is None:
+        command = verification_command or self.session_state.verification_command
+        if command is None:
             self.append_message(
                 "System",
-                "Set a verification command first with /test <command>.",
+                "请先设置验证命令，例如 /test <command>。",
             )
             return
 
@@ -372,7 +412,7 @@ class MendCodeTextualApp(App[None]):
 
         self.session_state.mark_turn_started(task)
         self.append_message("Agent", f"Running fix: {task}")
-        self._run_turn_worker(task, verification_command)
+        self._run_turn_worker(task, command)
 
     def _start_chat(self, message: str) -> None:
         if self.session_state.running:

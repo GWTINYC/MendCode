@@ -9,6 +9,14 @@ RunningKind = Literal["agent", "chat"]
 
 
 @dataclass
+class PendingFix:
+    problem_statement: str
+    suggested_verification_command: str
+    source: str
+    awaiting_confirmation: bool = True
+
+
+@dataclass
 class TuiSessionState:
     verification_command: str | None = None
     recent_task: str | None = None
@@ -18,6 +26,7 @@ class TuiSessionState:
     last_turn_status: str = "idle"
     last_review_action: ReviewActionResult | None = None
     chat_history: list[ChatMessage] = field(default_factory=list)
+    pending_fix: PendingFix | None = None
 
     @property
     def verification_commands(self) -> list[str]:
@@ -30,6 +39,24 @@ class TuiSessionState:
         if not stripped:
             raise ValueError("verification command is required")
         self.verification_command = stripped
+        if self.pending_fix is not None:
+            self.pending_fix.suggested_verification_command = stripped
+
+    def set_pending_fix(
+        self,
+        *,
+        problem_statement: str,
+        suggested_verification_command: str,
+        source: str,
+    ) -> None:
+        self.pending_fix = PendingFix(
+            problem_statement=problem_statement,
+            suggested_verification_command=suggested_verification_command,
+            source=source,
+        )
+
+    def clear_pending_fix(self) -> None:
+        self.pending_fix = None
 
     def mark_turn_started(self, task: str) -> None:
         self.recent_task = task

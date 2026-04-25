@@ -191,7 +191,9 @@ async def test_plain_message_without_test_command_runs_general_chat(
         )
 
 
-async def test_test_command_then_plain_task_starts_background_worker(tmp_path: Path) -> None:
+async def test_natural_fix_request_waits_for_confirmation_then_runs_with_set_test(
+    tmp_path: Path,
+) -> None:
     repo_path = init_git_repo(tmp_path)
     fake_session = FakeSession(make_turn())
     app = MendCodeTextualApp(
@@ -203,6 +205,13 @@ async def test_test_command_then_plain_task_starts_background_worker(tmp_path: P
     async with app.run_test() as pilot:
         app.handle_user_input("/test python -m pytest -q")
         app.handle_user_input("fix tests")
+        await pilot.pause()
+
+        assert fake_session.calls == []
+        assert app.session_state.pending_fix is not None
+        assert any("python -m pytest -q" in message for message in app.message_texts)
+
+        app.handle_user_input("start")
         await wait_until(lambda: not app.session_state.running)
         await pilot.pause()
 
@@ -210,6 +219,58 @@ async def test_test_command_then_plain_task_starts_background_worker(tmp_path: P
         assert app.session_state.last_turn is not None
         assert any("Tool Summary" in message for message in app.message_texts)
         assert any("Review Summary" in message for message in app.message_texts)
+
+
+async def test_natural_fix_request_suggests_verification_command_before_running(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "pyproject.toml").write_text("[project]\nname = 'demo'\n", encoding="utf-8")
+    fake_session = FakeSession(make_turn())
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        agent_session=fake_session,
+    )
+
+    async with app.run_test() as pilot:
+        app.handle_user_input("pytest 失败了，帮我修复")
+        await pilot.pause()
+
+        assert fake_session.calls == []
+        assert app.session_state.pending_fix is not None
+        assert app.session_state.pending_fix.suggested_verification_command == (
+            "python -m pytest -q"
+        )
+        assert any("回复“开始”" in message for message in app.message_texts)
+
+        app.handle_user_input("开始")
+        await wait_until(lambda: not app.session_state.running)
+        await pilot.pause()
+
+        assert fake_session.calls == [("pytest 失败了，帮我修复", ["python -m pytest -q"])]
+        assert app.session_state.pending_fix is None
+
+
+async def test_pending_fix_can_be_cancelled_before_running(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "pyproject.toml").write_text("[project]\nname = 'demo'\n", encoding="utf-8")
+    fake_session = FakeSession(make_turn())
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        agent_session=fake_session,
+    )
+
+    async with app.run_test() as pilot:
+        app.handle_user_input("pytest 失败了，帮我修复")
+        await pilot.pause()
+        app.handle_user_input("取消")
+        await pilot.pause()
+
+        assert fake_session.calls == []
+        assert app.session_state.pending_fix is None
+        assert any("已取消" in message for message in app.message_texts)
 
 
 async def test_test_command_then_general_chat_does_not_start_agent_turn(tmp_path: Path) -> None:
@@ -251,7 +312,29 @@ async def test_fix_command_without_test_command_prompts_for_verification_command
         await pilot.pause()
 
         assert fake_session.calls == []
-        assert any("/test <command>" in message for message in app.message_texts)
+        assert any("提供验证命令" in message for message in app.message_texts)
+
+
+async def test_test_command_overrides_pending_fix_suggestion(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "pyproject.toml").write_text("[project]\nname = 'demo'\n", encoding="utf-8")
+    fake_session = FakeSession(make_turn())
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        agent_session=fake_session,
+    )
+
+    async with app.run_test() as pilot:
+        app.handle_user_input("pytest 失败了，帮我修复")
+        await pilot.pause()
+        app.handle_user_input("/test python -m pytest tests/unit -q")
+        app.handle_user_input("yes")
+        await wait_until(lambda: not app.session_state.running)
+
+        assert fake_session.calls == [
+            ("pytest 失败了，帮我修复", ["python -m pytest tests/unit -q"])
+        ]
 
 
 async def test_running_worker_rejects_second_fix_request(tmp_path: Path) -> None:
@@ -268,6 +351,7 @@ async def test_running_worker_rejects_second_fix_request(tmp_path: Path) -> None
     async with app.run_test() as pilot:
         app.handle_user_input("/test python -m pytest -q")
         app.handle_user_input("fix tests")
+        app.handle_user_input("yes")
         await wait_until(started.is_set)
 
         app.handle_user_input("/fix another task")
