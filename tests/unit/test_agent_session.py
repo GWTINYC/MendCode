@@ -99,6 +99,50 @@ def test_attempt_record_is_created_for_patch_verification_failure() -> None:
     ]
 
 
+def test_attempt_record_tracks_failed_verification_after_passed_command() -> None:
+    loop_result = AgentLoopResult(
+        run_id="agent-5",
+        status="failed",
+        summary="verification failed",
+        trace_path="data/traces/agent-5.jsonl",
+        workspace_path=".worktrees/agent-5",
+        steps=[
+            patch_step(1, "succeeded"),
+            tool_step(
+                2,
+                "run_command",
+                Observation(
+                    status="succeeded",
+                    summary="Ran command",
+                    payload={"status": "passed"},
+                ),
+            ),
+            tool_step(
+                3,
+                "run_command",
+                Observation(
+                    status="failed",
+                    summary="Ran command",
+                    payload={"status": "failed"},
+                    error_message="integration tests failed",
+                ),
+            ),
+        ],
+    )
+
+    attempts = build_attempt_records(loop_result)
+
+    assert attempts == [
+        AttemptRecord(
+            index=1,
+            patch_summary=["calculator.py"],
+            patch_status="applied",
+            verification_status="failed",
+            error_message="integration tests failed",
+        )
+    ]
+
+
 def test_review_summary_is_verified_only_after_passed_verification() -> None:
     loop_result = AgentLoopResult(
         run_id="agent-1",

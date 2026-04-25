@@ -90,7 +90,8 @@ def build_attempt_records(loop_result: AgentLoopResult) -> list[AttemptRecord]:
                     )
                 )
                 error_message = next_step.observation.error_message
-                break
+                if verification_status != "passed":
+                    break
         if verification_status != "passed":
             attempts.append(
                 AttemptRecord(
