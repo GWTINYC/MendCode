@@ -49,7 +49,11 @@ def _changed_files_from_diff_stat(diff_stat: str | None) -> list[str]:
 def build_review_summary(loop_result: AgentLoopResult) -> ReviewSummary:
     verification_status = _latest_verification_status(loop_result)
     diff_stat = _diff_stat(loop_result)
-    status = "verified" if verification_status == "passed" else "failed"
+    status = (
+        "verified"
+        if verification_status == "passed" and loop_result.status == "completed"
+        else "failed"
+    )
     recommended_actions = (
         ["view_diff", "view_trace", "discard", "apply"]
         if status == "verified"

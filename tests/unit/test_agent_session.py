@@ -85,3 +85,30 @@ def test_review_summary_is_failed_when_latest_verification_failed() -> None:
     assert summary.status == "failed"
     assert summary.verification_status == "failed"
     assert summary.recommended_actions == ["view_trace", "discard"]
+
+
+def test_review_summary_is_failed_when_loop_failed_after_passed_verification() -> None:
+    loop_result = AgentLoopResult(
+        run_id="agent-3",
+        status="failed",
+        summary="Agent loop failed after verification",
+        trace_path="data/traces/agent-3.jsonl",
+        workspace_path=".worktrees/agent-3",
+        steps=[
+            tool_step(
+                1,
+                "run_command",
+                Observation(
+                    status="succeeded",
+                    summary="Ran command",
+                    payload={"status": "passed", "command": "python -m pytest -q"},
+                ),
+            )
+        ],
+    )
+
+    summary = build_review_summary(loop_result)
+
+    assert summary.status == "failed"
+    assert summary.verification_status == "passed"
+    assert summary.recommended_actions == ["view_trace", "discard"]
