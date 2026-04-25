@@ -31,6 +31,7 @@ mendcode
 - CLI 基础命令
 - `MendCodeAction` / `Observation` 动作协议
 - 最小 `AgentLoop`
+- `ScriptedAgentProvider`，用于在真实 LLM provider 前固定生成 MendCode actions
 - worktree 内 patch proposal 执行
 - verification gate：最后一次关键 observation 未成功时不能 completed
 - Permission Gate
@@ -63,6 +64,7 @@ mendcode
 
 - LLM Provider 抽象
 - OpenAI / Anthropic / OpenAI-compatible adapter
+- Provider 错误降级为 observation
 - 真实模型驱动的动态 tool-use loop
 - patch proposal schema
 - 真实 LLM 输出 patch proposal
@@ -191,6 +193,8 @@ mendcode
 目标：
 
 支持 OpenAI、Anthropic、OpenAI-compatible，并统一输出 MendCode Action。
+
+当前先保留 `ScriptedAgentProvider` 作为 provider 边界，CLI 不再直接硬编码 action 列表。后续真实 provider 只需要替换 action 生成层，不改 Agent loop 主体。
 
 交付：
 

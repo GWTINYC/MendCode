@@ -9,6 +9,7 @@ MendCode 的目标形态是终端 TUI 工作台：用户输入 `mendcode` 进入
 - Python project skeleton with `pyproject.toml`
 - CLI health check
 - Minimal Agent Action Loop for tool calls, observations, permission decisions, and trace output
+- Scripted provider boundary for generating MendCode actions before real LLM adapters land
 - Transitional `mendcode fix "<problem>" --test "<command>"` entry wired through the Agent loop
 - Command-policy guarded verification execution with timeout and trace output
 - Pytest-style failure insight extraction for failed verification output
@@ -68,4 +69,4 @@ python -m app.cli.main health
 python -m app.cli.main fix "pytest 失败了，请定位并修复" --repo . --test "python -m pytest -q"
 ```
 
-`fix` currently runs a minimal Agent loop in an isolated git worktree over repository status, project detection, and the supplied verification command. It extracts pytest-style failure details, records trace output, and reports the worktree path. Patch proposal execution and diff summary are available inside the Agent loop and will be wired to model-driven repair next.
+`fix` currently uses a scripted provider to generate MendCode actions, then runs the Agent loop in an isolated git worktree over repository status, project detection, and the supplied verification command. It extracts pytest-style failure details, records trace output, and reports the worktree path. Patch proposal execution and diff summary are available inside the Agent loop and will be wired to model-driven repair next.

@@ -5,6 +5,7 @@ from rich.console import Console
 from rich.table import Table
 
 from app.agent.loop import AgentLoopInput, run_agent_loop
+from app.agent.provider import AgentProviderInput, ScriptedAgentProvider
 from app.config.settings import get_settings
 from app.core.paths import ensure_data_directories
 from app.orchestrator.failure_parser import extract_failure_insight
@@ -51,35 +52,12 @@ def fix_problem(
 ) -> None:
     settings = get_settings()
     ensure_data_directories(settings)
-    actions: list[dict[str, object]] = [
-        {
-            "type": "tool_call",
-            "action": "repo_status",
-            "reason": "inspect repository state before attempting a fix",
-            "args": {},
-        },
-        {
-            "type": "tool_call",
-            "action": "detect_project",
-            "reason": "detect project type and likely verification commands",
-            "args": {},
-        },
-    ]
-    actions.extend(
-        {
-            "type": "tool_call",
-            "action": "run_command",
-            "reason": "run requested verification command",
-            "args": {"command": command},
-        }
-        for command in test_commands
-    )
-    actions.append(
-        {
-            "type": "final_response",
-            "status": "completed",
-            "summary": "Agent loop completed requested verification commands",
-        }
+    provider = ScriptedAgentProvider()
+    actions = provider.plan_actions(
+        AgentProviderInput(
+            problem_statement=problem_statement,
+            verification_commands=test_commands,
+        )
     )
 
     loop_input = AgentLoopInput(
