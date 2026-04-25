@@ -3,17 +3,11 @@ import re
 from typing import Protocol
 
 from openai import OpenAI
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import ValidationError
 
+from app.agent.prompt_context import ChatMessage, build_provider_messages
 from app.agent.provider import AgentProviderStepInput, ProviderResponse
 from app.schemas.agent_action import parse_mendcode_action
-
-
-class ChatMessage(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    role: str
-    content: str
 
 
 class OpenAICompatibleClient(Protocol):
@@ -92,7 +86,7 @@ class OpenAICompatibleAgentProvider:
         try:
             content = self._client.complete(
                 model=self._model,
-                messages=self._build_messages(step_input),
+                messages=build_provider_messages(step_input, secret_values=[self._api_key]),
                 timeout_seconds=self._timeout_seconds,
             )
         except Exception as exc:
@@ -110,27 +104,3 @@ class OpenAICompatibleAgentProvider:
         except ValidationError:
             return ProviderResponse.failed("Provider returned invalid MendCode action")
         return ProviderResponse(status="succeeded", actions=[payload])
-
-    def _build_messages(self, step_input: AgentProviderStepInput) -> list[ChatMessage]:
-        system_prompt = (
-            "You are MendCode's action planner. Return exactly one JSON object and no prose. "
-            "The object must be a valid MendCodeAction. Allowed tool actions: repo_status, "
-            "detect_project, run_command, read_file, search_code, apply_patch_to_worktree, "
-            "show_diff."
-        )
-        user_prompt = json.dumps(
-            {
-                "problem_statement": step_input.problem_statement,
-                "verification_commands": step_input.verification_commands,
-                "step_index": step_input.step_index,
-                "remaining_steps": step_input.remaining_steps,
-                "observations": [
-                    record.model_dump(mode="json") for record in step_input.observations
-                ],
-            },
-            ensure_ascii=False,
-        )
-        return [
-            ChatMessage(role="system", content=system_prompt),
-            ChatMessage(role="user", content=user_prompt),
-        ]

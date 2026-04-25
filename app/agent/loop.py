@@ -1,3 +1,4 @@
+import shutil
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -221,6 +222,10 @@ def _apply_patch_proposal(action: PatchProposalAction, workspace_path: Path) -> 
             },
             error_message=completed.stderr or completed.stdout or "git apply failed",
         )
+
+    for pycache_path in workspace_path.rglob("__pycache__"):
+        if pycache_path.is_dir():
+            shutil.rmtree(pycache_path, ignore_errors=True)
 
     return Observation(
         status="succeeded",
@@ -465,6 +470,29 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
 
     def apply_final_response_gate(handled: _HandledAction) -> tuple[AgentLoopStatus, str]:
         if isinstance(handled.step.action, FinalResponseAction):
+            last_patch_index = next(
+                (
+                    index
+                    for index, step in reversed(list(enumerate(steps[:-1])))
+                    if step.action.type == "patch_proposal"
+                ),
+                None,
+            )
+            if handled.step.action.status == "completed" and last_patch_index is not None:
+                last_post_patch_verification = next(
+                    (
+                        step.observation
+                        for step in reversed(steps[last_patch_index + 1 : -1])
+                        if step.action.type == "tool_call"
+                        and getattr(step.action, "action", None) == "run_command"
+                    ),
+                    None,
+                )
+                if (
+                    last_post_patch_verification is None
+                    or last_post_patch_verification.status != "succeeded"
+                ):
+                    return "failed", "Agent loop ended with failed observations"
             last_non_final_observation = next(
                 (
                     step.observation

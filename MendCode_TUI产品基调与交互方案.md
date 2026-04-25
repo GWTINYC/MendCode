@@ -445,7 +445,8 @@ Custom Mode：
 - [ ] 聊天输入
 - [x] Guided permission mode
 - [x] Provider-driven Action loop 底座
-- [ ] LLM Action loop
+- [x] LLM Action loop 的 JSON Action prompt/context 底座
+- [ ] 真实模型端到端修复稳定性验证
 - [ ] 工具调用摘要展示
 - [x] 工具：`repo_status` / `detect_project` / `run_command` / `read_file` / `search_code`
 - [x] 生成 patch proposal schema

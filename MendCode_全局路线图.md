@@ -188,6 +188,7 @@ Phase A 已完成。
 - [x] JSON Action fallback
 - [x] provider 错误降级
 - [x] provider-driven loop 错误降级
+- [x] provider prompt context / repair contract
 
 停手点：
 
@@ -195,6 +196,7 @@ Phase A 已完成。
 - [x] 业务层可处理 provider failure observation
 - [x] provider 可基于 observation history 逐步返回下一条 MendCode Action
 - [x] 业务层只处理真实 provider 归一化后的 MendCode Action，不直接依赖厂商 tool calling 格式
+- [x] provider prompt context 支持 bounded summary 和 secret redaction
 
 ### Phase D：Tool Execution 与检索增强
 
@@ -208,6 +210,7 @@ Phase A 已完成。
 - [x] `detect_project`
 - [x] `run_command`
 - [x] `read_file`
+- [x] fake provider 修复闭环验证
 - [x] `search_code`
 - [x] 失败测试文件读取
 - [x] 基于 failed node / test name / rg 的候选文件检索

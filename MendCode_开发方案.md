@@ -42,6 +42,8 @@ mendcode
 - [x] `ScriptedAgentProvider`，用于在真实 LLM provider 前逐步生成 MendCode actions
 - [x] Provider-driven Agent loop：每步基于 observation history 请求下一条 action
 - [x] OpenAI-compatible JSON Action provider
+- [x] Provider prompt context 与修复契约
+- [x] fake provider 修复闭环：patch proposal -> worktree apply -> verify -> diff -> final
 - [x] worktree 内 patch proposal 执行
 - [x] verification gate：最后一次关键 observation 未成功时不能 completed
 - [x] Permission Gate
@@ -79,7 +81,8 @@ mendcode
 - [ ] OpenAI / Anthropic 原生 adapter
 - [x] Provider 错误降级为 observation
 - [x] Provider-driven 动态 tool-use loop 底座
-- [ ] 真实模型驱动的动态 tool-use loop
+- [x] 真实 provider 的 prompt/action 契约底座
+- [ ] 真实模型端到端修复稳定性验证
 - [x] patch proposal schema
 - [ ] 真实 LLM 输出 patch proposal
 - [ ] diff summary 与 TUI review 收尾
@@ -219,6 +222,7 @@ mendcode
 - [x] JSON action fallback
 - [x] provider error observation
 - [x] provider step input / observation history
+- [x] prompt context summary / repair contract
 
 验收：
 
@@ -227,7 +231,7 @@ mendcode
 - [x] provider failure 可降级为 failed observation
 - [x] 切换 provider 不影响 Agent loop 主体
 - [x] 业务层只消费真实 provider 归一化后的 MendCode Action
-- [ ] API key 不写入项目仓库
+- [x] API key 不写入项目仓库，provider prompt 支持 secret redaction
 
 ---
 
@@ -260,6 +264,7 @@ mendcode
 - [x] 用户描述 pytest 失败后，过渡入口能自动读取失败测试文件
 - [x] 用户描述 pytest 失败后，过渡入口能执行基于失败测试名的 `search_code`
 - [x] 测试驱动的 Agent loop 能在 worktree 中应用 patch proposal、复跑验证、输出 diff summary
+- [x] fake provider 修复链路能完成 patch、验证、diff 和 final response
 
 ---
 

@@ -88,6 +88,26 @@ def test_openai_compatible_provider_returns_action_from_fake_client() -> None:
     assert client.calls[0]["timeout_seconds"] == 12
 
 
+def test_openai_compatible_provider_uses_repair_contract_prompt() -> None:
+    client = FakeClient(
+        '{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}'
+    )
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=client,
+    )
+
+    provider.next_action(step_input())
+
+    messages = client.calls[0]["messages"]
+    assert isinstance(messages, list)
+    assert "Never claim completed after a failed verification" in messages[0].content
+    assert "secret-key" not in "\n".join(message.content for message in messages)
+
+
 def test_openai_compatible_provider_rejects_empty_response() -> None:
     provider = OpenAICompatibleAgentProvider(
         model="test-model",

@@ -10,6 +10,7 @@ MendCode 的目标形态是终端 TUI 工作台：用户输入 `mendcode` 进入
 - CLI health check
 - Minimal Agent Action Loop for tool calls, observations, permission decisions, and trace output
 - Provider-driven Agent loop with scripted default and optional OpenAI-compatible JSON Action provider
+- Secret-safe provider prompt context with a JSON Action repair contract
 - Transitional `mendcode fix "<problem>" --test "<command>"` entry wired through the Agent loop
 - Command-policy guarded verification execution with timeout and trace output
 - Pytest-style failure insight extraction for failed verification output
@@ -80,4 +81,4 @@ export MENDCODE_BASE_URL="<base-url>"
 export MENDCODE_API_KEY="<key>"
 ```
 
-This provider path asks the model for one MendCode Action JSON object per step. It does not use native tool-calling formats yet.
+This provider path asks the model for one MendCode Action JSON object per step. It uses a bounded prompt context with repair guidance for inspecting failures, proposing unified diff patches, rerunning verification, and avoiding unverified completion. It does not use native tool-calling formats yet.
