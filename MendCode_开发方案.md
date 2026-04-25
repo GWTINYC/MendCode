@@ -31,6 +31,8 @@ mendcode
 - CLI 基础命令
 - `MendCodeAction` / `Observation` 动作协议
 - 最小 `AgentLoop`
+- worktree 内 patch proposal 执行
+- verification gate：最后一次关键 observation 未成功时不能 completed
 - Permission Gate
 - Safe / Guided / Full / Custom 权限模式
 - worktree 隔离
@@ -40,7 +42,7 @@ mendcode
 - `read_file`
 - `search_code`
 - `apply_patch_to_worktree` 底层 patch helper
-- `mendcode fix "<problem>" --test "<command>"` 过渡入口
+- `mendcode fix "<problem>" --test "<command>"` 过渡入口，已在隔离 worktree 中执行
 - pytest 失败日志解析
 
 已删除的旧主线：
@@ -63,8 +65,8 @@ mendcode
 - OpenAI / Anthropic / OpenAI-compatible adapter
 - 真实模型驱动的动态 tool-use loop
 - patch proposal schema
-- worktree 内 patch apply 与 verification gate 串联
-- diff summary
+- 真实 LLM 输出 patch proposal
+- diff summary 与 TUI review 收尾
 - TUI 聊天界面
 - 工具调用摘要展示
 - apply / discard 收尾动作
@@ -217,10 +219,8 @@ mendcode
 
 - Agent loop runner
 - step budget
-- tool registry
+- worktree execution context
 - observation history
-- invalid action retry
-- no-progress stop
 - trace event
 
 首批工具：
@@ -233,7 +233,8 @@ mendcode
 
 验收：
 
-- 用户描述 pytest 失败后，Agent 能运行测试、解析失败、读取测试文件、搜索候选实现
+- 用户描述 pytest 失败后，过渡入口能在隔离 worktree 中运行验证、解析失败并留下 trace
+- 测试驱动的 Agent loop 能在 worktree 中应用 patch proposal、复跑验证、输出 diff summary
 
 ---
 

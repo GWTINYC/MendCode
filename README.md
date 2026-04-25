@@ -68,4 +68,4 @@ python -m app.cli.main health
 python -m app.cli.main fix "pytest 失败了，请定位并修复" --repo . --test "python -m pytest -q"
 ```
 
-`fix` currently runs a minimal Agent loop over repository status, project detection, and the supplied verification command. It extracts pytest-style failure details and records trace output. Worktree-isolated patching is the next Agent loop milestone.
+`fix` currently runs a minimal Agent loop in an isolated git worktree over repository status, project detection, and the supplied verification command. It extracts pytest-style failure details, records trace output, and reports the worktree path. Patch proposal execution and diff summary are available inside the Agent loop and will be wired to model-driven repair next.

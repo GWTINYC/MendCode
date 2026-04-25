@@ -87,6 +87,7 @@ def fix_problem(
         problem_statement=problem_statement,
         actions=actions,
         step_budget=max_attempts + 3,
+        use_worktree=True,
     )
 
     try:
@@ -113,6 +114,7 @@ def fix_problem(
     table.add_row("summary", result.summary)
     table.add_row("max_attempts", str(max_attempts))
     table.add_row("repo_path", str(repo.resolve()))
+    table.add_row("workspace_path", result.workspace_path or "")
     table.add_row("trace_path", result.trace_path or "")
     if insight is not None:
         table.add_row("failed_node", insight.failed_node or "")

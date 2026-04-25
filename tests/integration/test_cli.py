@@ -94,6 +94,8 @@ def test_fix_command_runs_agent_loop_and_reports_failure_insight(
     assert "tests/test_calculator.py::test_add" in result.stdout
     assert "error_summary" in result.stdout
     assert "AssertionError: assert -1 == 5" in result.stdout
+    assert "workspace_path" in result.stdout
+    assert ".worktrees" in result.stdout
     assert "trace_path" in result.stdout
 
 

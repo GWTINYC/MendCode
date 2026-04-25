@@ -14,6 +14,7 @@ from app.schemas.agent_action import (
     FinalResponseAction,
     MendCodeAction,
     Observation,
+    PatchProposalAction,
     ToolCallAction,
     build_invalid_action_observation,
     parse_mendcode_action,
@@ -25,6 +26,7 @@ from app.tools.schemas import ToolResult
 from app.tracing.recorder import TraceRecorder
 from app.workspace.command_policy import CommandPolicy
 from app.workspace.executor import execute_verification_command
+from app.workspace.worktree import prepare_worktree
 
 AgentLoopStatus = str
 
@@ -37,6 +39,8 @@ class AgentLoopInput(BaseModel):
     actions: list[dict[str, object]]
     permission_mode: PermissionMode = "guided"
     step_budget: int = Field(default=12, ge=1)
+    use_worktree: bool = False
+    base_ref: str | None = None
 
 
 class AgentStep(BaseModel):
@@ -54,6 +58,7 @@ class AgentLoopResult(BaseModel):
     status: AgentLoopStatus
     summary: str
     trace_path: str | None
+    workspace_path: str | None = None
     steps: list[AgentStep] = Field(default_factory=list)
 
 
@@ -178,6 +183,38 @@ def _show_diff(repo_path: Path) -> Observation:
     )
 
 
+def _apply_patch_proposal(action: PatchProposalAction, workspace_path: Path) -> Observation:
+    try:
+        completed = subprocess.run(
+            ["git", "apply", "--whitespace=nowarn"],
+            cwd=workspace_path,
+            input=action.patch,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError as exc:
+        return _failed_observation("Unable to apply patch proposal", str(exc))
+
+    if completed.returncode != 0:
+        return Observation(
+            status="failed",
+            summary="Unable to apply patch proposal",
+            payload={
+                "files_to_modify": action.files_to_modify,
+                "stderr": completed.stderr,
+                "stdout": completed.stdout,
+            },
+            error_message=completed.stderr or completed.stdout or "git apply failed",
+        )
+
+    return Observation(
+        status="succeeded",
+        summary="Applied patch proposal",
+        payload={"files_to_modify": action.files_to_modify},
+    )
+
+
 def _execute_tool_call(
     *,
     action: ToolCallAction,
@@ -252,6 +289,36 @@ def _record_step(
 def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopResult:
     recorder = TraceRecorder(settings.traces_dir)
     run_id = f"agent-{uuid4().hex[:12]}"
+    workspace_path = loop_input.repo_path
+    if loop_input.use_worktree:
+        try:
+            workspace_path = prepare_worktree(
+                repo_path=loop_input.repo_path,
+                workspace_root=settings.workspace_root,
+                run_id=run_id,
+                base_ref=loop_input.base_ref,
+            )
+        except (OSError, subprocess.CalledProcessError) as exc:
+            detail = str(exc)
+            if isinstance(exc, subprocess.CalledProcessError):
+                detail = exc.stderr or exc.stdout or str(exc)
+            trace_path = recorder.record(
+                TraceEvent(
+                    run_id=run_id,
+                    event_type="agent.run.completed",
+                    message="Agent loop failed before start",
+                    payload={"status": "failed", "summary": detail.strip()},
+                )
+            )
+            return AgentLoopResult(
+                run_id=run_id,
+                status="failed",
+                summary=f"Workspace setup failed: {detail.strip()}",
+                trace_path=str(trace_path),
+                workspace_path=None,
+                steps=[],
+            )
+
     trace_path = recorder.record(
         TraceEvent(
             run_id=run_id,
@@ -260,6 +327,7 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
             payload={
                 "problem_statement": loop_input.problem_statement,
                 "repo_path": str(loop_input.repo_path),
+                "workspace_path": str(workspace_path),
                 "permission_mode": loop_input.permission_mode,
                 "step_budget": loop_input.step_budget,
             },
@@ -326,9 +394,21 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
             else:
                 observation = _execute_tool_call(
                     action=action,
-                    repo_path=loop_input.repo_path,
+                    repo_path=workspace_path,
                     settings=settings,
                 )
+            steps.append(AgentStep(index=index, action=action, observation=observation))
+            trace_path = _record_step(
+                recorder=recorder,
+                run_id=run_id,
+                index=index,
+                action=action,
+                observation=observation,
+            )
+            continue
+
+        if isinstance(action, PatchProposalAction):
+            observation = _apply_patch_proposal(action, workspace_path)
             steps.append(AgentStep(index=index, action=action, observation=observation))
             trace_path = _record_step(
                 recorder=recorder,
@@ -353,10 +433,19 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
             observation=observation,
         )
         if isinstance(action, FinalResponseAction):
-            has_failed_observation = any(
-                step.observation.status != "succeeded" for step in steps
+            last_non_final_observation = next(
+                (
+                    step.observation
+                    for step in reversed(steps[:-1])
+                    if step.action.type != "assistant_message"
+                ),
+                None,
             )
-            if action.status == "completed" and has_failed_observation:
+            if (
+                action.status == "completed"
+                and last_non_final_observation is not None
+                and last_non_final_observation.status != "succeeded"
+            ):
                 status = "failed"
                 summary = "Agent loop ended with failed observations"
             else:
@@ -377,5 +466,6 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
         status=status,
         summary=summary,
         trace_path=str(trace_path),
+        workspace_path=str(workspace_path),
         steps=steps,
     )
