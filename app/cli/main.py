@@ -1,4 +1,5 @@
 import subprocess
+import sys
 from pathlib import Path
 
 import typer
@@ -280,14 +281,17 @@ def _render_failure_insight(
     console.print(table)
 
 
-@app.callback()
-def tui_entry(ctx: typer.Context) -> None:
-    if ctx.invoked_subcommand is not None:
-        return
+def _is_interactive_terminal() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
 
-    settings = get_settings()
-    ensure_data_directories(settings)
-    repo_path = Path.cwd().resolve()
+
+def _run_textual_app(*, repo_path: Path, settings) -> None:
+    from app.tui.app import MendCodeTextualApp
+
+    MendCodeTextualApp(repo_path=repo_path, settings=settings).run()
+
+
+def _run_single_turn_fallback(*, repo_path: Path, settings) -> None:
     _render_tui_header(repo_path)
     problem_statement = typer.prompt("Type your task")
     verification_command = typer.prompt("Verification command")
@@ -326,6 +330,21 @@ def tui_entry(ctx: typer.Context) -> None:
         settings=settings,
     )
     _render_failure_insight(insight, location_result)
+
+
+@app.callback()
+def tui_entry(ctx: typer.Context) -> None:
+    if ctx.invoked_subcommand is not None:
+        return
+
+    settings = get_settings()
+    ensure_data_directories(settings)
+    repo_path = Path.cwd().resolve()
+    if _is_interactive_terminal():
+        _run_textual_app(repo_path=repo_path, settings=settings)
+        return
+
+    _run_single_turn_fallback(repo_path=repo_path, settings=settings)
 
 
 @app.command()

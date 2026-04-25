@@ -400,6 +400,26 @@ def test_no_args_command_runs_minimal_tui_turn(monkeypatch, tmp_path: Path) -> N
     assert len(fake_provider.calls) == 3
 
 
+def test_no_args_command_launches_textual_app_in_tty(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    repo_path = init_git_repo(tmp_path)
+    launched: dict[str, object] = {}
+
+    def fake_run_textual_app(*, repo_path: Path, settings) -> None:
+        launched["repo_path"] = repo_path
+        launched["provider"] = settings.provider
+
+    monkeypatch.setattr("app.cli.main._is_interactive_terminal", lambda: True)
+    monkeypatch.setattr("app.cli.main._run_textual_app", fake_run_textual_app)
+
+    with monkeypatch.context() as context:
+        context.chdir(repo_path)
+        result = runner.invoke(app, [], terminal_width=200)
+
+    assert result.exit_code == 0
+    assert launched == {"repo_path": repo_path.resolve(), "provider": "scripted"}
+
+
 def test_no_args_command_can_apply_verified_worktree_changes(
     monkeypatch,
     tmp_path: Path,
