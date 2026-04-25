@@ -117,3 +117,47 @@ def test_scripted_provider_can_include_patch_proposal_and_review_actions() -> No
         "reason": "summarize worktree changes",
         "args": {},
     }
+
+
+def test_scripted_provider_builds_failure_location_actions() -> None:
+    provider = ScriptedAgentProvider()
+
+    response = provider.plan_failure_location_actions(
+        failed_node="tests/test_calculator.py::test_add",
+        file_path="tests/test_calculator.py",
+        test_name="test_add",
+    )
+
+    assert response.status == "succeeded"
+    assert response.actions == [
+        {
+            "type": "tool_call",
+            "action": "read_file",
+            "reason": "inspect failing test file",
+            "args": {"relative_path": "tests/test_calculator.py", "max_chars": 12000},
+        },
+        {
+            "type": "tool_call",
+            "action": "search_code",
+            "reason": "locate implementation related to failing test",
+            "args": {"query": "test_add", "glob": "*.py", "max_results": 20},
+        },
+        {
+            "type": "final_response",
+            "status": "completed",
+            "summary": "Failure location context collected",
+        },
+    ]
+
+
+def test_scripted_provider_rejects_failure_location_without_file_path() -> None:
+    provider = ScriptedAgentProvider()
+
+    response = provider.plan_failure_location_actions(
+        failed_node=None,
+        file_path=None,
+        test_name=None,
+    )
+
+    assert response.status == "failed"
+    assert response.observation.error_message == "failure insight did not include a file path"

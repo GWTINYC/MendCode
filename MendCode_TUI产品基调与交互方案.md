@@ -350,6 +350,7 @@ Provider 层负责把 OpenAI tool call、Anthropic tool use、OpenAI-compatible 
 - [x] 调用不存在工具：形成 rejected observation
 - [x] 未授权工具：按权限模式决定确认、拒绝或升级权限
 - [x] 工具执行失败：作为 observation 记录
+- [x] 失败验证后自动读取失败测试文件并搜索候选实现
 - [ ] 连续无进展：停止自动循环，总结已尝试内容，请用户选择下一步
 - [ ] patch 后验证失败：最多 `max_attempts` 次重试，超过后保留 trace 和失败 patch
 

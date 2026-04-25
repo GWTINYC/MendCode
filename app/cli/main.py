@@ -93,6 +93,24 @@ def fix_problem(
         and "command" in step.observation.payload
     ]
     insight = extract_failure_insight(command_results)
+    location_result = None
+    if insight is not None and result.workspace_path is not None:
+        location_response = provider.plan_failure_location_actions(
+            failed_node=insight.failed_node,
+            file_path=insight.file_path,
+            test_name=insight.test_name,
+        )
+        if location_response.status == "succeeded":
+            location_result = run_agent_loop(
+                AgentLoopInput(
+                    repo_path=Path(result.workspace_path),
+                    problem_statement=problem_statement,
+                    actions=location_response.actions,
+                    step_budget=len(location_response.actions),
+                    use_worktree=False,
+                ),
+                settings,
+            )
 
     table = Table(title="Agent Fix")
     table.add_column("Field")
@@ -110,6 +128,16 @@ def fix_problem(
         table.add_row("file_path", insight.file_path or "")
         table.add_row("test_name", insight.test_name or "")
         table.add_row("error_summary", insight.error_summary)
+    if location_result is not None:
+        table.add_row("location_status", location_result.status)
+        table.add_row(
+            "location_steps",
+            ", ".join(
+                f"{getattr(step.action, 'action', step.action.type)}:{step.observation.status}"
+                for step in location_result.steps
+                if step.action.type == "tool_call"
+            ),
+        )
     console.print(table)
 
 

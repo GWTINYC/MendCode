@@ -248,6 +248,8 @@ mendcode
 验收：
 
 - [x] 用户描述 pytest 失败后，过渡入口能在隔离 worktree 中运行验证、解析失败并留下 trace
+- [x] 用户描述 pytest 失败后，过渡入口能自动读取失败测试文件
+- [x] 用户描述 pytest 失败后，过渡入口能执行基于失败测试名的 `search_code`
 - [x] 测试驱动的 Agent loop 能在 worktree 中应用 patch proposal、复跑验证、输出 diff summary
 
 ---

@@ -203,13 +203,13 @@ Phase A 已完成。
 - [x] `run_command`
 - [x] `read_file`
 - [x] `search_code`
-- [ ] 失败测试文件读取
-- [ ] 基于 failed node / import / rg 的候选文件检索
+- [x] 失败测试文件读取
+- [x] 基于 failed node / test name / rg 的候选文件检索
 
 停手点：
 
 - [x] 用户描述“pytest 失败”后，过渡入口能运行测试并解析失败
-- [ ] 用户描述“pytest 失败”后，Agent 能读取测试文件、搜索候选实现
+- [x] 用户描述“pytest 失败”后，Agent 能读取测试文件、搜索候选实现
 
 ### Phase E：Patch Proposal 与验证闭环
 

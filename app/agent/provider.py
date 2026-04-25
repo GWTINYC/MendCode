@@ -107,3 +107,37 @@ class ScriptedAgentProvider:
             }
         )
         return ProviderResponse(status="succeeded", actions=actions)
+
+    def plan_failure_location_actions(
+        self,
+        *,
+        failed_node: str | None,
+        file_path: str | None,
+        test_name: str | None,
+    ) -> ProviderResponse:
+        if file_path is None:
+            return ProviderResponse.failed("failure insight did not include a file path")
+
+        query = test_name or failed_node or file_path
+        return ProviderResponse(
+            status="succeeded",
+            actions=[
+                {
+                    "type": "tool_call",
+                    "action": "read_file",
+                    "reason": "inspect failing test file",
+                    "args": {"relative_path": file_path, "max_chars": 12000},
+                },
+                {
+                    "type": "tool_call",
+                    "action": "search_code",
+                    "reason": "locate implementation related to failing test",
+                    "args": {"query": query, "glob": "*.py", "max_results": 20},
+                },
+                {
+                    "type": "final_response",
+                    "status": "completed",
+                    "summary": "Failure location context collected",
+                },
+            ],
+        )

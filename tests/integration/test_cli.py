@@ -65,6 +65,26 @@ def test_fix_command_runs_agent_loop_and_reports_failure_insight(
     monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
     monkeypatch.setattr("app.cli.main.console.width", 200, raising=False)
     repo_path = init_git_repo(tmp_path)
+    tests_dir = repo_path / "tests"
+    tests_dir.mkdir()
+    (tests_dir / "test_calculator.py").write_text(
+        "def test_add():\n    assert -1 == 5\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["git", "add", "tests/test_calculator.py"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add failing test"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
     command = (
         f"{PYTHON} -c "
         "\"print('FAILED tests/test_calculator.py::test_add - "
@@ -96,6 +116,10 @@ def test_fix_command_runs_agent_loop_and_reports_failure_insight(
     assert "AssertionError: assert -1 == 5" in result.stdout
     assert "workspace_path" in result.stdout
     assert ".worktrees" in result.stdout
+    assert "location_status" in result.stdout
+    assert "location_steps" in result.stdout
+    assert "read_file:succeeded" in result.stdout
+    assert "search_code:succeeded" in result.stdout
     assert "trace_path" in result.stdout
 
 
