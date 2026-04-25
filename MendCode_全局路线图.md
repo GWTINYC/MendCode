@@ -65,6 +65,7 @@ mendcode
 - [x] pytest 风格失败日志解析
 - [x] `ReviewSummary` 会话审查摘要模型
 - [x] `AttemptRecord` 失败尝试记录模型
+- [x] TUI review action 菜单：`view_diff` / `view_trace` / `apply` / `discard`
 
 这些能力的定位：
 
@@ -259,13 +260,14 @@ mendcode
 - [x] 工具调用摘要展示
 - [ ] 详情展开
 - [x] 工程审查收尾
-- [ ] view diff / logs / trace / apply / discard
+- [x] view diff / trace / apply / discard
+- [ ] 独立 logs viewer
 
 停手点：
 
 - [x] 用户可以在 TUI 中描述一个 pytest 失败问题
 - [x] Agent 能通过测试驱动 action 完成一次 worktree 内修复尝试
-- [ ] 用户能基于审查摘要决定 apply 或 discard
+- [x] 用户能基于审查摘要决定 apply 或 discard
 
 当前接续点：
 

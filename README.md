@@ -12,6 +12,7 @@ MendCode 的目标形态是终端 TUI 工作台：用户输入 `mendcode` 进入
 - Provider-driven Agent loop with scripted default and optional OpenAI-compatible JSON Action provider
 - Secret-safe provider prompt context with a JSON Action repair contract
 - Single-turn `mendcode` entry that prompts for a task and verification command, then renders tool and review summaries
+- Review actions in the single-turn `mendcode` entry: view worktree diff, view trace, apply verified changes, or discard the worktree
 - Session turn model for TUI-facing review, attempt, and tool summary data
 - Transitional `mendcode fix "<problem>" --test "<command>"` entry wired through the Agent loop
 - Command-policy guarded verification execution with timeout and trace output

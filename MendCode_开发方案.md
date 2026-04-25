@@ -88,7 +88,7 @@ mendcode
 - [x] diff summary 与 TUI review 收尾
 - [x] 最小单轮 TUI-shaped 入口
 - [x] 工具调用摘要展示
-- [ ] apply / discard 收尾动作
+- [x] apply / discard 收尾动作
 
 ---
 
@@ -310,13 +310,14 @@ mendcode
 - [x] 工具调用摘要展示
 - [ ] 详情展开
 - [x] 工程审查收尾
-- [ ] view diff / logs / trace / apply / discard
+- [x] view diff / trace / apply / discard
+- [ ] 独立 logs viewer
 
 验收：
 
 - [x] 用户可以在 TUI 中描述问题
 - [x] Agent 能完成一次 worktree 内修复尝试
-- [ ] 用户可以基于工程审查摘要决定 apply 或 discard
+- [x] 用户可以基于工程审查摘要决定 apply 或 discard
 - [x] 用户不需要写 JSON
 - [x] 用户不需要提供手工文本替换补丁
 - [x] Agent 每一步工具调用都有摘要

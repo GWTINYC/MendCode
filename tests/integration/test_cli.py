@@ -90,6 +90,125 @@ class FakeOpenAICompatibleProvider:
         )
 
 
+class PatchReviewProvider:
+    def __init__(self, *, command: str, patch: str) -> None:
+        self.command = command
+        self.patch = patch
+        self.calls: list[AgentProviderStepInput] = []
+
+    def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
+        self.calls.append(step_input)
+        if len(self.calls) == 1:
+            return ProviderResponse(
+                status="succeeded",
+                actions=[
+                    {
+                        "type": "patch_proposal",
+                        "reason": "make add return the sum",
+                        "files_to_modify": ["calculator.py"],
+                        "patch": self.patch,
+                    }
+                ],
+            )
+        if len(self.calls) == 2:
+            return ProviderResponse(
+                status="succeeded",
+                actions=[
+                    {
+                        "type": "tool_call",
+                        "action": "run_command",
+                        "reason": "verify patch",
+                        "args": {"command": self.command},
+                    }
+                ],
+            )
+        if len(self.calls) == 3:
+            return ProviderResponse(
+                status="succeeded",
+                actions=[
+                    {
+                        "type": "tool_call",
+                        "action": "show_diff",
+                        "reason": "summarize changed files",
+                        "args": {},
+                    }
+                ],
+            )
+        return ProviderResponse(
+            status="succeeded",
+            actions=[
+                {
+                    "type": "final_response",
+                    "status": "completed",
+                    "summary": "repair verified",
+                }
+            ],
+        )
+
+
+class FailedReviewProvider:
+    def __init__(self, *, command: str) -> None:
+        self.command = command
+        self.calls: list[AgentProviderStepInput] = []
+
+    def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
+        self.calls.append(step_input)
+        if len(self.calls) == 1:
+            return ProviderResponse(
+                status="succeeded",
+                actions=[
+                    {
+                        "type": "tool_call",
+                        "action": "run_command",
+                        "reason": "run failing verification",
+                        "args": {"command": self.command},
+                    }
+                ],
+            )
+        return ProviderResponse(
+            status="succeeded",
+            actions=[
+                {
+                    "type": "final_response",
+                    "status": "failed",
+                    "summary": "verification failed",
+                }
+            ],
+        )
+
+
+def add_calculator_repo_file(repo_path: Path) -> None:
+    (repo_path / "calculator.py").write_text(
+        "def add(a, b):\n    return a - b\n",
+        encoding="utf-8",
+    )
+    subprocess.run(
+        ["git", "add", "calculator.py"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add calculator"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+
+def calculator_patch() -> str:
+    return """diff --git a/calculator.py b/calculator.py
+--- a/calculator.py
++++ b/calculator.py
+@@ -1,2 +1,2 @@
+ def add(a, b):
+-    return a - b
++    return a + b
+"""
+
+
 def test_health_command_reports_agent_directories(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
     result = runner.invoke(app, ["health"])
@@ -279,6 +398,100 @@ def test_no_args_command_runs_minimal_tui_turn(monkeypatch, tmp_path: Path) -> N
     assert "fake openai-compatible provider completed" in result.stdout
     assert "view_trace" in result.stdout
     assert len(fake_provider.calls) == 3
+
+
+def test_no_args_command_can_apply_verified_worktree_changes(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("app.cli.main.console.width", 200, raising=False)
+    repo_path = init_git_repo(tmp_path)
+    add_calculator_repo_file(repo_path)
+    command = (
+        f"{PYTHON} -c "
+        "\"import calculator; "
+        "raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)\""
+    )
+    provider = PatchReviewProvider(command=command, patch=calculator_patch())
+    monkeypatch.setattr("app.cli.main.build_agent_provider", lambda settings: provider)
+
+    with monkeypatch.context() as context:
+        context.chdir(repo_path)
+        result = runner.invoke(
+            app,
+            [],
+            input=f"修复 add\n{command}\napply\n",
+            terminal_width=200,
+        )
+
+    assert result.exit_code == 0
+    assert "Review Actions" in result.stdout
+    assert "Applied worktree changes to main workspace" in result.stdout
+    assert (repo_path / "calculator.py").read_text(encoding="utf-8") == (
+        "def add(a, b):\n    return a + b\n"
+    )
+
+
+def test_no_args_command_can_view_diff_then_discard_worktree(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("app.cli.main.console.width", 200, raising=False)
+    repo_path = init_git_repo(tmp_path)
+    add_calculator_repo_file(repo_path)
+    command = (
+        f"{PYTHON} -c "
+        "\"import calculator; "
+        "raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)\""
+    )
+    provider = PatchReviewProvider(command=command, patch=calculator_patch())
+    monkeypatch.setattr("app.cli.main.build_agent_provider", lambda settings: provider)
+
+    with monkeypatch.context() as context:
+        context.chdir(repo_path)
+        result = runner.invoke(
+            app,
+            [],
+            input=f"修复 add\n{command}\nview_diff\ndiscard\n",
+            terminal_width=200,
+        )
+
+    assert result.exit_code == 0
+    assert "-    return a - b" in result.stdout
+    assert "+    return a + b" in result.stdout
+    assert "Discarded worktree" in result.stdout
+    assert not list((tmp_path / ".worktrees").glob("agent-*"))
+
+
+def test_no_args_command_does_not_allow_apply_for_failed_turn(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setenv("MENDCODE_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr("app.cli.main.console.width", 200, raising=False)
+    repo_path = init_git_repo(tmp_path)
+    add_calculator_repo_file(repo_path)
+    command = f"{PYTHON} -c \"raise SystemExit(1)\""
+    provider = FailedReviewProvider(command=command)
+    monkeypatch.setattr("app.cli.main.build_agent_provider", lambda settings: provider)
+
+    with monkeypatch.context() as context:
+        context.chdir(repo_path)
+        result = runner.invoke(
+            app,
+            [],
+            input=f"修复 add\n{command}\napply\n",
+            terminal_width=200,
+        )
+
+    assert result.exit_code == 0
+    assert "Action not available: apply" in result.stdout
+    assert "Applied worktree changes to main workspace" not in result.stdout
+    assert (repo_path / "calculator.py").read_text(encoding="utf-8") == (
+        "def add(a, b):\n    return a - b\n"
+    )
 
 
 def test_no_args_command_reports_failure_insight_and_location_steps(

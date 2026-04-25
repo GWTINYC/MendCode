@@ -13,6 +13,13 @@ from app.config.settings import get_settings
 from app.core.paths import ensure_data_directories
 from app.orchestrator.failure_parser import FailureInsight, extract_failure_insight
 from app.schemas.verification import VerificationCommandResult
+from app.workspace.review_actions import (
+    ReviewActionResult,
+    apply_worktree_changes,
+    discard_worktree,
+    view_trace,
+    view_worktree_diff,
+)
 
 app = typer.Typer(help="MendCode CLI", invoke_without_command=True)
 console = Console()
@@ -66,6 +73,146 @@ def _render_turn(turn: AgentSessionTurn) -> None:
     review.add_row("changed_files", ", ".join(turn.review.changed_files))
     review.add_row("recommended_actions", ", ".join(turn.review.recommended_actions))
     console.print(review)
+
+
+def _available_review_actions(turn: AgentSessionTurn) -> list[str]:
+    actions = set(turn.review.recommended_actions)
+    if turn.review.workspace_path is None:
+        actions.difference_update({"view_diff", "apply", "discard"})
+    if turn.review.trace_path is None:
+        actions.discard("view_trace")
+    ordered = ["view_diff", "view_trace", "apply", "discard"]
+    return [action for action in ordered if action in actions]
+
+
+def _render_review_actions(actions: list[str]) -> None:
+    if not actions:
+        return
+    table = Table(title="Review Actions")
+    table.add_column("Action")
+    table.add_column("Description")
+    descriptions = {
+        "view_diff": "Show the worktree diff",
+        "view_trace": "Show the JSONL trace excerpt",
+        "apply": "Apply verified worktree changes to the main workspace",
+        "discard": "Remove the worktree without applying changes",
+    }
+    for action in actions:
+        table.add_row(action, descriptions[action])
+    console.print(table)
+
+
+def _prompt_review_action() -> str:
+    try:
+        return typer.prompt("Review action", default="", show_default=False).strip()
+    except (EOFError, typer.Abort):
+        return ""
+
+
+def _render_review_action_result(result: ReviewActionResult) -> None:
+    table = Table(title="Review Action Result")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("action", result.action)
+    table.add_row("status", result.status)
+    table.add_row("summary", result.summary)
+    if result.error_message is not None:
+        table.add_row("error", result.error_message)
+    changed_files = result.payload.get("changed_files")
+    if isinstance(changed_files, list):
+        table.add_row("changed_files", ", ".join(str(item) for item in changed_files))
+    console.print(table)
+
+    if result.action == "view_diff" and result.status == "succeeded":
+        diff_stat = str(result.payload.get("diff_stat", ""))
+        diff = str(result.payload.get("diff", ""))
+        if diff_stat:
+            console.print(diff_stat)
+        if diff:
+            console.print(diff)
+    if result.action == "view_trace" and result.status == "succeeded":
+        content = str(result.payload.get("content", ""))
+        if content:
+            console.print(content)
+        if result.payload.get("truncated") is True:
+            console.print("[trace truncated]")
+
+
+def _execute_review_action(
+    *,
+    action: str,
+    repo_path: Path,
+    turn: AgentSessionTurn,
+) -> ReviewActionResult:
+    workspace_path = Path(turn.review.workspace_path) if turn.review.workspace_path else None
+    trace_path = Path(turn.review.trace_path) if turn.review.trace_path else None
+
+    if action == "view_diff":
+        if workspace_path is None:
+            return ReviewActionResult(
+                action="view_diff",
+                status="failed",
+                summary="Unable to read worktree diff",
+                error_message="workspace path is unavailable",
+            )
+        return view_worktree_diff(workspace_path=workspace_path)
+    if action == "view_trace":
+        if trace_path is None:
+            return ReviewActionResult(
+                action="view_trace",
+                status="failed",
+                summary="Unable to read trace",
+                error_message="trace path is unavailable",
+            )
+        return view_trace(trace_path=trace_path)
+    if action == "apply":
+        if workspace_path is None:
+            return ReviewActionResult(
+                action="apply",
+                status="failed",
+                summary="Unable to apply worktree changes",
+                error_message="workspace path is unavailable",
+            )
+        return apply_worktree_changes(repo_path=repo_path, workspace_path=workspace_path)
+    if action == "discard":
+        if workspace_path is None:
+            return ReviewActionResult(
+                action="discard",
+                status="failed",
+                summary="Unable to discard worktree",
+                error_message="workspace path is unavailable",
+            )
+        return discard_worktree(repo_path=repo_path, workspace_path=workspace_path)
+    return ReviewActionResult(
+        action=action,
+        status="rejected",
+        summary="Action not available",
+        error_message=f"Action not available: {action}",
+    )
+
+
+def _run_review_actions(*, repo_path: Path, turn: AgentSessionTurn) -> None:
+    available_actions = _available_review_actions(turn)
+    if not available_actions:
+        return
+
+    while True:
+        _render_review_actions(available_actions)
+        selected_action = _prompt_review_action()
+        if not selected_action:
+            return
+        if selected_action not in available_actions:
+            console.print(f"Action not available: {selected_action}")
+            return
+
+        result = _execute_review_action(
+            action=selected_action,
+            repo_path=repo_path,
+            turn=turn,
+        )
+        _render_review_action_result(result)
+        if selected_action in {"apply", "discard"}:
+            return
 
 
 def _command_results_from_steps(turn: AgentSessionTurn) -> list[VerificationCommandResult]:
@@ -170,6 +317,7 @@ def tui_entry(ctx: typer.Context) -> None:
         verification_commands=[verification_command],
     )
     _render_turn(turn)
+    _run_review_actions(repo_path=repo_path, turn=turn)
     insight = extract_failure_insight(_command_results_from_steps(turn))
     location_result = _run_location_summary(
         turn=turn,

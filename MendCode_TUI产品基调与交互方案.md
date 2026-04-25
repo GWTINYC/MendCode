@@ -159,7 +159,7 @@ Guided Mode 下：
 - [x] `repo_status` / `read_file` / `search_code` 自动执行
 - [x] 测试、lint 可自动执行
 - [x] patch 可自动应用到隔离 worktree
-- [ ] apply 到当前工作区必须确认
+- [x] apply 到当前工作区必须确认
 - [ ] git commit / push 必须确认
 - [ ] 任意 shell、安装依赖、联网默认确认或禁止
 
@@ -187,7 +187,7 @@ TUI 可见度采用：
 - [ ] 完整命令输出
 - [ ] 完整工具参数
 - [x] 完整 trace
-- [ ] 完整 diff
+- [x] 完整 diff
 
 不默认展示完整 diff。默认展示 diff summary：
 
@@ -457,6 +457,7 @@ Custom Mode：
 - [x] `ReviewSummary` 会话审查摘要模型
 - [x] `AttemptRecord` 失败尝试记录模型
 - [x] 工程审查收尾
+- [x] TUI review action 菜单：`view_diff` / `view_trace` / `apply` / `discard`
 
 第一版不支持：
 
@@ -536,7 +537,6 @@ Summary:
 
 Actions:
 [v] View diff
-[l] View logs
 [t] View trace
 [a] Apply to workspace
 [d] Discard
@@ -555,7 +555,7 @@ Actions:
 - [x] Agent 的修改只发生在 worktree
 - [x] 修复结果必须有验证命令证明
 - [x] 用户可以查看 diff summary 的底层数据
-- [ ] 用户可以 apply 或 discard
+- [x] 用户可以 apply 或 discard
 
 如果做不到这些，就还不是目标形态下的可演示 TUI Agent MVP。
 
