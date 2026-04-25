@@ -62,6 +62,8 @@ mendcode
 - [x] JSONL trace
 - [x] `mendcode fix "<problem>" --test "<command>"` 过渡入口
 - [x] pytest 风格失败日志解析
+- [x] `ReviewSummary` 会话审查摘要模型
+- [x] `AttemptRecord` 失败尝试记录模型
 
 这些能力的定位：
 
@@ -223,13 +225,14 @@ Phase A 已完成。
 - [x] patch apply to worktree
 - [x] diff summary
 - [x] verification gate
+- [x] failed attempt record
 - [ ] max_attempts retry
 - [ ] failed patch trace
 
 停手点：
 
 - [x] 修复通过时能输出 changed files、diff summary、verification result
-- [ ] 修复失败时能输出尝试记录和下一步选项
+- [ ] 修复失败时能在 TUI/CLI 中输出尝试记录和下一步选项
 
 ### Phase F：TUI MVP
 
@@ -256,6 +259,11 @@ mendcode
 - [ ] 用户可以在 TUI 中描述一个 pytest 失败问题
 - [x] Agent 能通过测试驱动 action 完成一次 worktree 内修复尝试
 - [ ] 用户能基于审查摘要决定 apply 或 discard
+
+当前接续点：
+
+- [ ] `AgentSession.run_turn()` 单轮会话抽象
+- [ ] `session.turns` 持续追加，为后续多轮聊天保留状态
 
 ---
 

@@ -10,6 +10,18 @@
 
 ---
 
+## Resume State
+
+Last reconciled: 2026-04-25.
+
+- [x] Task 1 completed in `fde8243` and `5564e7f`: `ReviewSummary` exists, and `verified` requires both passed verification and completed loop status.
+- [x] Task 2 completed in `8d255fb` and `3fd19f8`: `AttemptRecord` exists, and patch attempts scan all following verification commands until the next patch proposal.
+- [x] Task 2 quality follow-up verified with `python -m pytest tests/unit/test_agent_session.py -q` and `python -m ruff check app/agent/session.py tests/unit/test_agent_session.py`.
+- [ ] Next implementation task: Task 3, `AgentSession` single-turn support. Keep the API shaped for future multi-turn chat by appending turns to `session.turns`.
+- [ ] Do not mark TUI entry, natural-language main input, apply/discard behavior, or `max_attempts` retry complete until code and tests land.
+
+---
+
 ## File Structure
 
 - Create `app/agent/session.py`: owns `ReviewSummary`, `AttemptRecord`, `AgentTurn`, `AgentSession`, and helpers that convert loop results into session-level output.
@@ -24,7 +36,7 @@
 - Create: `app/agent/session.py`
 - Create: `tests/unit/test_agent_session.py`
 
-- [ ] **Step 1: Write the failing ReviewSummary tests**
+- [x] **Step 1: Write the failing ReviewSummary tests**
 
 Add this to `tests/unit/test_agent_session.py`:
 
@@ -118,13 +130,13 @@ def test_review_summary_is_failed_when_latest_verification_failed() -> None:
     assert summary.recommended_actions == ["view_trace", "discard"]
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `python -m pytest tests/unit/test_agent_session.py -q`
 
 Expected: FAIL with `ModuleNotFoundError: No module named 'app.agent.session'`.
 
-- [ ] **Step 3: Implement `ReviewSummary` and `build_review_summary`**
+- [x] **Step 3: Implement `ReviewSummary` and `build_review_summary`**
 
 Create `app/agent/session.py` with:
 
@@ -195,13 +207,13 @@ def build_review_summary(loop_result: AgentLoopResult) -> ReviewSummary:
     )
 ```
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `python -m pytest tests/unit/test_agent_session.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/agent/session.py tests/unit/test_agent_session.py
@@ -214,7 +226,7 @@ git commit -m "feat: add review summary model"
 - Modify: `app/agent/session.py`
 - Modify: `tests/unit/test_agent_session.py`
 
-- [ ] **Step 1: Write failing AttemptRecord tests**
+- [x] **Step 1: Write failing AttemptRecord tests**
 
 Append to `tests/unit/test_agent_session.py`:
 
@@ -299,13 +311,13 @@ def test_attempt_record_is_created_for_patch_verification_failure() -> None:
     ]
 ```
 
-- [ ] **Step 2: Run tests to verify failure**
+- [x] **Step 2: Run tests to verify failure**
 
 Run: `python -m pytest tests/unit/test_agent_session.py::test_attempt_record_is_created_for_failed_patch_apply tests/unit/test_agent_session.py::test_attempt_record_is_created_for_patch_verification_failure -q`
 
 Expected: FAIL with `ImportError: cannot import name 'AttemptRecord'`.
 
-- [ ] **Step 3: Implement `AttemptRecord` and `build_attempt_records`**
+- [x] **Step 3: Implement `AttemptRecord` and `build_attempt_records`**
 
 Append to `app/agent/session.py`:
 
@@ -367,13 +379,13 @@ def build_attempt_records(loop_result: AgentLoopResult) -> list[AttemptRecord]:
     return attempts
 ```
 
-- [ ] **Step 4: Run tests to verify pass**
+- [x] **Step 4: Run tests to verify pass**
 
 Run: `python -m pytest tests/unit/test_agent_session.py -q`
 
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add app/agent/session.py tests/unit/test_agent_session.py

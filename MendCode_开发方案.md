@@ -53,6 +53,8 @@ mendcode
 - [x] `apply_patch_to_worktree` 底层 patch helper
 - [x] `mendcode fix "<problem>" --test "<command>"` 过渡入口，已在隔离 worktree 中执行
 - [x] pytest 失败日志解析
+- [x] `ReviewSummary` 会话审查摘要模型
+- [x] `AttemptRecord` 失败尝试记录模型
 
 已删除的旧主线：
 
@@ -266,13 +268,14 @@ mendcode
 - [x] apply patch to worktree
 - [x] diff summary
 - [x] verification gate
+- [x] failed attempt record
 - [ ] max_attempts retry
 - [ ] failed attempt trace
 
 验收：
 
 - [x] 修复成功时输出 changed files、diff summary、verification result
-- [ ] 修复失败时输出尝试记录和下一步选项
+- [ ] 修复失败时在 TUI/CLI 中输出尝试记录和下一步选项
 - [x] 未验证通过时不能声称修复完成
 
 ---
@@ -324,6 +327,12 @@ mendcode fix "<problem>" --test "<command>"
 - [x] failure parser
 - [x] trace
 - [x] worktree safety
+- [x] session result models: `ReviewSummary` / `AttemptRecord`
+
+当前接续点：
+
+- [ ] `AgentSession.run_turn()` 单轮会话抽象
+- [ ] `session.turns` 持续追加，为后续多轮聊天保留状态
 
 后续不要继续把它扩展成完整产品。新增能力应优先服务 TUI Agent 主线。
 

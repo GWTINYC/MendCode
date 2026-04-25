@@ -449,6 +449,8 @@ Custom Mode：
 - [x] 运行验证
 - [x] diff summary
 - [x] trace 记录
+- [x] `ReviewSummary` 会话审查摘要模型
+- [x] `AttemptRecord` 失败尝试记录模型
 - [ ] 工程审查收尾
 
 第一版不支持：
@@ -571,6 +573,7 @@ mendcode fix "<problem>" --test "<command>"
 - [x] failure parser
 - [x] trace
 - [x] worktree safety
+- [x] session result models: `ReviewSummary` / `AttemptRecord`
 
 后续 TUI 会复用这些底座，但用户主入口应逐步迁移到：
 
@@ -579,3 +582,8 @@ mendcode
 ```
 
 然后在 TUI 中自然语言对话完成任务。
+
+当前接续点：
+
+- [ ] `AgentSession.run_turn()` 单轮会话抽象
+- [ ] `session.turns` 持续追加，为后续多轮聊天保留状态
