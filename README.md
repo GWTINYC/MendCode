@@ -1,52 +1,52 @@
 # MendCode
 
-MendCode is a local TUI Code Agent for repository inspection, repair, verification, and review. It runs from the current repo, accepts natural-language requests, lets the model call structured tools, executes those tools under local safety rules, and records the conversation for later review.
+MendCode 是一个运行在本地代码仓库中的 TUI Code Agent，用于仓库查看、问题修复、结果验证和工程审查。它从当前仓库启动，接受自然语言请求，让模型调用结构化工具，并在本地安全规则下执行这些工具，最后把对话过程保存下来，方便后续复盘。
 
-The current product direction is:
+当前产品方向是：
 
 ```text
-natural language
--> intent routing
--> model tool call
--> local permission gate
--> structured tool execution
--> observation returned to the model
--> grounded final answer or verified repair
+自然语言输入
+-> 意图路由
+-> 模型发起工具调用
+-> 本地权限校验
+-> 结构化工具执行
+-> observation 回传给模型
+-> 基于证据的最终回答或已验证修复
 ```
 
-## Current Status
+## 当前状态
 
-MendCode currently supports the early TUI Agent workflow:
+MendCode 目前已经支持早期 TUI Agent 工作流：
 
-- Natural-language chat, shell, tool, and repair routing.
-- OpenAI-compatible native `tool_calls` as the primary model-tool path.
-- JSON Action fallback for providers or endpoints that reject tools.
-- Structured tools including `read_file`, `list_dir`, `glob_file_search`, `rg` / `search_code`, read-only `git`, `run_shell_command`, `run_command`, `apply_patch`, `repo_status`, `detect_project`, and `show_diff`.
-- Scoped tool exposure through `allowed_tools`, so read-only requests do not expose write tools.
-- Guided permission mode with low-risk read-only actions auto-run and risky commands confirmed or rejected.
-- Verification-only `run_command`, separated from general shell execution.
-- Conversation logs in Markdown and JSONL under `data/conversations/`.
-- Trace output for AgentLoop actions.
-- Worktree-based repair path and review actions.
+- 自然语言 chat、shell、tool、repair 路由。
+- 以 OpenAI-compatible 原生 `tool_calls` 作为主要模型工具调用路径。
+- 对拒绝 tools 参数或不支持工具调用的 provider / endpoint，保留 JSON Action fallback。
+- 结构化工具包括 `read_file`、`list_dir`、`glob_file_search`、`rg` / `search_code`、只读 `git`、`run_shell_command`、`run_command`、`apply_patch`、`repo_status`、`detect_project` 和 `show_diff`。
+- 通过 `allowed_tools` 按场景裁剪暴露给模型的工具，避免只读请求暴露写入工具。
+- Guided 权限模式下，低风险只读动作自动执行，高风险命令需要确认或直接拒绝。
+- `run_command` 只用于验证命令，与普通 shell 执行分离。
+- 对话日志以 Markdown 和 JSONL 写入 `data/conversations/`。
+- AgentLoop action 会产生 trace 输出。
+- 支持基于 worktree 的修复路径和审查动作。
 
-This is not yet a polished full product. The main engineering focus is stabilizing the Agent runtime, tool registry, permission policy, and session replay path.
+MendCode 还不是一个打磨完整的最终产品。当前工程重点是稳定 Agent runtime、ToolRegistry、权限策略和会话复盘路径。
 
-## Quick Start
+## 快速开始
 
-Install dependencies and run the test suite:
+安装依赖并运行测试：
 
 ```bash
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .
 ```
 
-Start the TUI from a repository:
+在仓库中启动 TUI：
 
 ```bash
 mendcode
 ```
 
-Useful examples inside the TUI:
+TUI 中可以尝试：
 
 ```text
 帮我查看当前文件夹里的文件
@@ -55,17 +55,17 @@ Useful examples inside the TUI:
 pytest 失败了，帮我修复
 ```
 
-Direct CLI repair remains a transitional entrypoint:
+直接 CLI 修复仍作为过渡入口保留：
 
 ```bash
 mendcode fix "fix the failing test" --test "python -m pytest -q"
 ```
 
-## Provider Configuration
+## Provider 配置
 
-The actively supported model path is OpenAI-compatible chat completions.
+当前主要支持 OpenAI-compatible chat completions。
 
-Expected environment variables:
+需要配置的环境变量：
 
 ```bash
 export MENDCODE_PROVIDER=openai-compatible
@@ -74,59 +74,59 @@ export MENDCODE_BASE_URL="https://your-provider.example/v1"
 export MENDCODE_API_KEY="your-api-key"
 ```
 
-API keys must stay outside the repository. Prefer environment variables or local user configuration.
+API key 不能写入项目仓库。优先使用环境变量或用户本地配置。
 
-## Architecture Map
+## 架构地图
 
 ```text
 app/
-├── agent/          # AgentLoop, provider adapters, prompt context, permissions, sessions
-├── tools/          # ToolRegistry, tool schemas, read-only and patch tools
-├── tui/            # Textual UI, intent routing, conversation logging
-├── workspace/      # shell policy/executor, verification executor, worktree helpers
-├── schemas/        # MendCodeAction, Observation, trace and verification schemas
+├── agent/          # AgentLoop、provider adapter、prompt context、权限、会话
+├── tools/          # ToolRegistry、工具 schema、只读工具和 patch 工具
+├── tui/            # Textual UI、意图路由、对话日志
+├── workspace/      # shell policy/executor、验证 executor、worktree helper
+├── schemas/        # MendCodeAction、Observation、trace 和 verification schema
 └── tracing/        # JSONL trace recorder
 ```
 
-Key runtime contracts:
+关键运行时契约：
 
-- `ToolRegistry` is the source of tool schemas, risk levels, and executors.
-- `AgentLoop` is the execution boundary and must re-check allowed tools before running native tool calls.
-- `PermissionPolicy` logic must remain centralized; avoid duplicating risk tables.
-- Tool observations must be structured enough to pass back to the model and to persist in logs.
-- Local facts must come from tools, not from ordinary chat text.
+- `ToolRegistry` 是工具 schema、风险等级和 executor 的来源。
+- `AgentLoop` 是执行边界，在运行 native tool call 前必须重新检查 allowed tools。
+- `PermissionPolicy` 逻辑必须保持集中，避免重复维护风险表。
+- 工具 observation 必须足够结构化，既能回传给模型，也能持久化到日志。
+- 本地事实必须来自工具结果，不能来自普通聊天文本。
 
-## Documentation
+## 文档
 
-The root documentation set is intentionally small:
+根目录文档保持精简：
 
-- `README.md`: project overview, setup, current status, and navigation.
-- `MendCode_全局路线图.md`: concise long-term direction and phase priorities.
-- `MendCode_开发方案.md`: detailed implementation state, subsystem contracts, and next tasks.
-- `MendCode_问题记录.md`: architecture-relevant issues and constraints.
+- `README.md`：项目概览、启动方式、当前状态和文档导航。
+- `MendCode_全局路线图.md`：简要长期方向和阶段优先级。
+- `MendCode_开发方案.md`：详细实现状态、子系统契约和下一步任务。
+- `MendCode_问题记录.md`：架构相关问题、风险和约束。
 
-After every development round, update `MendCode_开发方案.md` when implementation reality changes. Update the roadmap only when the high-level direction or phase priority changes. Update the issue log when a new recurring risk or architectural constraint is discovered.
+每轮开发后，如果实现现实发生变化，需要更新 `MendCode_开发方案.md`。只有高层方向或阶段优先级变化时才更新路线图。发现新的反复风险或架构约束时，更新问题记录。
 
-## Data Directory
+## data 目录
 
-`data/` is for local runtime artifacts, not source code:
+`data/` 用于存放本地运行产物，不是源码目录：
 
-- `data/conversations/`: Markdown and JSONL conversation logs.
-- `data/traces/`: AgentLoop traces.
-- `data/reference-*` or other local analysis clones: reference material, ignored by git.
+- `data/conversations/`：Markdown 和 JSONL 对话日志。
+- `data/traces/`：AgentLoop trace。
+- `data/reference-*` 或其它本地分析 clone：参考材料，默认被 git 忽略。
 
-Do not commit runtime logs or cloned reference repositories.
+不要提交运行日志或本地 clone 的参考仓库。
 
-## Development Rule
+## 开发规则
 
-Every meaningful change should preserve the core loop:
+任何有意义的改动都必须维护核心闭环：
 
 ```text
-model requests tool
--> MendCode validates permissions
--> MendCode executes locally
--> observation returns to model
--> final answer or repair is grounded in evidence
+模型请求工具
+-> MendCode 校验权限
+-> MendCode 在本地执行
+-> observation 回传模型
+-> 最终回答或修复基于证据
 ```
 
-If a change makes this loop weaker, it should not be merged.
+如果某项改动削弱了这个闭环，就不应该合入。
