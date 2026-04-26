@@ -157,19 +157,21 @@ Expected: all tests pass.
 - Test: `tests/unit/test_tui_app.py`
 - Test: `tests/unit/test_tui_intent.py`
 
-- [ ] **Step 1: Move task dispatch out of Textual app**
+- [x] **Step 1: Move task dispatch out of Textual app**
 
 Controller owns parsing routed intents, launching runtime turns, and returning display events.
 
-- [ ] **Step 2: Keep Textual app display-only**
+Current slice: `TuiController` owns input parsing, task intent routing, pending reply checks, and dispatch to chat/shell/tool/fix starters. Worker execution and rendering remain in `MendCodeTextualApp` behind host methods.
+
+- [x] **Step 2: Keep Textual app display-only**
 
 `MendCodeTextualApp` should append messages, show pending confirmations, and call controller methods.
 
-- [ ] **Step 3: Preserve conversation logging**
+- [x] **Step 3: Preserve conversation logging**
 
 Conversation log writes stay compact and include trace pointers.
 
-- [ ] **Step 4: Run TUI tests**
+- [x] **Step 4: Run TUI tests**
 
 Run:
 

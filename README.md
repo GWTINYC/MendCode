@@ -84,7 +84,7 @@ app/
 ├── agent/          # 当前 AgentLoop、provider adapter、prompt context、权限、会话
 ├── runtime/        # AgentRuntime wrapper、runtime turn/result contracts
 ├── tools/          # ToolRegistry、工具 schema、只读工具和 patch 工具
-├── tui/            # Textual UI、意图路由、对话日志
+├── tui/            # Textual UI、TuiController、意图路由、对话日志
 ├── workspace/      # shell policy/executor、验证 executor、worktree helper
 ├── schemas/        # MendCodeAction、Observation、trace 和 verification schema
 └── tracing/        # JSONL trace recorder

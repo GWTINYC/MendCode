@@ -203,6 +203,7 @@ User Message
 已完成：
 
 - [x] TUI 启动
+- [x] `TuiController` 接管输入解析、intent routing 和 chat/shell/tool/fix 调度
 - [x] `/status`
 - [x] chat / fix / shell / tool intent
 - [x] shell 自动执行和 pending confirmation
@@ -213,6 +214,7 @@ User Message
 
 当前不足：
 
+- [ ] worker 执行、渲染和 review action 仍主要在 `MendCodeTextualApp`
 - [ ] 工具调用不能折叠/展开
 - [ ] 完整工具参数和完整输出 viewer 不足
 - [ ] permission prompt 交互仍偏简单
@@ -221,6 +223,7 @@ User Message
 
 下一步：
 
+- 继续把 worker 启动、completion 处理和 review action 迁到 controller 或 runtime-facing service。
 - 工具结果摘要保留在聊天流；conversation log 只保留摘要、样本和 trace/workspace 指针，完整 payload 通过 trace 或后续 viewer 查看。
 - 对 pending confirmation 支持 allow once / deny / change mode。
 - 增加 session picker 和 resume latest。

@@ -13,9 +13,10 @@ from app.agent.provider_factory import ProviderConfigurationError, build_agent_p
 from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import Settings
 from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_responder
-from app.tui.commands import ChatCommand, CommandParseError, parse_chat_input
+from app.tui.commands import ChatCommand
+from app.tui.controller import TuiController
 from app.tui.conversation_log import ConversationLog
-from app.tui.intent import IntentContext, IntentRouter, build_intent_router
+from app.tui.intent import IntentRouter, build_intent_router
 from app.tui.log_summarizer import compact_agent_loop_result, compact_agent_session_turn
 from app.tui.state import TuiSessionState
 from app.workspace.project_detection import detect_project
@@ -208,6 +209,7 @@ class MendCodeTextualApp(App[None]):
             data_dir=settings.data_dir,
             repo_path=repo_path,
         )
+        self._controller = TuiController(self)
         self.session_state.set_conversation_paths(
             markdown_path=self._conversation_log.markdown_path,
             jsonl_path=self._conversation_log.jsonl_path,
@@ -243,71 +245,35 @@ class MendCodeTextualApp(App[None]):
         chat_log.write(Text(line))
 
     def handle_user_input(self, raw_text: str) -> None:
-        text = raw_text.strip()
-        if not text:
-            return
-        self.append_message("You", text)
-        try:
-            parsed = parse_chat_input(text)
-        except CommandParseError as exc:
-            self.append_message("Error", str(exc))
-            return
+        self._controller.handle_user_input(raw_text)
 
-        if parsed.kind == "empty":
-            return
-        if parsed.kind == "task":
-            assert parsed.task_text is not None
-            self._handle_task(parsed.task_text)
-            return
+    @property
+    def conversation_log(self) -> ConversationLog:
+        return self._conversation_log
 
-        assert parsed.command is not None
-        self._handle_command(parsed.command)
+    def ensure_intent_router(self) -> IntentRouter:
+        return self._ensure_intent_router()
 
-    def _handle_task(self, task: str) -> None:
-        self.session_state.recent_task = task
-        if self.session_state.running:
-            self.append_message("Error", "A request is already running.")
-            return
-        if self._handle_pending_shell_reply(task):
-            return
-        if self._handle_pending_fix_reply(task):
-            return
+    def handle_pending_shell_reply(self, message: str) -> bool:
+        return self._handle_pending_shell_reply(message)
 
-        try:
-            router = self._ensure_intent_router()
-            decision = router.route(
-                task,
-                IntentContext(
-                    repo_path=self.repo_path,
-                    verification_command=self.session_state.verification_command,
-                ),
-            )
-            self._conversation_log.append_event(
-                "intent",
-                {
-                    "kind": decision.kind,
-                    "source": decision.source,
-                    "command": decision.command,
-                    "message": task,
-                },
-            )
-        except ProviderConfigurationError as exc:
-            self.append_message("Error", str(exc))
-            return
+    def handle_pending_fix_reply(self, message: str) -> bool:
+        return self._handle_pending_fix_reply(message)
 
-        if decision.kind == "chat":
-            self._start_chat(task)
-            return
-        if decision.kind == "shell":
-            if not decision.command:
-                self._start_chat(task)
-                return
-            self._prepare_shell_command(decision.command, source=decision.source)
-            return
-        if decision.kind == "tool":
-            self._start_tool_request(task)
-            return
-        self._prepare_fix(task, source=decision.source)
+    def start_chat(self, message: str) -> None:
+        self._start_chat(message)
+
+    def prepare_shell_command(self, command: str, *, source: str) -> None:
+        self._prepare_shell_command(command, source=source)
+
+    def start_tool_request(self, task: str) -> None:
+        self._start_tool_request(task)
+
+    def prepare_fix(self, task: str, *, source: str) -> None:
+        self._prepare_fix(task, source=source)
+
+    def handle_command(self, command: ChatCommand) -> None:
+        self._handle_command(command)
 
     def _handle_command(self, command: ChatCommand) -> None:
         if command.name == "help":
