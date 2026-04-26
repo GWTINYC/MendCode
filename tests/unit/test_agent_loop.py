@@ -255,6 +255,40 @@ def test_agent_loop_executes_structured_rg_action(tmp_path: Path) -> None:
     ]
 
 
+def test_agent_loop_executes_native_search_code_tool(tmp_path: Path) -> None:
+    (tmp_path / "src.py").write_text("alpha\nbeta alpha\n", encoding="utf-8")
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_1",
+                    name="search_code",
+                    args={"query": "alpha", "glob": "*.py", "max_results": 1},
+                    source="openai_tool_call",
+                )
+            ],
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="search",
+            provider=provider,
+            step_budget=4,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.steps[0].observation.status == "succeeded"
+    assert result.steps[0].observation.payload["total_matches"] == 2
+    assert result.steps[0].observation.payload["matches"] == [
+        {"relative_path": "src.py", "line_number": 1, "line_text": "alpha"}
+    ]
+
+
 def test_agent_loop_executes_structured_apply_patch_action(tmp_path: Path) -> None:
     target = tmp_path / "notes.txt"
     target.write_text("alpha\n", encoding="utf-8")
@@ -816,6 +850,46 @@ def test_agent_loop_does_not_complete_after_failed_tool_observation(tmp_path: Pa
     assert result.summary == "Agent loop ended with failed observations"
 
 
+def test_agent_loop_does_not_complete_when_earlier_failure_is_followed_by_success(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+    failing_command = f"{PYTHON} -c 'raise SystemExit(1)'"
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="failed verification",
+            verification_commands=[failing_command],
+            actions=[
+                {
+                    "type": "tool_call",
+                    "action": "run_command",
+                    "reason": "run failing command",
+                    "args": {"command": failing_command},
+                },
+                {
+                    "type": "tool_call",
+                    "action": "list_dir",
+                    "reason": "inspect current directory",
+                    "args": {"path": "."},
+                },
+                {
+                    "type": "final_response",
+                    "status": "completed",
+                    "summary": "done",
+                },
+            ],
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.summary == "Agent loop ended with failed observations"
+    assert result.steps[0].observation.status == "failed"
+    assert result.steps[1].observation.status == "succeeded"
+
+
 def test_agent_loop_applies_patch_proposal_in_worktree_then_verifies(
     tmp_path: Path,
 ) -> None:
@@ -902,3 +976,86 @@ def test_agent_loop_applies_patch_proposal_in_worktree_then_verifies(
     assert result.steps[1].observation.status == "succeeded"
     assert result.steps[1].observation.payload["files_to_modify"] == ["calculator.py"]
     assert "calculator.py" in result.steps[3].observation.payload["diff_stat"]
+
+
+def test_agent_loop_does_not_complete_when_post_patch_failure_follows_verification(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    target = repo_path / "calculator.py"
+    target.write_text("def add(a, b):\n    return a - b\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "add", "calculator.py"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run(
+        ["git", "commit", "-m", "add calculator"],
+        cwd=repo_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    command = (
+        f"{PYTHON} -c "
+        "\"import calculator; "
+        "raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)\""
+    )
+    later_failing_command = f"{PYTHON} -c 'raise SystemExit(1)'"
+    patch = """diff --git a/calculator.py b/calculator.py
+--- a/calculator.py
++++ b/calculator.py
+@@ -1,2 +1,2 @@
+ def add(a, b):
+-    return a - b
++    return a + b
+"""
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="fix add",
+            use_worktree=True,
+            verification_commands=[command, later_failing_command],
+            actions=[
+                {
+                    "type": "patch_proposal",
+                    "reason": "add should add operands",
+                    "files_to_modify": ["calculator.py"],
+                    "patch": patch,
+                },
+                {
+                    "type": "tool_call",
+                    "action": "run_command",
+                    "reason": "verify patch",
+                    "args": {"command": command},
+                },
+                {
+                    "type": "tool_call",
+                    "action": "run_command",
+                    "reason": "later verification failed",
+                    "args": {"command": later_failing_command},
+                },
+                {
+                    "type": "tool_call",
+                    "action": "list_dir",
+                    "reason": "inspect current directory",
+                    "args": {"path": "."},
+                },
+                {
+                    "type": "final_response",
+                    "status": "completed",
+                    "summary": "verification passed",
+                },
+            ],
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.summary == "Agent loop ended with failed observations"
+    assert result.steps[1].observation.status == "succeeded"
+    assert result.steps[2].observation.status == "failed"
+    assert result.steps[3].observation.status == "succeeded"

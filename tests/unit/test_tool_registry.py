@@ -168,7 +168,7 @@ def test_package_exports_structured_tool_aliases() -> None:
 def test_default_registry_contains_read_only_tools() -> None:
     registry = default_tool_registry()
 
-    for tool_name in ["glob_file_search", "list_dir", "read_file", "rg"]:
+    for tool_name in ["glob_file_search", "list_dir", "read_file", "rg", "search_code"]:
         assert tool_name in registry.names()
 
 
@@ -215,6 +215,27 @@ def test_registry_executes_read_file_tool(tmp_path: Path) -> None:
     assert observation.status == "succeeded"
     assert observation.payload["relative_path"] == "README.md"
     assert observation.payload["content"] == "hello\n"
+
+
+def test_registry_executes_search_code_alias(tmp_path: Path) -> None:
+    (tmp_path / "src.py").write_text("alpha\nbeta alpha\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("search_code").execute(
+        {"query": "alpha", "glob": "*.py", "max_results": 1},
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    assert observation.payload["total_matches"] == 2
+    assert observation.payload["matches"] == [
+        {"relative_path": "src.py", "line_number": 1, "line_text": "alpha"}
+    ]
 
 
 def test_registry_rejects_bad_read_file_args(tmp_path: Path) -> None:

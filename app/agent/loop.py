@@ -843,6 +843,14 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
                 ),
                 None,
             )
+            observation_start_index = (
+                0 if last_patch_index is None else last_patch_index + 1
+            )
+            meaningful_steps = [
+                step
+                for step in steps[observation_start_index:-1]
+                if step.action.type != "assistant_message"
+            ]
             if handled.step.action.status == "completed" and last_patch_index is not None:
                 last_post_patch_verification = next(
                     (
@@ -858,18 +866,9 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
                     or last_post_patch_verification.status != "succeeded"
                 ):
                     return "failed", "Agent loop ended with failed observations"
-            last_non_final_observation = next(
-                (
-                    step.observation
-                    for step in reversed(steps[:-1])
-                    if step.action.type != "assistant_message"
-                ),
-                None,
-            )
             if (
                 handled.step.action.status == "completed"
-                and last_non_final_observation is not None
-                and last_non_final_observation.status != "succeeded"
+                and any(step.observation.status != "succeeded" for step in meaningful_steps)
             ):
                 return "failed", "Agent loop ended with failed observations"
         return handled.status, handled.summary

@@ -366,6 +366,13 @@ def default_tool_registry() -> ToolRegistry:
                 executor=_execute_rg,
             ),
             ToolSpec(
+                name="search_code",
+                description="Search repo text using ripgrep.",
+                args_model=RgArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=_execute_rg,
+            ),
+            ToolSpec(
                 name="git",
                 description="Run a structured read-only git operation.",
                 args_model=GitArgs,
