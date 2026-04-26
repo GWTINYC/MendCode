@@ -1,6 +1,6 @@
 import json
 import re
-from typing import Protocol
+from typing import Protocol, overload
 
 from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError
@@ -24,6 +24,17 @@ class OpenAICompletion(BaseModel):
 
 
 class OpenAICompatibleClient(Protocol):
+    @overload
+    def complete(
+        self,
+        *,
+        model: str,
+        messages: list[ChatMessage],
+        timeout_seconds: int,
+    ) -> str:
+        ...
+
+    @overload
     def complete(
         self,
         *,
@@ -39,6 +50,17 @@ class OpenAIChatCompletionsClient:
     def __init__(self, *, api_key: str, base_url: str) -> None:
         self._client = OpenAI(api_key=api_key, base_url=base_url)
 
+    @overload
+    def complete(
+        self,
+        *,
+        model: str,
+        messages: list[ChatMessage],
+        timeout_seconds: int,
+    ) -> str:
+        ...
+
+    @overload
     def complete(
         self,
         *,
@@ -47,6 +69,16 @@ class OpenAIChatCompletionsClient:
         tools: list[dict[str, object]],
         timeout_seconds: int,
     ) -> OpenAICompletion:
+        ...
+
+    def complete(
+        self,
+        *,
+        model: str,
+        messages: list[ChatMessage],
+        tools: list[dict[str, object]] | None = None,
+        timeout_seconds: int,
+    ) -> str | OpenAICompletion:
         response = self._client.chat.completions.create(
             model=model,
             messages=[message.model_dump(exclude_none=True) for message in messages],
@@ -54,6 +86,8 @@ class OpenAIChatCompletionsClient:
             timeout=timeout_seconds,
         )
         message = response.choices[0].message
+        if tools is None:
+            return message.content or ""
         return OpenAICompletion(
             content=message.content or "",
             tool_calls=[
@@ -151,6 +185,10 @@ class OpenAICompatibleAgentProvider:
                     return ProviderResponse.failed(
                         "Provider returned non-object tool call arguments"
                     )
+                try:
+                    self._tool_registry.get(tool_call.name)
+                except KeyError:
+                    return ProviderResponse.failed("Provider returned unknown tool call")
                 try:
                     tool_invocations.append(
                         ToolInvocation(

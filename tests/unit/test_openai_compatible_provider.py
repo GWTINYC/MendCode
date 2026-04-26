@@ -1,5 +1,6 @@
 from app.agent.openai_compatible import (
     ChatMessage,
+    OpenAIChatCompletionsClient,
     OpenAICompatibleAgentProvider,
     OpenAICompletion,
     OpenAIToolCall,
@@ -37,6 +38,55 @@ class FakeClient:
         if isinstance(self.response, OpenAICompletion):
             return self.response
         return OpenAICompletion(content=str(self.response or ""), tool_calls=[])
+
+
+class FakeSDKFunction:
+    def __init__(self, *, name: str, arguments: str) -> None:
+        self.name = name
+        self.arguments = arguments
+
+
+class FakeSDKToolCall:
+    def __init__(self, *, id: str, name: str, arguments: str) -> None:
+        self.id = id
+        self.function = FakeSDKFunction(name=name, arguments=arguments)
+
+
+class FakeSDKMessage:
+    def __init__(self, *, content: str | None, tool_calls: list[FakeSDKToolCall]) -> None:
+        self.content = content
+        self.tool_calls = tool_calls
+
+
+class FakeSDKChoice:
+    def __init__(self, message: FakeSDKMessage) -> None:
+        self.message = message
+
+
+class FakeSDKResponse:
+    def __init__(self, message: FakeSDKMessage) -> None:
+        self.choices = [FakeSDKChoice(message)]
+
+
+class FakeSDKCompletions:
+    def __init__(self, response: FakeSDKResponse) -> None:
+        self.response = response
+        self.calls: list[dict[str, object]] = []
+
+    def create(self, **kwargs: object) -> FakeSDKResponse:
+        self.calls.append(kwargs)
+        return self.response
+
+
+class FakeSDKChat:
+    def __init__(self, completions: FakeSDKCompletions) -> None:
+        self.completions = completions
+
+
+class FakeSDKClient:
+    def __init__(self, response: FakeSDKResponse) -> None:
+        self.completions = FakeSDKCompletions(response)
+        self.chat = FakeSDKChat(self.completions)
 
 
 def step_input() -> AgentProviderStepInput:
@@ -179,6 +229,112 @@ def test_openai_compatible_provider_rejects_invalid_tool_call_arguments_json() -
         response.observation.error_message
         == "Provider returned invalid tool call arguments"
     )
+
+
+def test_openai_compatible_provider_rejects_non_object_tool_call_arguments() -> None:
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=FakeClient(
+            OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(
+                        id="call-1",
+                        name="read_file",
+                        arguments='["README.md"]',
+                    )
+                ]
+            )
+        ),
+    )
+
+    response = provider.next_action(step_input())
+
+    assert response.status == "failed"
+    assert response.observation is not None
+    assert (
+        response.observation.error_message
+        == "Provider returned non-object tool call arguments"
+    )
+
+
+def test_openai_compatible_provider_rejects_unknown_tool_call_name() -> None:
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=FakeClient(
+            OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(id="call-1", name="delete_repo", arguments="{}")
+                ]
+            )
+        ),
+    )
+
+    response = provider.next_action(step_input())
+
+    assert response.status == "failed"
+    assert response.observation is not None
+    assert response.observation.error_message == "Provider returned unknown tool call"
+
+
+def test_openai_chat_completions_client_returns_text_when_no_tools_requested() -> None:
+    sdk_client = FakeSDKClient(
+        FakeSDKResponse(FakeSDKMessage(content="hello", tool_calls=[]))
+    )
+    client = OpenAIChatCompletionsClient.__new__(OpenAIChatCompletionsClient)
+    client._client = sdk_client
+
+    response = client.complete(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="hello")],
+        timeout_seconds=12,
+    )
+
+    assert response == "hello"
+    assert sdk_client.completions.calls[0]["tools"] is None
+
+
+def test_openai_chat_completions_client_parses_sdk_tool_calls() -> None:
+    sdk_client = FakeSDKClient(
+        FakeSDKResponse(
+            FakeSDKMessage(
+                content=None,
+                tool_calls=[
+                    FakeSDKToolCall(
+                        id="call-1",
+                        name="read_file",
+                        arguments='{"path":"README.md"}',
+                    )
+                ],
+            )
+        )
+    )
+    client = OpenAIChatCompletionsClient.__new__(OpenAIChatCompletionsClient)
+    client._client = sdk_client
+
+    response = client.complete(
+        model="test-model",
+        messages=[ChatMessage(role="user", content="hello")],
+        tools=default_tool_registry().openai_tools(),
+        timeout_seconds=12,
+    )
+
+    assert response == OpenAICompletion(
+        content="",
+        tool_calls=[
+            OpenAIToolCall(
+                id="call-1",
+                name="read_file",
+                arguments='{"path":"README.md"}',
+            )
+        ],
+    )
+    assert sdk_client.completions.calls[0]["tools"] == default_tool_registry().openai_tools()
 
 
 def test_openai_compatible_provider_uses_repair_contract_prompt() -> None:
