@@ -169,9 +169,13 @@ User Message
 
 已完成：
 
-- [x] `PermissionMode`: Safe / Guided / Full / Custom
+- [x] `PermissionMode`: target `read-only` / `workspace-write` / `danger-full-access`
+- [x] transitional aliases：`safe -> read-only`、`guided -> workspace-write`、`full -> danger-full-access`、`custom -> confirm`
 - [x] `PermissionDecision`
+- [x] 独立 `app.permissions.policy.PermissionPolicy`
+- [x] `PermissionDecision.required_mode`
 - [x] risk level 从 ToolRegistry 派生
+- [x] ShellPolicy 作为 shell classifier，最终 allow/confirm/deny 由 PermissionPolicy 统一判断
 - [x] shell low-risk 自动执行
 - [x] shell 写入/安装/网络/git mutate 确认
 - [x] critical destructive 和 path escape 拒绝
@@ -180,15 +184,14 @@ User Message
 
 当前不足：
 
-- [ ] PermissionPolicy 仍不是独立对象
-- [ ] 工具确认和 shell 确认还没有完全统一
+- [ ] 工具确认和 TUI pending confirmation 还没有完全统一为 allow once / deny / change mode
 - [ ] allow once / deny / change mode 回写不完整
 - [ ] Custom mode 未配置化
 
 下一步：
 
-- 抽出 `PermissionPolicy`，输入 tool spec、mode、shell decision、workspace context，输出 allow/confirm/deny。
-- 确认结果要形成 observation 并回传模型。
+- 把 TUI pending shell confirmation 和通用 tool confirmation 合并。
+- 确认或拒绝结果要形成 observation 并回传模型。
 - 所有写主工作区、安装、网络、commit、push、reset、checkout 都必须有测试覆盖。
 
 ### 3.5 TUI
@@ -258,11 +261,18 @@ User Message
 
 验收：
 
-- Safe / Guided / Full / Custom 行为清晰
+- `read-only` / `workspace-write` / `danger-full-access` 行为清晰，旧模式仅作兼容别名
 - read-only 自动允许
-- write/install/network/git mutate 确认
+- read-only 下写工具直接拒绝，workspace-write 下 danger shell 走确认
+- install/network/git mutate 确认
 - destructive/path escape 拒绝
 - permission decision 写入 observation
+
+状态：
+
+- 已完成基础抽取，`app.agent.permission` 现在只是兼容入口。
+- AgentLoop 已把 ShellPolicy decision 交给 PermissionPolicy 做最终判断。
+- 后续继续处理 pending confirmation 的用户选择回写。
 
 ### 任务 2：工具结果统一结构
 

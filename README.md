@@ -24,6 +24,7 @@ MendCode 目前已经支持早期 TUI Agent 工作流：
 - 结构化工具包括 `read_file`、`list_dir`、`glob_file_search`、`rg` / `search_code`、只读 `git`、`run_shell_command`、`run_command`、`apply_patch`、`repo_status`、`detect_project` 和 `show_diff`。
 - 通过 `allowed_tools` 按场景裁剪暴露给模型的工具，避免只读请求暴露写入工具。
 - Guided 权限模式下，低风险只读动作自动执行，高风险命令需要确认或直接拒绝。
+- 权限策略正在收敛到 `read-only`、`workspace-write`、`danger-full-access` 三档；旧的 safe/guided/full 作为兼容别名保留。
 - `run_command` 只用于验证命令，与普通 shell 执行分离。
 - 对话日志以 Markdown 和 JSONL 写入 `data/conversations/`。
 - AgentLoop action 会产生 trace 输出。

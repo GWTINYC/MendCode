@@ -594,40 +594,45 @@ def _handle_tool_call_action(
         if allow_legacy_git or action.action != "git"
         else None
     )
+    shell_decision = None
     if shell_policy_command is not None:
         shell_decision = ShellPolicy(
             allowed_root=workspace_path,
             timeout_seconds=settings.verification_timeout_seconds,
         ).evaluate(shell_policy_command, workspace_path)
-        if shell_decision.requires_confirmation:
-            return _confirmation_handled_action(
-                action=action,
-                decision=PermissionDecision(
-                    status="confirm",
-                    reason=shell_decision.reason or "shell command requires confirmation",
-                    risk_level=shell_decision.risk_level,
-                ),
-                index=index,
-                payload={"shell_policy_decision": shell_decision.model_dump(mode="json")},
-                error_message=shell_decision.reason,
-            )
 
-    decision = decide_permission(action, permission_mode)
+    decision = decide_permission(
+        action,
+        permission_mode,
+        shell_decision=shell_decision,
+    )
     observation: Observation
     if decision.status == "confirm":
+        payload: dict[str, Any] = {"permission_decision": decision.model_dump(mode="json")}
+        if shell_decision is not None:
+            payload["shell_policy_decision"] = shell_decision.model_dump(mode="json")
         return _confirmation_handled_action(
             action=action,
             decision=decision,
             index=index,
-            payload={"permission_decision": decision.model_dump(mode="json")},
+            payload=payload,
             error_message=decision.reason,
         )
     if decision.status == "deny":
+        payload = {"permission_decision": decision.model_dump(mode="json")}
+        if shell_decision is not None:
+            payload["shell_policy_decision"] = shell_decision.model_dump(mode="json")
         observation = Observation(
             status="rejected",
             summary="Tool denied by permission gate",
-            payload={"permission_decision": decision.model_dump(mode="json")},
+            payload=payload,
             error_message=decision.reason,
+        )
+        return _HandledAction(
+            stop=True,
+            status="failed",
+            summary=observation.summary,
+            step=AgentStep(index=index, action=action, observation=observation),
         )
     else:
         observation = _execute_tool_call(

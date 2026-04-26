@@ -70,7 +70,7 @@ Expected: all tests pass.
 - Test: `tests/unit/test_permission_gate.py`
 - Test: `tests/unit/test_shell_policy.py`
 
-- [ ] **Step 1: Write failing tests for target modes**
+- [x] **Step 1: Write failing tests for target modes**
 
 Add tests that assert:
 
@@ -85,11 +85,11 @@ def test_danger_full_access_allows_registered_tools():
     ...
 ```
 
-- [ ] **Step 2: Implement `PermissionPolicy`**
+- [x] **Step 2: Implement `PermissionPolicy`**
 
 The object should accept `active_mode`, `tool_registry`, and optional rule lists. It should return a decision with `status`, `reason`, `risk_level`, and `required_mode`.
 
-- [ ] **Step 3: Keep transitional aliases**
+- [x] **Step 3: Keep transitional aliases**
 
 Map old modes as:
 
@@ -100,11 +100,11 @@ full -> danger-full-access
 custom -> prompt/confirm by default
 ```
 
-- [ ] **Step 4: Route shell policy through PermissionPolicy**
+- [x] **Step 4: Route shell policy through PermissionPolicy**
 
 `ShellPolicy.evaluate()` remains the shell classifier, but final allow/confirm/deny belongs to `PermissionPolicy`.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 

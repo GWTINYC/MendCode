@@ -810,7 +810,7 @@ def test_agent_loop_rejects_unknown_native_tool(tmp_path: Path) -> None:
     assert "unknown tool: delete_repo" in str(result.steps[0].observation.error_message)
 
 
-def test_agent_loop_native_tool_requires_confirmation_in_safe_mode(tmp_path: Path) -> None:
+def test_agent_loop_native_write_tool_is_denied_in_safe_mode(tmp_path: Path) -> None:
     provider = NativeToolProvider(
         [
             [
@@ -835,9 +835,10 @@ def test_agent_loop_native_tool_requires_confirmation_in_safe_mode(tmp_path: Pat
         settings_for(tmp_path),
     )
 
-    assert result.status == "needs_user_confirmation"
-    assert result.steps[0].action.type == "user_confirmation_request"
+    assert result.status == "failed"
+    assert result.steps[0].action.type == "tool_call"
     assert result.steps[0].observation.status == "rejected"
+    assert "requires workspace-write permission" in str(result.steps[0].observation.error_message)
 
 
 def test_agent_loop_native_failed_observation_blocks_completed_final_response(
@@ -907,7 +908,7 @@ def test_agent_loop_rejects_invalid_provider_action(tmp_path: Path) -> None:
     assert result.steps[0].observation.summary == "Invalid MendCode action"
 
 
-def test_provider_driven_loop_stops_for_confirmation_request(tmp_path: Path) -> None:
+def test_provider_driven_loop_stops_for_permission_denial(tmp_path: Path) -> None:
     provider = RecordingProvider(
         [
             {
@@ -931,8 +932,9 @@ def test_provider_driven_loop_stops_for_confirmation_request(tmp_path: Path) -> 
         settings_for(tmp_path),
     )
 
-    assert result.status == "needs_user_confirmation"
-    assert result.steps[0].action.type == "user_confirmation_request"
+    assert result.status == "failed"
+    assert result.steps[0].action.type == "tool_call"
+    assert result.steps[0].observation.summary == "Tool denied by permission gate"
 
 
 def test_provider_driven_loop_fails_when_step_budget_exhausted(tmp_path: Path) -> None:
@@ -983,7 +985,7 @@ def test_agent_loop_turns_invalid_action_into_rejected_observation(tmp_path: Pat
     assert result.steps[0].observation.summary == "Invalid MendCode action"
 
 
-def test_agent_loop_returns_confirmation_request_when_permission_requires_it(
+def test_agent_loop_returns_denied_observation_when_permission_denies_it(
     tmp_path: Path,
 ) -> None:
     result = run_agent_loop(
@@ -1003,9 +1005,10 @@ def test_agent_loop_returns_confirmation_request_when_permission_requires_it(
         settings_for(tmp_path),
     )
 
-    assert result.status == "needs_user_confirmation"
-    assert result.steps[0].action.type == "user_confirmation_request"
+    assert result.status == "failed"
+    assert result.steps[0].action.type == "tool_call"
     assert result.steps[0].observation.status == "rejected"
+    assert "requires workspace-write permission" in str(result.steps[0].observation.error_message)
 
 
 def test_agent_loop_does_not_complete_after_failed_tool_observation(tmp_path: Path) -> None:
