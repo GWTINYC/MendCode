@@ -127,7 +127,7 @@ User Message
 - [x] `risk_level`
 - [x] executor
 - [x] `allowed_tools`
-- [x] aliases：`read`、`list`、`glob`、`grep`、`search`、`shell`、`bash`、`patch`
+- [x] aliases：`read`、`list`、`glob`、`grep`、`search`、`shell`、`bash`、`patch`、`write`、`edit`、`todo`、`tools`
 - [x] shared tool observation envelope
 - [x] `rg` 和 `search_code` observation 保持各自 tool identity
 
@@ -146,14 +146,14 @@ User Message
 | `run_shell_command` | 已完成 | 普通 shell，走 ShellPolicy |
 | `run_command` | 已完成 | 仅允许 declared verification command |
 | `apply_patch` | 已完成 | 应用统一 diff |
+| `write_file` | 已完成 | 写入 repo-relative 文本文件，拒绝路径逃逸 |
+| `edit_file` | 已完成 | 精确替换 repo-relative 文本文件内容 |
+| `todo_write` | 已完成 | 返回当前短期结构化 todo 列表 |
+| `tool_search` | 已完成 | 按名称和描述搜索可用工具 |
 | `apply_patch_to_worktree` | legacy/builtin | 后续删除或迁移为 `apply_patch` 兼容别名 |
 
 下一步工具：
 
-- [ ] `write_file`：默认仅 worktree，写前检查路径和权限
-- [ ] `edit_file`：精确替换或小 patch block
-- [ ] `todo_write`：记录 Agent 当前短期计划
-- [ ] `tool_search`：让模型查询可用工具能力
 - [ ] `session_status`：返回当前会话、权限、工具集、workspace 状态
 
 新增工具检查表：

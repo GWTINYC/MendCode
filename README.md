@@ -21,7 +21,7 @@ MendCode 目前已经支持早期 TUI Agent 工作流：
 - 自然语言 chat、shell、tool、repair 路由。
 - 以 OpenAI-compatible 原生 `tool_calls` 作为主要模型工具调用路径。
 - 对拒绝 tools 参数或不支持工具调用的 provider / endpoint，保留 JSON Action fallback。
-- 结构化工具包括 `read_file`、`list_dir`、`glob_file_search`、`rg` / `search_code`、只读 `git`、`run_shell_command`、`run_command`、`apply_patch`、`repo_status`、`detect_project` 和 `show_diff`。
+- 结构化工具包括 `read_file`、`list_dir`、`glob_file_search`、`rg` / `search_code`、只读 `git`、`run_shell_command`、`run_command`、`apply_patch`、`write_file`、`edit_file`、`todo_write`、`tool_search`、`repo_status`、`detect_project` 和 `show_diff`。
 - 通过 `allowed_tools` 按场景裁剪暴露给模型的工具，避免只读请求暴露写入工具。
 - Guided 权限模式下，低风险只读动作自动执行，高风险命令需要确认或直接拒绝。
 - 权限策略正在收敛到 `read-only`、`workspace-write`、`danger-full-access` 三档；旧的 safe/guided/full 作为兼容别名保留。
@@ -94,6 +94,7 @@ app/
 
 - `ToolRegistry` 是工具 schema、风险等级和 executor 的来源。
 - `repo_status`、`detect_project`、`show_diff` 等只读内置能力也应通过 `ToolRegistry` 暴露。
+- `write_file`、`edit_file`、`todo_write`、`tool_search` 等写入和工具发现能力也通过同一注册表暴露，并由权限策略裁剪。
 - `AgentRuntime` 是新的运行时边界；当前 `run_agent_loop()` 作为兼容 wrapper 保留。
 - `PermissionPolicy` 逻辑必须保持集中，避免重复维护风险表。
 - 工具 observation 必须足够结构化，既能回传给模型，也能持久化到日志。

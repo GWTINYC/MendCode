@@ -48,13 +48,14 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 
 目标：让 ToolRegistry 成为工具 schema、risk、executor 的唯一来源，让权限策略集中可测。
 
-状态：基础版已完成，仍需重构。
+状态：基础版已完成；读、写、编辑、todo 和工具发现能力已进入 ToolRegistry，仍需继续收敛 legacy 路径。
 
 下一步重点：
 
 - 抽出完整 PermissionPolicy
 - 将剩余 legacy tool path 收敛进 ToolRegistry
-- 增加 `write_file`、`edit_file`、`todo_write`、`tool_search`
+- 增加 `session_status`
+- 完善写入工具的权限确认、resume 和 mock provider 覆盖
 
 ### Phase C：会话与审计
 

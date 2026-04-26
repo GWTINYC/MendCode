@@ -59,6 +59,48 @@ class ApplyPatchArgs(BaseModel):
     files_to_modify: list[str] = Field(default_factory=list)
 
 
+class WriteFileArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(description="Repo-relative file path to write.")
+    content: str = Field(description="Complete text content to write.")
+
+
+class EditFileArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(description="Repo-relative file path to edit.")
+    old_string: str = Field(description="Exact text to replace.")
+    new_string: str = Field(description="Replacement text.")
+    replace_all: bool = False
+
+    @model_validator(mode="after")
+    def validate_old_string(self) -> "EditFileArgs":
+        if not self.old_string:
+            raise ValueError("old_string must not be empty")
+        return self
+
+
+class TodoItemArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    content: str = Field(min_length=1)
+    status: Literal["pending", "in_progress", "completed"]
+
+
+class TodoWriteArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    todos: list[TodoItemArgs] = Field(default_factory=list)
+
+
+class ToolSearchArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = Field(min_length=1)
+    max_results: int = Field(default=10, ge=1, le=50)
+
+
 class RunShellCommandArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

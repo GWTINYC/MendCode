@@ -190,23 +190,23 @@ Expected: all tests pass.
 - Test: `tests/unit/test_tool_registry.py`
 - Test: `tests/unit/test_permission_gate.py`
 
-- [ ] **Step 1: Add `write_file` and `edit_file` tests**
+- [x] **Step 1: Add `write_file` and `edit_file` tests**
 
 Cover workspace-relative writes, path escape rejection, exact replacement, and missing old text.
 
-- [ ] **Step 2: Add `todo_write` tests**
+- [x] **Step 2: Add `todo_write` tests**
 
 Cover replacing the current short task list and returning it to prompt context.
 
-- [ ] **Step 3: Add `tool_search` tests**
+- [x] **Step 3: Add `tool_search` tests**
 
 Cover searching tool names and descriptions, with max result limits.
 
-- [ ] **Step 4: Implement tools through ToolRegistry**
+- [x] **Step 4: Implement tools through ToolRegistry**
 
 Each tool uses the shared observation envelope and required permission mode.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 

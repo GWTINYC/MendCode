@@ -6,6 +6,7 @@ from pathlib import Path
 from app.schemas.agent_action import Observation
 from app.tools.arguments import (
     ApplyPatchArgs,
+    EditFileArgs,
     EmptyToolArgs,
     GitArgs,
     GlobFileSearchArgs,
@@ -14,6 +15,9 @@ from app.tools.arguments import (
     RgArgs,
     RunCommandArgs,
     RunShellCommandArgs,
+    TodoWriteArgs,
+    ToolSearchArgs,
+    WriteFileArgs,
 )
 from app.tools.observations import observation_from_tool_result, tool_observation
 from app.tools.read_only import (
@@ -474,6 +478,137 @@ def _apply_patch(args: ApplyPatchArgs, context: ToolExecutionContext) -> Observa
     )
 
 
+def _resolve_workspace_file(
+    *,
+    tool_name: str,
+    path: str,
+    workspace_path: Path,
+) -> tuple[Path | None, Observation | None]:
+    if _path_escapes_workspace(path, workspace_path):
+        return None, _rejected(
+            tool_name,
+            f"Unable to run {tool_name}",
+            "path escapes workspace root",
+            payload={"path": path},
+        )
+    resolved = (workspace_path / path).resolve() if not Path(path).is_absolute() else Path(path)
+    return resolved, None
+
+
+def _write_file(args: WriteFileArgs, context: ToolExecutionContext) -> Observation:
+    target, rejected = _resolve_workspace_file(
+        tool_name="write_file",
+        path=args.path,
+        workspace_path=context.workspace_path,
+    )
+    if rejected is not None:
+        return rejected
+    assert target is not None
+    if target.exists() and target.is_dir():
+        return _rejected(
+            "write_file",
+            "Unable to write file",
+            "path points to a directory",
+            payload={"path": args.path},
+        )
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(args.content, encoding="utf-8")
+    except OSError as exc:
+        return _failed("write_file", "Unable to write file", str(exc), payload={"path": args.path})
+    payload = {
+        "relative_path": str(target.relative_to(context.workspace_path.resolve())),
+        "bytes_written": len(args.content.encode("utf-8")),
+    }
+    return tool_observation(
+        tool_name="write_file",
+        status="succeeded",
+        summary=f"Wrote {payload['relative_path']}",
+        payload=payload,
+    )
+
+
+def _edit_file(args: EditFileArgs, context: ToolExecutionContext) -> Observation:
+    target, rejected = _resolve_workspace_file(
+        tool_name="edit_file",
+        path=args.path,
+        workspace_path=context.workspace_path,
+    )
+    if rejected is not None:
+        return rejected
+    assert target is not None
+    try:
+        original = target.read_text(encoding="utf-8")
+    except OSError as exc:
+        return _failed("edit_file", "Unable to read file", str(exc), payload={"path": args.path})
+    count = original.count(args.old_string)
+    if count == 0:
+        return _failed(
+            "edit_file",
+            "Unable to edit file",
+            "old_string not found",
+            payload={"path": args.path},
+        )
+    replacements = count if args.replace_all else 1
+    updated = original.replace(args.old_string, args.new_string, replacements)
+    try:
+        target.write_text(updated, encoding="utf-8")
+    except OSError as exc:
+        return _failed("edit_file", "Unable to write file", str(exc), payload={"path": args.path})
+    payload = {
+        "relative_path": str(target.relative_to(context.workspace_path.resolve())),
+        "replacements": replacements,
+    }
+    return tool_observation(
+        tool_name="edit_file",
+        status="succeeded",
+        summary=f"Edited {payload['relative_path']}",
+        payload=payload,
+    )
+
+
+def _todo_write(args: TodoWriteArgs, context: ToolExecutionContext) -> Observation:
+    todos = [item.model_dump(mode="json") for item in args.todos]
+    return tool_observation(
+        tool_name="todo_write",
+        status="succeeded",
+        summary=f"Updated {len(todos)} todos",
+        payload={
+            "todos": todos,
+            "todo_count": len(todos),
+        },
+    )
+
+
+def _tool_search(args: ToolSearchArgs, context: ToolExecutionContext) -> Observation:
+    registry = default_tool_registry()
+    query = args.query.strip().lower()
+    all_matches: list[dict[str, object]] = []
+    for name in registry.names():
+        spec = registry.get(name)
+        haystack = f"{spec.name} {spec.description}".lower()
+        if query not in haystack:
+            continue
+        all_matches.append(
+            {
+                "name": spec.name,
+                "description": spec.description,
+                "risk_level": spec.risk_level.value,
+            }
+        )
+    matches = all_matches[: args.max_results]
+    return tool_observation(
+        tool_name="tool_search",
+        status="succeeded",
+        summary=f"Found {len(matches)} tools",
+        payload={
+            "query": args.query,
+            "matches": matches,
+            "total_matches": len(all_matches),
+        },
+    )
+
+
 def default_tool_registry() -> ToolRegistry:
     return ToolRegistry(
         [
@@ -560,6 +695,34 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=ApplyPatchArgs,
                 risk_level=ToolRisk.WRITE_WORKTREE,
                 executor=_apply_patch,
+            ),
+            ToolSpec(
+                name="write_file",
+                description="Write complete text content to a repo-relative workspace file.",
+                args_model=WriteFileArgs,
+                risk_level=ToolRisk.WRITE_WORKTREE,
+                executor=_write_file,
+            ),
+            ToolSpec(
+                name="edit_file",
+                description="Edit a repo-relative workspace file and write replacement text.",
+                args_model=EditFileArgs,
+                risk_level=ToolRisk.WRITE_WORKTREE,
+                executor=_edit_file,
+            ),
+            ToolSpec(
+                name="todo_write",
+                description="Replace the current short structured todo list for this session.",
+                args_model=TodoWriteArgs,
+                risk_level=ToolRisk.WRITE_WORKTREE,
+                executor=_todo_write,
+            ),
+            ToolSpec(
+                name="tool_search",
+                description="Search available tools by name or description.",
+                args_model=ToolSearchArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=_tool_search,
             ),
         ]
     )

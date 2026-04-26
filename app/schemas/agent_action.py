@@ -22,6 +22,10 @@ ToolName = Literal[
     "git",
     "apply_patch",
     "apply_patch_to_worktree",
+    "write_file",
+    "edit_file",
+    "todo_write",
+    "tool_search",
     "show_diff",
 ]
 ObservationStatus = Literal["succeeded", "failed", "rejected"]

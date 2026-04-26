@@ -26,6 +26,10 @@ _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
     "shell": ("run_shell_command",),
     "bash": ("run_shell_command",),
     "patch": ("apply_patch",),
+    "write": ("write_file",),
+    "edit": ("edit_file",),
+    "todo": ("todo_write",),
+    "tools": ("tool_search",),
 }
 
 

@@ -289,10 +289,11 @@ def _system_prompt(allowed_tools: set[str] | None = None) -> str:
         f"Allowed native tools in this turn: {', '.join(tool_names)}.\n"
     )
     if not scoped_prompt:
+        json_tool_actions = [*tool_names, "apply_patch_to_worktree"]
         text += (
-            "Allowed JSON tool actions: repo_status, detect_project, read_file, list_dir, "
-            "glob_file_search, search_code, rg, git, apply_patch, apply_patch_to_worktree, "
-            "show_diff, run_shell_command, run_command.\n"
+            "Allowed JSON tool actions: "
+            + ", ".join(dict.fromkeys(json_tool_actions))
+            + ".\n"
         )
     text += (
         "Use the discriminator field named type. Do not use action_type. Examples: "
@@ -301,7 +302,9 @@ def _system_prompt(allowed_tools: set[str] | None = None) -> str:
         '"recommended_actions": []}.\n'
         "Prefer structured tools over raw shell: use read_file for file content, "
         "list_dir for directory inspection, glob_file_search for path discovery, rg or "
-        "search_code for text search, and git for repository inspection."
+        "search_code for text search, git for repository inspection, write_file or "
+        "edit_file for workspace edits, todo_write for short task tracking, and "
+        "tool_search when tool capabilities are unclear."
     )
     if "apply_patch" in tool_names:
         text += " Use apply_patch for unified diffs."

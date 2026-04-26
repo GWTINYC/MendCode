@@ -100,13 +100,25 @@ def test_read_only_allows_read_tools_and_denies_write_tools() -> None:
     policy = PermissionPolicy(active_mode="read-only")
 
     read_decision = policy.decide(tool_call("read_file"))
-    write_decision = policy.decide(tool_call("apply_patch"))
+    write_decision = policy.decide(tool_call("write_file"))
+    tool_search_decision = policy.decide(tool_call("tool_search"))
 
     assert read_decision.status == "allow"
     assert read_decision.required_mode == "read-only"
     assert write_decision.status == "deny"
     assert write_decision.required_mode == "workspace-write"
     assert "requires workspace-write permission" in write_decision.reason
+    assert tool_search_decision.status == "allow"
+    assert tool_search_decision.required_mode == "read-only"
+
+
+def test_workspace_write_allows_write_edit_and_todo_tools() -> None:
+    policy = PermissionPolicy(active_mode="workspace-write")
+
+    for action in ["write_file", "edit_file", "todo_write"]:
+        decision = policy.decide(tool_call(action))
+        assert decision.status == "allow"
+        assert decision.required_mode == "workspace-write"
 
 
 def test_workspace_write_prompts_for_dangerous_shell() -> None:

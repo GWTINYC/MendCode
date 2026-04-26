@@ -473,3 +473,140 @@ def test_apply_patch_rejects_repo_escaping_path(tmp_path: Path) -> None:
     assert observation.payload["tool_name"] == "apply_patch"
     assert observation.payload["is_error"] is True
     assert "patch path escapes workspace root" in str(observation.error_message)
+
+
+def test_write_file_creates_workspace_file(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("write_file").execute(
+        {"path": "notes/todo.txt", "content": "alpha\n"},
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    assert (tmp_path / "notes" / "todo.txt").read_text(encoding="utf-8") == "alpha\n"
+    assert observation.payload["tool_name"] == "write_file"
+    assert observation.payload["relative_path"] == "notes/todo.txt"
+    assert observation.payload["bytes_written"] == len("alpha\n".encode())
+
+
+def test_write_file_rejects_repo_escaping_path(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("write_file").execute(
+        {"path": "../outside.txt", "content": "bad"},
+        context,
+    )
+
+    assert observation.status == "rejected"
+    assert "path escapes workspace root" in str(observation.error_message)
+    assert not (tmp_path.parent / "outside.txt").exists()
+
+
+def test_edit_file_replaces_exact_text(tmp_path: Path) -> None:
+    target = tmp_path / "README.md"
+    target.write_text("alpha\nbeta\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("edit_file").execute(
+        {
+            "path": "README.md",
+            "old_string": "beta\n",
+            "new_string": "gamma\n",
+        },
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    assert target.read_text(encoding="utf-8") == "alpha\ngamma\n"
+    assert observation.payload["relative_path"] == "README.md"
+    assert observation.payload["replacements"] == 1
+
+
+def test_edit_file_rejects_missing_old_text(tmp_path: Path) -> None:
+    target = tmp_path / "README.md"
+    target.write_text("alpha\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("edit_file").execute(
+        {
+            "path": "README.md",
+            "old_string": "missing",
+            "new_string": "replacement",
+        },
+        context,
+    )
+
+    assert observation.status == "failed"
+    assert "old_string not found" in str(observation.error_message)
+    assert target.read_text(encoding="utf-8") == "alpha\n"
+
+
+def test_todo_write_returns_structured_todos(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("todo_write").execute(
+        {
+            "todos": [
+                {
+                    "content": "Add write tools",
+                    "status": "in_progress",
+                },
+                {
+                    "content": "Run tests",
+                    "status": "pending",
+                },
+            ]
+        },
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "todo_write"
+    assert observation.payload["todo_count"] == 2
+    assert observation.payload["todos"][0]["content"] == "Add write tools"
+
+
+def test_tool_search_finds_tools_by_name_and_description(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("tool_search").execute(
+        {"query": "write", "max_results": 5},
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    names = [match["name"] for match in observation.payload["matches"]]
+    assert "write_file" in names
+    assert "edit_file" in names
+    assert observation.payload["total_matches"] >= 2
