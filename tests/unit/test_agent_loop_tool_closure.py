@@ -161,7 +161,9 @@ def test_multi_tool_turn_preserves_both_observations(tmp_path: Path) -> None:
 
     assert result.status == "completed"
     assert result.steps[0].observation.payload["tool_name"] == "read_file"
+    assert result.steps[0].observation.payload["content"] == "readme content\n"
     assert result.steps[1].observation.payload["tool_name"] == "read_file"
+    assert result.steps[1].observation.payload["content"] == "notes content\n"
 
 
 def test_shell_stdout_roundtrip_includes_exit_code_and_stdout(tmp_path: Path) -> None:
@@ -202,8 +204,7 @@ def test_tool_error_roundtrip_is_structured_and_blocks_completed_final(tmp_path:
         [
             tool_call_step(native_tool("read_file", {"path": "missing.md"})),
             final_response_step(
-                "文件不存在",
-                status="failed",
+                "不应完成",
                 expected_observation_count=1,
                 assertions=(assert_last_observation(tool_name="read_file", status="rejected"),),
             ),
@@ -224,7 +225,7 @@ def test_tool_error_roundtrip_is_structured_and_blocks_completed_final(tmp_path:
     )
 
     assert result.status == "failed"
-    assert result.summary == "文件不存在"
+    assert result.summary == "Agent loop ended with failed observations"
     assert result.steps[0].observation.payload["is_error"] is True
 
 

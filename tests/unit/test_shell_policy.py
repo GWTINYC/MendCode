@@ -21,6 +21,7 @@ def make_policy(root: Path) -> ShellPolicy:
         "head README.md",
         "tail README.md",
         "find . -maxdepth 1 -type f",
+        "printf hello",
     ],
 )
 def test_shell_policy_auto_allows_low_risk_read_only_commands(
@@ -43,6 +44,7 @@ def test_shell_policy_auto_allows_low_risk_read_only_commands(
         "pip install requests",
         "curl https://example.test",
         "echo hello > README.md",
+        "printf hello > marker.txt",
     ],
 )
 def test_shell_policy_requires_confirmation_for_risky_commands(
