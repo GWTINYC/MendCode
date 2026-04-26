@@ -111,6 +111,22 @@ def _execute_glob_file_search(
 
 
 def _execute_rg(args: RgArgs, context: ToolExecutionContext) -> Observation:
+    result = search_code(
+        context.workspace_path,
+        args.query,
+        glob=args.glob,
+        max_results=args.max_results,
+    )
+    return tool_observation(
+        tool_name="rg",
+        status=result.status,
+        summary=result.summary,
+        payload=result.payload,
+        error_message=result.error_message,
+    )
+
+
+def _execute_search_code(args: RgArgs, context: ToolExecutionContext) -> Observation:
     return tool_result_to_observation(
         search_code(
             context.workspace_path,
@@ -414,7 +430,7 @@ def default_tool_registry() -> ToolRegistry:
                 description="Search repo text using ripgrep.",
                 args_model=RgArgs,
                 risk_level=ToolRisk.READ_ONLY,
-                executor=_execute_rg,
+                executor=_execute_search_code,
             ),
             ToolSpec(
                 name="git",

@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ShellRiskLevel = Literal["low", "medium", "high", "critical"]
 
-_LOW_RISK_COMMANDS = {"ls", "pwd", "rg", "cat", "head", "tail", "find"}
+_LOW_RISK_COMMANDS = {"ls", "pwd", "rg", "cat", "head", "tail", "find", "printf"}
 _WRITE_COMMANDS = {"rm", "mv", "cp"}
 _NETWORK_COMMANDS = {"curl", "wget"}
 _INSTALL_COMMANDS = {"apt", "apt-get", "brew"}
