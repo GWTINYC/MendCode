@@ -92,6 +92,7 @@ User Message
 - [x] scoped `allowed_tools`
 - [x] 越权 tool call 拒绝
 - [x] mock tool provider harness 覆盖 tool result 回传后的 final response
+- [x] OpenAI native tool result 不再重复写入 user context，避免 prompt 中 observation 双份膨胀
 
 当前不足：
 
@@ -193,7 +194,7 @@ User Message
 - [x] shell 自动执行和 pending confirmation
 - [x] tool request 进入 AgentLoop
 - [x] tool result 摘要展示
-- [x] conversation Markdown / JSONL 写入
+- [x] conversation Markdown / JSONL 写入，并对 `tool_result` / `turn_result` 做 compact 摘要
 - [x] review actions：view diff / view trace / apply / discard
 
 当前不足：
@@ -206,7 +207,7 @@ User Message
 
 下一步：
 
-- 工具结果摘要保留在聊天流，完整 payload 通过日志或 viewer 查看。
+- 工具结果摘要保留在聊天流；conversation log 只保留摘要、样本和 trace/workspace 指针，完整 payload 通过 trace 或后续 viewer 查看。
 - 对 pending confirmation 支持 allow once / deny / change mode。
 - 增加 session picker 和 resume latest。
 
@@ -219,6 +220,7 @@ User Message
 - [x] JSONL conversation log
 - [x] `/status` 展示路径
 - [x] tool/shell/chat/turn event
+- [x] `tool_result` / `turn_result` 日志压缩，避免 read_file 内容和完整步骤过程淹没最终回答
 - [x] ReviewSummary
 - [x] AttemptRecord
 - [x] ToolCallSummary
@@ -230,12 +232,14 @@ User Message
 - [ ] 没有 resume latest/session-id
 - [ ] 没有 compact summary
 - [ ] 没有 session health probe
+- [ ] 还没有独立 viewer 从 trace 中按需展开完整工具输出
 
 下一步：
 
 - 为 `data/conversations` 增加轻量索引或扫描器。
 - 支持按 latest 或 session id 恢复上下文。
-- 对长会话生成 compact summary，保留关键工具结果和决策。
+- 对长会话生成跨轮 compact summary，保留关键工具结果和决策。
+- 增加 trace viewer，用于查看 conversation log 中被压缩掉的完整工具 payload。
 
 ## 4. 当前重点任务队列
 
@@ -287,6 +291,7 @@ duration_ms
 
 - [x] read/list/rg/git/shell/patch 结果都能稳定进入 prompt context
 - [x] 错误结果也能作为 tool result 回传模型
+- [x] native tool result 只通过 OpenAI tool message 回传，不在 user context 中重复保存
 
 ### 任务 3：Mock Provider Harness
 

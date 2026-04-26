@@ -1,0 +1,159 @@
+import json
+
+from app.agent.loop import AgentLoopResult, AgentStep
+from app.agent.session import AgentSessionTurn, ReviewSummary, ToolCallSummary
+from app.schemas.agent_action import FinalResponseAction, Observation, ToolCallAction
+from app.tui.log_summarizer import compact_agent_loop_result, compact_agent_session_turn
+
+
+def test_compact_agent_loop_result_keeps_tool_summary_without_full_file_content() -> None:
+    full_content = "x" * 5000
+    result = AgentLoopResult(
+        run_id="agent-log-test",
+        status="completed",
+        summary="Read README.md",
+        trace_path="/tmp/trace.jsonl",
+        workspace_path="/tmp/worktree",
+        steps=[
+            AgentStep(
+                index=1,
+                action=ToolCallAction(
+                    type="tool_call",
+                    action="read_file",
+                    reason="inspect README",
+                    args={"path": "README.md"},
+                ),
+                observation=Observation(
+                    status="succeeded",
+                    summary="Read README.md",
+                    payload={
+                        "relative_path": "README.md",
+                        "content": full_content,
+                        "truncated": False,
+                    },
+                ),
+            ),
+            AgentStep(
+                index=2,
+                action=FinalResponseAction(
+                    type="final_response",
+                    status="completed",
+                    summary="README.md inspected",
+                ),
+                observation=Observation(
+                    status="succeeded",
+                    summary="Recorded final response",
+                    payload={},
+                ),
+            ),
+        ],
+    )
+
+    compact = compact_agent_loop_result(result)
+    compact_json = json.dumps(compact, ensure_ascii=False, sort_keys=True)
+    full_json = result.model_dump_json()
+
+    assert compact["run_id"] == "agent-log-test"
+    assert compact["step_count"] == 2
+    assert compact["trace_path"] == "/tmp/trace.jsonl"
+    assert compact["steps"][0]["action"] == "read_file"
+    assert compact["steps"][0]["payload"]["relative_path"] == "README.md"
+    assert compact["steps"][0]["payload"]["content_truncated"] is True
+    assert full_content not in compact_json
+    assert len(compact_json) < len(full_json) / 3
+
+
+def test_compact_agent_loop_result_samples_large_directory_entries() -> None:
+    entries = [
+        {"name": f"file_{index}.txt", "relative_path": f"file_{index}.txt"}
+        for index in range(80)
+    ]
+    result = AgentLoopResult(
+        run_id="agent-log-test",
+        status="completed",
+        summary="Listed .",
+        trace_path="/tmp/trace.jsonl",
+        steps=[
+            AgentStep(
+                index=1,
+                action=ToolCallAction(
+                    type="tool_call",
+                    action="list_dir",
+                    reason="inspect directory",
+                    args={"path": "."},
+                ),
+                observation=Observation(
+                    status="succeeded",
+                    summary="Listed .",
+                    payload={
+                        "relative_path": ".",
+                        "entries": entries,
+                        "total_entries": len(entries),
+                        "truncated": False,
+                    },
+                ),
+            )
+        ],
+    )
+
+    compact = compact_agent_loop_result(result)
+    payload = compact["steps"][0]["payload"]
+
+    assert payload["total_entries"] == 80
+    assert payload["entries_count"] == 80
+    assert len(payload["entries_sample"]) < len(entries)
+    assert payload["entries_truncated"] is True
+    assert payload["entries_sample"][0]["relative_path"] == "file_0.txt"
+
+
+def test_compact_agent_session_turn_does_not_embed_full_nested_result() -> None:
+    full_content = "readme\n" * 1000
+    result = AgentLoopResult(
+        run_id="agent-turn-test",
+        status="completed",
+        summary="Read README.md",
+        trace_path="/tmp/trace.jsonl",
+        workspace_path="/tmp/worktree",
+        steps=[
+            AgentStep(
+                index=1,
+                action=ToolCallAction(
+                    type="tool_call",
+                    action="read_file",
+                    reason="inspect README",
+                    args={"path": "README.md"},
+                ),
+                observation=Observation(
+                    status="succeeded",
+                    summary="Read README.md",
+                    payload={"relative_path": "README.md", "content": full_content},
+                ),
+            )
+        ],
+    )
+    turn = AgentSessionTurn(
+        index=1,
+        problem_statement="read README",
+        result=result,
+        review=ReviewSummary(
+            status="verified",
+            workspace_path="/tmp/worktree",
+            trace_path="/tmp/trace.jsonl",
+            verification_status="passed",
+            summary="Read README.md",
+        ),
+        tool_summaries=[
+            ToolCallSummary(
+                index=1,
+                action="read_file",
+                status="succeeded",
+                summary="Read README.md",
+            )
+        ],
+    )
+
+    compact_json = json.dumps(compact_agent_session_turn(turn), ensure_ascii=False)
+
+    assert full_content not in compact_json
+    assert "tool_summaries" in compact_json
+    assert "trace.jsonl" in compact_json

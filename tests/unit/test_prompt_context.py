@@ -1,3 +1,5 @@
+import json
+
 from app.agent.prompt_context import PromptContextLimits, build_provider_messages
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
 from app.schemas.agent_action import Observation, ToolCallAction
@@ -188,6 +190,43 @@ def test_provider_messages_include_openai_tool_result_messages() -> None:
     assert "Read README.md" in messages[-1].content
 
 
+def test_provider_messages_do_not_duplicate_openai_tool_results_in_user_context() -> None:
+    messages = build_provider_messages(
+        AgentProviderStepInput(
+            problem_statement="inspect",
+            verification_commands=[],
+            step_index=2,
+            remaining_steps=4,
+            observations=[
+                AgentObservationRecord(
+                    tool_invocation=ToolInvocation(
+                        id="call_1",
+                        name="read_file",
+                        args={"path": "README.md"},
+                        source="openai_tool_call",
+                        group_id="provider-1",
+                    ),
+                    observation=Observation(
+                        status="succeeded",
+                        summary="Read README.md",
+                        payload={
+                            "relative_path": "README.md",
+                            "content": "README content",
+                        },
+                    ),
+                )
+            ],
+        )
+    )
+
+    user_context = json.loads(messages[1].content)
+    tool_context = json.loads(messages[-1].content)
+
+    assert user_context["observations"] == []
+    assert tool_context["summary"] == "Read README.md"
+    assert tool_context["payload"]["content"] == "README content"
+
+
 def test_provider_messages_group_same_openai_tool_call_batch() -> None:
     messages = build_provider_messages(
         AgentProviderStepInput(
@@ -341,10 +380,10 @@ def test_provider_messages_include_all_untruncated_directory_entries() -> None:
         )
     )
 
-    assert "file_0.txt" in messages[1].content
-    assert "file_11.txt" in messages[1].content
+    user_context = json.loads(messages[1].content)
+    assert user_context["observations"] == []
     assert "file_11.txt" in messages[-1].content
-    assert '"entries_truncated": false' in messages[1].content
+    assert '"entries_truncated": false' in messages[-1].content
 
 
 def test_provider_messages_dump_openai_tool_message_shapes() -> None:
@@ -389,8 +428,7 @@ def test_provider_messages_dump_openai_tool_message_shapes() -> None:
     assert messages[-1].model_dump(exclude_none=True) == {
         "role": "tool",
         "content": (
-            '{"action": null, "action_type": null, "error_message": null, '
-            '"payload": {"content": "hello", "relative_path": "README.md"}, '
+            '{"payload": {"content": "hello", "relative_path": "README.md"}, '
             '"status": "succeeded", "summary": "Read README.md", "tool_name": "read_file"}'
         ),
         "tool_call_id": "call_1",

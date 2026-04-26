@@ -401,6 +401,14 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
             ).splitlines()
         ]
         assert "tool_result" in [record["event_type"] for record in records]
+        tool_payload = next(
+            record["payload"]
+            for record in records
+            if record["event_type"] == "tool_result"
+        )
+        assert tool_payload["step_count"] == 2
+        assert tool_payload["steps"][0]["action"] == "list_dir"
+        assert "observation" not in tool_payload["steps"][0]
 
 
 async def test_dangerous_shell_command_waits_for_confirmation(tmp_path: Path) -> None:

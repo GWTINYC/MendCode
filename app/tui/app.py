@@ -16,6 +16,7 @@ from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_re
 from app.tui.commands import ChatCommand, CommandParseError, parse_chat_input
 from app.tui.conversation_log import ConversationLog
 from app.tui.intent import IntentContext, IntentRouter, build_intent_router
+from app.tui.log_summarizer import compact_agent_loop_result, compact_agent_session_turn
 from app.tui.state import TuiSessionState
 from app.workspace.project_detection import detect_project
 from app.workspace.review_actions import (
@@ -641,7 +642,7 @@ class MendCodeTextualApp(App[None]):
         self.session_state.mark_tool_completed(result.status)
         self._conversation_log.append_event(
             "tool_result",
-            result.model_dump(mode="json"),
+            compact_agent_loop_result(result),
         )
         self._render_tool_result(result)
 
@@ -654,7 +655,7 @@ class MendCodeTextualApp(App[None]):
         self.session_state.mark_turn_completed(turn)
         self._conversation_log.append_event(
             "turn_result",
-            turn.model_dump(mode="json"),
+            compact_agent_session_turn(turn),
         )
         self._render_turn(turn)
 

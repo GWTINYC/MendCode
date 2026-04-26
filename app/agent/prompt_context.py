@@ -127,6 +127,7 @@ def summarize_observation_record(
     *,
     limits: PromptContextLimits,
     secret_values: list[str],
+    include_action: bool = True,
 ) -> dict[str, object]:
     action = record.action
     action_payload: dict[str, object] | None = None
@@ -136,14 +137,12 @@ def summarize_observation_record(
     tool_invocation_name = (
         record.tool_invocation.name if record.tool_invocation is not None else None
     )
-    return {
-        "action_type": action.type if action is not None else None,
+    summary: dict[str, object] = {
         "tool_name": (
             getattr(action, "action", None)
             if action is not None
             else tool_invocation_name
         ),
-        "action": action_payload,
         "status": observation.status,
         "summary": _trim_text(
             observation.summary,
@@ -165,6 +164,23 @@ def summarize_observation_record(
             secret_values=secret_values,
         ),
     }
+    if include_action:
+        summary["action_type"] = action.type if action is not None else None
+        summary["action"] = action_payload
+    return summary
+
+
+def _without_none_values(payload: dict[str, object]) -> dict[str, object]:
+    return {key: value for key, value in payload.items() if value is not None}
+
+
+def _is_native_tool_result_record(record: AgentObservationRecord) -> bool:
+    invocation = record.tool_invocation
+    return (
+        invocation is not None
+        and invocation.id is not None
+        and invocation.source == "openai_tool_call"
+    )
 
 
 def _tool_result_content(
@@ -174,10 +190,13 @@ def _tool_result_content(
     secret_values: list[str],
 ) -> str:
     return json.dumps(
-        summarize_observation_record(
-            record,
-            limits=limits,
-            secret_values=secret_values,
+        _without_none_values(
+            summarize_observation_record(
+                record,
+                limits=limits,
+                secret_values=secret_values,
+                include_action=False,
+            )
         ),
         ensure_ascii=False,
         sort_keys=True,
@@ -322,13 +341,17 @@ def build_provider_messages(
 ) -> list[ChatMessage]:
     context_limits = limits or PromptContextLimits()
     secrets = secret_values or []
+    recent_records = step_input.observations[-context_limits.max_observations :]
+    user_context_records = [
+        record for record in recent_records if not _is_native_tool_result_record(record)
+    ]
     observations = [
         summarize_observation_record(
             record,
             limits=context_limits,
             secret_values=secrets,
         )
-        for record in step_input.observations[-context_limits.max_observations :]
+        for record in user_context_records
     ]
     user_context = {
         "problem_statement": _trim_text(
@@ -353,7 +376,7 @@ def build_provider_messages(
     ]
     messages.extend(
         _native_tool_result_messages(
-            step_input.observations[-context_limits.max_observations :],
+            recent_records,
             limits=context_limits,
             secret_values=secrets,
         )

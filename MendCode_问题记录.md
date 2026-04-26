@@ -227,6 +227,32 @@
 - ShellPolicy 测试要覆盖 shell 语法等价形式，不能只测人类常写的空格格式。
 - 任何低风险 shell 命令都不能绕过 redirection、compound command、path escape 三类安全检查。
 
+### 问题 9：工具过程日志和 prompt context 重复膨胀
+
+状态：已修复基础路径，仍需补 trace viewer
+
+现象：
+
+最新 conversation log 中，`tool_result` 事件比最终回答大很多：TUI 把完整 `AgentLoopResult` 写进 Markdown/JSONL，包含每一步 action、observation、完整 `read_file` 内容和目录 entries；OpenAI native tool 的 observation 又同时进入 user context 和 tool message，导致同一工具结果在下一轮请求中重复出现。
+
+根因：
+
+- conversation log 直接使用 `result.model_dump()` / `turn.model_dump()`，没有区分“可读复盘摘要”和“完整 trace 数据”。
+- native tool result 已经必须作为 OpenAI `tool` message 回传，但 user context 仍保留同一 observation。
+- 日志和 prompt context 共用“越完整越好”的思路，缺少按用途裁剪。
+
+处理：
+
+- TUI 写 `tool_result` / `turn_result` 时使用 compact 摘要，只保留 run/status/summary、trace/workspace 指针、步骤状态、payload 样本和文本 excerpt。
+- 完整工具 payload 继续保留在 trace 中，conversation log 不再承担完整原始数据存储职责。
+- OpenAI native tool result 只通过 assistant/tool message 链回传，不再重复写入 user context；JSON action 和 provider failure 仍保留在 user context。
+
+后续约束：
+
+- 面向人的 conversation log 只能写摘要、样本和定位指针，不能直接 dump 完整 agent result。
+- 面向模型的 prompt context 要避免同一 observation 在不同消息槽重复出现。
+- 如需查看完整工具输出，应通过 trace viewer 或按需展开，而不是扩大聊天流或 conversation log。
+
 ## 3. 后续重点风险
 
 ### 风险 A：模型重复调用等价只读工具
