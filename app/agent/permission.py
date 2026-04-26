@@ -10,9 +10,6 @@ PermissionMode = Literal["safe", "guided", "full", "custom"]
 PermissionStatus = Literal["allow", "confirm", "deny"]
 
 _BUILTIN_TOOL_RISK: dict[str, RiskLevel] = {
-    "repo_status": "low",
-    "detect_project": "low",
-    "show_diff": "low",
     "apply_patch_to_worktree": "medium",
 }
 _REGISTRY_RISK_MAP: dict[ToolRisk, RiskLevel] = {

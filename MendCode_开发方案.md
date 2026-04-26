@@ -38,11 +38,17 @@ User Message
 
 当前优先级：
 
-1. 运行时闭环稳定性
-2. ToolRegistry 和 PermissionPolicy 收敛
-3. 会话日志、trace、resume 能力
-4. TUI 工具调用展示和确认交互
-5. 修复链路的 patch / verify / review 体验
+1. Runtime-first 重构：把 AgentLoop、ToolRegistry、PermissionPolicy、SessionStore 拆成清晰运行时边界
+2. ToolRegistry 收敛：所有 provider-visible 工具都从注册表生成 schema、risk 和 executor
+3. PermissionPolicy 收敛：统一工具权限、shell 风险、allowed tools 和用户确认
+4. 会话日志、trace、compact context、resume 能力
+5. TUI 工作台体验：让 Textual UI 成为 runtime 的薄展示层
+
+当前重构设计：
+
+- 设计文档：`docs/superpowers/specs/2026-04-26-runtime-first-refactor-design.md`
+- 实施计划：`docs/superpowers/plans/2026-04-26-runtime-first-refactor.md`
+- 第一轮已完成：`repo_status`、`detect_project`、`show_diff` 已迁入 ToolRegistry，permission risk 从注册表派生。
 
 ## 3. 当前能力状态
 
@@ -70,7 +76,7 @@ User Message
 - [ ] legacy JSON action path 和 native tool path 仍有部分重复逻辑
 - [ ] 没有等价只读工具调用去重
 - [ ] Provider request/response 调试摘要不足
-- [ ] legacy/builtin 工具结果尚未完全收敛到统一 envelope
+- [ ] `apply_patch_to_worktree` 仍是 legacy/builtin 工具路径
 
 下一步：
 
@@ -125,6 +131,9 @@ User Message
 
 | Tool | 状态 | 说明 |
 |---|---|---|
+| `repo_status` | 已完成 | 通过 ToolRegistry 读取当前分支和短状态 |
+| `detect_project` | 已完成 | 通过 ToolRegistry 识别项目类型和建议验证命令 |
+| `show_diff` | 已完成 | 通过 ToolRegistry 读取 compact diff stat |
 | `read_file` | 已完成 | 读取 repo-relative 文本文件，支持行范围和截断 |
 | `list_dir` | 已完成 | 列目录，未截断时完整 entries 进入 prompt context |
 | `glob_file_search` | 已完成 | 按 glob 查找路径 |
@@ -133,9 +142,7 @@ User Message
 | `run_shell_command` | 已完成 | 普通 shell，走 ShellPolicy |
 | `run_command` | 已完成 | 仅允许 declared verification command |
 | `apply_patch` | 已完成 | 应用统一 diff |
-| `repo_status` | legacy/builtin | 后续考虑 ToolRegistry 化 |
-| `detect_project` | legacy/builtin | 后续考虑 ToolRegistry 化 |
-| `show_diff` | legacy/builtin | 后续考虑 ToolRegistry 化 |
+| `apply_patch_to_worktree` | legacy/builtin | 后续删除或迁移为 `apply_patch` 兼容别名 |
 
 下一步工具：
 

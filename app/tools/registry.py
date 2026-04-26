@@ -6,6 +6,7 @@ from pathlib import Path
 from app.schemas.agent_action import Observation
 from app.tools.arguments import (
     ApplyPatchArgs,
+    EmptyToolArgs,
     GitArgs,
     GlobFileSearchArgs,
     ListDirArgs,
@@ -25,6 +26,7 @@ from app.tools.schemas import ToolResult
 from app.tools.structured import ToolExecutionContext, ToolRegistry, ToolRisk, ToolSpec
 from app.workspace.command_policy import CommandPolicy
 from app.workspace.executor import execute_verification_command
+from app.workspace.project_detection import detect_project
 from app.workspace.shell_executor import ShellCommandResult, execute_shell_command
 from app.workspace.shell_policy import ShellPolicy
 
@@ -134,6 +136,84 @@ def _execute_search_code(args: RgArgs, context: ToolExecutionContext) -> Observa
             glob=args.glob,
             max_results=args.max_results,
         )
+    )
+
+
+def _run_subprocess(args: list[str], cwd: Path) -> tuple[int, str, str]:
+    completed = subprocess.run(
+        args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    return completed.returncode, completed.stdout, completed.stderr
+
+
+def _repo_status(args: EmptyToolArgs, context: ToolExecutionContext) -> Observation:
+    try:
+        branch_code, branch_stdout, branch_stderr = _run_subprocess(
+            ["git", "branch", "--show-current"],
+            context.workspace_path,
+        )
+        status_code, status_stdout, status_stderr = _run_subprocess(
+            ["git", "status", "--short"],
+            context.workspace_path,
+        )
+    except OSError as exc:
+        return _failed("repo_status", "Unable to read repo status", str(exc))
+
+    if branch_code != 0 or status_code != 0:
+        return _failed(
+            "repo_status",
+            "Unable to read repo status",
+            (branch_stderr or status_stderr or "git status failed").strip(),
+        )
+
+    dirty_files = [line for line in status_stdout.splitlines() if line.strip()]
+    payload = {
+        "branch": branch_stdout.strip(),
+        "dirty": bool(dirty_files),
+        "dirty_count": len(dirty_files),
+        "files": dirty_files,
+    }
+    return tool_observation(
+        tool_name="repo_status",
+        status="succeeded",
+        summary="Read repository status",
+        payload=payload,
+    )
+
+
+def _detect_project(args: EmptyToolArgs, context: ToolExecutionContext) -> Observation:
+    result = detect_project(context.workspace_path)
+    return tool_observation(
+        tool_name="detect_project",
+        status="succeeded",
+        summary="Detected project",
+        payload=result.model_dump(mode="json"),
+    )
+
+
+def _show_diff(args: EmptyToolArgs, context: ToolExecutionContext) -> Observation:
+    try:
+        code, stdout, stderr = _run_subprocess(
+            ["git", "diff", "--stat"],
+            context.workspace_path,
+        )
+    except OSError as exc:
+        return _failed("show_diff", "Unable to show diff", str(exc))
+    if code != 0:
+        return _failed(
+            "show_diff",
+            "Unable to show diff",
+            stderr.strip() or "git diff failed",
+        )
+    return tool_observation(
+        tool_name="show_diff",
+        status="succeeded",
+        summary="Read diff summary",
+        payload={"diff_stat": stdout},
     )
 
 
@@ -397,6 +477,27 @@ def _apply_patch(args: ApplyPatchArgs, context: ToolExecutionContext) -> Observa
 def default_tool_registry() -> ToolRegistry:
     return ToolRegistry(
         [
+            ToolSpec(
+                name="repo_status",
+                description="Read the current git branch and short working tree status.",
+                args_model=EmptyToolArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=_repo_status,
+            ),
+            ToolSpec(
+                name="detect_project",
+                description="Detect project type and suggest a verification command.",
+                args_model=EmptyToolArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=_detect_project,
+            ),
+            ToolSpec(
+                name="show_diff",
+                description="Read a compact git diff stat for current workspace changes.",
+                args_model=EmptyToolArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=_show_diff,
+            ),
             ToolSpec(
                 name="glob_file_search",
                 description="Find repo files using a relative glob pattern.",

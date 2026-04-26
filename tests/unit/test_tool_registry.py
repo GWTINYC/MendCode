@@ -168,7 +168,16 @@ def test_package_exports_structured_tool_aliases() -> None:
 def test_default_registry_contains_read_only_tools() -> None:
     registry = default_tool_registry()
 
-    for tool_name in ["glob_file_search", "list_dir", "read_file", "rg", "search_code"]:
+    for tool_name in [
+        "detect_project",
+        "glob_file_search",
+        "list_dir",
+        "read_file",
+        "repo_status",
+        "rg",
+        "search_code",
+        "show_diff",
+    ]:
         assert tool_name in registry.names()
 
 
@@ -209,13 +218,15 @@ def test_default_registry_generates_openai_schemas() -> None:
 def test_registry_filters_openai_schemas_to_allowed_tools() -> None:
     registry = default_tool_registry()
 
-    tools = registry.openai_tools(allowed_tools={"read", "glob", "grep"})
+    tools = registry.openai_tools(allowed_tools={"read", "glob", "grep", "status", "diff"})
 
     assert [tool["function"]["name"] for tool in tools] == [
         "glob_file_search",
         "read_file",
+        "repo_status",
         "rg",
         "search_code",
+        "show_diff",
     ]
 
 
@@ -306,6 +317,63 @@ def test_default_registry_contains_command_tools() -> None:
     assert "apply_patch" in registry.names()
     assert "run_shell_command" in registry.names()
     assert "run_command" in registry.names()
+
+
+def test_repo_status_runs_through_registry(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "README.md").write_text("demo\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=repo,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("repo_status").execute({}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "repo_status"
+    assert observation.payload["payload"]["dirty"] is True
+    assert observation.payload["dirty"] is True
+    assert observation.payload["dirty_count"] == 1
+
+
+def test_detect_project_runs_through_registry(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("detect_project").execute({}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "detect_project"
+    assert observation.payload["payload"]["languages"] == ["python"]
+    assert observation.payload["languages"] == ["python"]
+
+
+def test_show_diff_runs_through_registry(tmp_path: Path) -> None:
+    repo = init_repo(tmp_path)
+    (repo / "README.md").write_text("demo\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README.md"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-m", "initial commit"], cwd=repo, check=True)
+    (repo / "README.md").write_text("demo\nchanged\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=repo,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("show_diff").execute({}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "show_diff"
+    assert "README.md" in observation.payload["payload"]["diff_stat"]
+    assert "README.md" in observation.payload["diff_stat"]
 
 
 def test_git_status_uses_structured_operation(tmp_path: Path) -> None:

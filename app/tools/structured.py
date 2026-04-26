@@ -14,6 +14,9 @@ ToolInvocationSource = Literal["openai_tool_call", "json_action"]
 AllowedTools = set[str] | frozenset[str] | list[str] | tuple[str, ...] | None
 _TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
+    "status": ("repo_status",),
+    "project": ("detect_project",),
+    "diff": ("show_diff",),
     "read": ("read_file",),
     "ls": ("list_dir",),
     "list": ("list_dir",),

@@ -18,6 +18,8 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 
 所有开发都应围绕这个闭环推进，避免回到 fixed-flow、task JSON 或单纯命令行包装器路线。
 
+当前主线采用 Runtime-first 重构：TUI、CLI、Provider、Tool、Permission、Session 都围绕同一个 Agent Runtime 收敛。允许大幅调整内部接口，但不能牺牲工具闭环、安全边界和可复盘性。
+
 ## 2. 长期原则
 
 - 工具优先：本地事实必须来自工具结果，不由普通聊天编造。
@@ -30,13 +32,15 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 
 ### Phase A：运行时闭环
 
-目标：让 OpenAI-compatible 原生 `tool_calls` 稳定完成 `tool_call -> tool_result -> final_response`。
+目标：让 OpenAI-compatible 原生 `tool_calls` 稳定完成 `tool_call -> tool_result -> final_response`，并把 AgentLoop 收敛为可复用 Runtime。
 
-状态：基础版已完成，继续加固。
+状态：基础版已完成，进入 Runtime-first 重构。
 
 下一步重点：
 
 - 统一工具结果结构
+- 将 legacy tool path 迁移到 ToolRegistry
+- 抽出 AgentRuntime
 - 增加等价只读工具调用去重
 - 建设确定性 mock provider harness
 
@@ -49,7 +53,7 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 下一步重点：
 
 - 抽出完整 PermissionPolicy
-- 将 legacy tool path 收敛进 ToolRegistry
+- 将剩余 legacy tool path 收敛进 ToolRegistry
 - 增加 `write_file`、`edit_file`、`todo_write`、`tool_search`
 
 ### Phase C：会话与审计

@@ -29,7 +29,7 @@ MendCode 目前已经支持早期 TUI Agent 工作流：
 - AgentLoop action 会产生 trace 输出。
 - 支持基于 worktree 的修复路径和审查动作。
 
-MendCode 还不是一个打磨完整的最终产品。当前工程重点是稳定 Agent runtime、ToolRegistry、权限策略和会话复盘路径。
+MendCode 还不是一个打磨完整的最终产品。当前工程重点已经切到 Runtime-first 重构：让 TUI、Provider、ToolRegistry、PermissionPolicy、Session 和 Trace 都围绕同一个本地 Agent Runtime 收敛。
 
 ## 快速开始
 
@@ -80,7 +80,7 @@ API key 不能写入项目仓库。优先使用环境变量或用户本地配置
 
 ```text
 app/
-├── agent/          # AgentLoop、provider adapter、prompt context、权限、会话
+├── agent/          # 当前 AgentLoop、provider adapter、prompt context、权限、会话
 ├── tools/          # ToolRegistry、工具 schema、只读工具和 patch 工具
 ├── tui/            # Textual UI、意图路由、对话日志
 ├── workspace/      # shell policy/executor、验证 executor、worktree helper
@@ -91,6 +91,7 @@ app/
 关键运行时契约：
 
 - `ToolRegistry` 是工具 schema、风险等级和 executor 的来源。
+- `repo_status`、`detect_project`、`show_diff` 等只读内置能力也应通过 `ToolRegistry` 暴露。
 - `AgentLoop` 是执行边界，在运行 native tool call 前必须重新检查 allowed tools。
 - `PermissionPolicy` 逻辑必须保持集中，避免重复维护风险表。
 - 工具 observation 必须足够结构化，既能回传给模型，也能持久化到日志。

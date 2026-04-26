@@ -40,10 +40,7 @@ from app.workspace.worktree import prepare_worktree
 
 AgentLoopStatus = str
 _BUILTIN_TOOL_NAMES = {
-    "repo_status",
-    "detect_project",
     "apply_patch_to_worktree",
-    "show_diff",
 }
 
 

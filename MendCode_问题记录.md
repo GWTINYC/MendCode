@@ -253,6 +253,32 @@
 - 面向模型的 prompt context 要避免同一 observation 在不同消息槽重复出现。
 - 如需查看完整工具输出，应通过 trace viewer 或按需展开，而不是扩大聊天流或 conversation log。
 
+### 问题 10：AgentLoop 直接维护工具分支会阻碍 Runtime 化
+
+状态：开始修复，第一批只读内置工具已迁移
+
+现象：
+
+`repo_status`、`detect_project`、`show_diff` 曾经直接写在 `app/agent/loop.py` 中，而 `read_file`、`list_dir`、`rg`、`git` 等工具走 `ToolRegistry`。这导致 provider-visible tools、JSON action fallback、权限风险表、执行器和测试分散在多个位置。
+
+根因：
+
+- 早期 AgentLoop 先承担了运行时、工具执行、权限确认、trace 写入等职责。
+- 后续引入 ToolRegistry 后，没有及时把旧 builtin 工具迁走。
+- Permission risk 对 builtin 工具保留了独立表，削弱了“工具能力由注册表定义”的约束。
+
+处理：
+
+- `repo_status`、`detect_project`、`show_diff` 已迁入 `ToolRegistry`。
+- 这些工具的 OpenAI schema、executor、risk level 现在由注册表提供。
+- allowed tools aliases 增加 `status`、`project`、`diff`。
+
+后续约束：
+
+- 新增 provider-visible 工具必须先进入 ToolRegistry，不能直接在 AgentLoop 加分支。
+- AgentLoop 中剩余 legacy 分支只能作为迁移兼容层，不能扩张。
+- PermissionPolicy 后续必须从 ToolSpec 读取 required mode/risk，避免再维护平行风险表。
+
 ## 3. 后续重点风险
 
 ### 风险 A：模型重复调用等价只读工具

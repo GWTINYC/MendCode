@@ -69,3 +69,7 @@ class RunCommandArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     command: str
+
+
+class EmptyToolArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
