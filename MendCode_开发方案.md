@@ -215,6 +215,7 @@ User Message
 - [x] tool result 摘要展示
 - [x] conversation Markdown / JSONL 写入，并对 `tool_result` / `turn_result` 做 compact 摘要
 - [x] review actions：view diff / view trace / apply / discard
+- [x] 第一批 TUI experience scenario tests 覆盖目录查看、文件问题、失败场景和 resume
 
 当前不足：
 
@@ -398,6 +399,7 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 - ToolRegistry 改动：`tests/unit/test_tool_registry.py`
 - 权限改动：`tests/unit/test_permission_gate.py`、`tests/unit/test_shell_policy.py`
 - TUI 改动：`tests/unit/test_tui_app.py`、`tests/unit/test_tui_intent.py`
+- TUI 体验场景测试：`tests/scenarios/` 覆盖常见用户问题，断言 route、tool evidence、简洁输出和 no-fabrication。
 - CLI 改动：`tests/integration/test_cli.py`
 
 测试原则：

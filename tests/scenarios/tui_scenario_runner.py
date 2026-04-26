@@ -1,3 +1,7 @@
+# Scenario tests intentionally cover common user questions rather than isolated
+# functions. Keep failures readable: route, visible answer, tool evidence, and
+# verbosity should be obvious from ScenarioTranscript.debug_text().
+
 import asyncio
 import json
 import re
@@ -43,10 +47,10 @@ class ScenarioTranscript:
     visible_messages: list[str]
     jsonl_records: list[dict[str, Any]]
     chat_calls: list[str]
-    chat_history: list[tuple[str, str | None]]
-    chat_contexts: list[list[tuple[str, str | None]]]
     tool_calls: list[str]
     shell_calls: list[tuple[str, Path, bool]]
+    chat_history: list[tuple[str, str | None]] = field(default_factory=list)
+    chat_contexts: list[list[tuple[str, str | None]]] = field(default_factory=list)
 
     @property
     def visible_text(self) -> str:
