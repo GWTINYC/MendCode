@@ -1,187 +1,357 @@
 # MendCode 开发方案
 
-## 1. 产品定位
+## 1. 文档职责
 
-MendCode 是运行在本地仓库中的 TUI Code Agent。用户用自然语言描述目标，系统通过模型驱动的工具调用读取仓库、执行安全命令、生成补丁、验证结果，并把全过程保存为可复盘的本地会话。
+本文档是 MendCode 的详细开发执行说明。它回答：
 
-第一阶段不追求“功能大而全”，而是把 Agent 运行时做扎实：
+- 当前系统已经具备什么能力
+- 各模块的边界和契约是什么
+- 下一轮应该优先改哪里
+- 每次开发后哪些文档和测试需要同步
 
-- 原生工具调用是主路径，JSON Action 是 fallback。
-- 工具定义、权限风险、执行结果都结构化。
-- 低风险查询自动执行，写入、安装、网络、破坏性操作受权限策略约束。
-- 每次工具调用都形成 observation，并进入下一轮模型上下文。
-- 每轮对话都落盘，能从日志复盘意图、工具、结果和最终回答。
+维护规则：
 
-## 2. 运行时主线
+- 每次代码实现后，如果能力、接口、风险边界、测试策略或开发优先级发生变化，必须更新本文档。
+- 全局方向变化才更新 `MendCode_全局路线图.md`。
+- 出现可复用的工程教训才更新 `MendCode_问题记录.md`。
+- README 面向使用者和新贡献者，本文档面向继续开发的人。
 
-当前主线是：
+## 2. 当前产品目标
+
+MendCode 是运行在本地仓库中的 TUI Code Agent。用户用自然语言描述任务，模型通过工具调用获取本地事实，MendCode 在本地安全执行工具，并把结果回传给模型继续推理。
+
+目标闭环：
 
 ```text
-TUI 输入
+User Message
 -> Intent Router
 -> AgentLoop
 -> Provider
--> ToolRegistry/OpenAI tools schema
--> PermissionPolicy
+-> ToolRegistry / OpenAI tools schema
+-> Permission Gate
 -> Tool Executor
 -> Observation
--> 下一轮 Provider
--> Final Response
+-> Provider receives tool result
+-> Final Response or next Tool Call
 -> Conversation Log / Trace
 ```
 
-关键约束：
+当前优先级：
 
-- 模型只决定“要调用什么工具”和“如何基于结果回答”。
-- MendCode 负责工具白名单、权限判断、路径边界、执行、截断、日志和验证。
-- 任何本地事实问题，如目录、文件、代码、Git 状态，必须走工具路径，不能让普通聊天直接编造。
-- 修复类任务必须用 worktree 或明确的补丁边界隔离主工作区。
+1. 运行时闭环稳定性
+2. ToolRegistry 和 PermissionPolicy 收敛
+3. 会话日志、trace、resume 能力
+4. TUI 工具调用展示和确认交互
+5. 修复链路的 patch / verify / review 体验
 
-## 3. 已落地能力
+## 3. 当前能力状态
 
-### Agent loop
+### 3.1 AgentLoop
 
-- [x] `MendCodeAction` / `Observation` 内部协议
-- [x] Provider-driven loop
-- [x] OpenAI-compatible 原生 `tool_calls`
+已完成：
+
+- [x] `MendCodeAction` / `Observation`
+- [x] Provider-driven step loop
+- [x] step budget
+- [x] observation history
+- [x] provider failure observation
+- [x] OpenAI-compatible native `tool_calls`
 - [x] JSON Action fallback
-- [x] Native tool result 写回 assistant/tool message
-- [x] 工具后普通文本可包装为 `final_response`
-- [x] final gate 会阻止失败 observation 被错误标记为 completed
+- [x] native tool invocation 执行
+- [x] assistant/tool message 回填
+- [x] 工具后普通文本包装为 `final_response`
+- [x] final response gate 阻止失败 observation 被标记 completed
+- [x] `allowed_tools` 执行期检查
 
-### ToolRegistry
+当前不足：
 
-- [x] Pydantic args model 生成 OpenAI tools schema
-- [x] `allowed_tools` scoped tools
-- [x] 工具别名归一：`read`、`glob`、`grep`、`shell` 等
-- [x] 未知工具和越权工具拒绝执行
-- [x] 工具风险等级作为 PermissionPolicy 的来源
+- [ ] legacy JSON action path 和 native tool path 仍有部分重复逻辑
+- [ ] 没有等价只读工具调用去重
+- [ ] Provider request/response 调试摘要不足
+- [ ] 工具结果字段尚未完全统一
 
-当前工具集：
+下一步：
 
-- [x] `read_file`
-- [x] `list_dir`
-- [x] `glob_file_search`
-- [x] `rg` / `search_code`
-- [x] `git` 只读操作
-- [x] `run_shell_command`
-- [x] `run_command`，仅用于已声明 verification command
-- [x] `apply_patch`
-- [x] `repo_status`
-- [x] `detect_project`
-- [x] `show_diff`
+- 把 `_execute_tool_call` 中的 legacy 分支逐步收敛到 ToolRegistry。
+- 给 AgentLoop 增加最近工具调用指纹，处理重复 `list_dir` / `read_file` / `rg`。
+- 把 provider 调试摘要写入 trace，注意不要落 API key。
 
-### TUI
+### 3.2 Provider
 
-- [x] `mendcode` 启动 TUI
-- [x] 自然语言 chat / fix / shell / tool intent
-- [x] `ls`、`pwd`、`git status`、`git diff`、`rg` 等低风险 shell 自动执行
-- [x] 危险 shell 进入 pending confirmation
-- [x] 自然语言目录/文件请求进入工具 Agent
-- [x] 工具结果摘要展示在聊天流
-- [x] `/status` 展示会话和 pending shell 状态
-- [x] 会话保存到 `data/conversations/*.md` 和 `*.jsonl`
+已完成：
 
-### 安全与验证
+- [x] `ScriptedAgentProvider`
+- [x] `OpenAICompatibleAgentProvider`
+- [x] OpenAI-compatible tools schema 发送
+- [x] 原生 tool call 解析
+- [x] tools unsupported fallback
+- [x] tool 后普通文本 final response
+- [x] API key redaction
+- [x] scoped `allowed_tools`
+- [x] 越权 tool call 拒绝
 
-- [x] Safe / Guided / Full / Custom 权限模式
-- [x] shell policy 区分只读、写入、安装、网络、git mutate、路径逃逸和破坏性命令
-- [x] `run_command` 与普通 shell executor 分离
-- [x] worktree patch 和验证闭环
-- [x] pytest 失败解析
-- [x] ReviewSummary / AttemptRecord / ToolCallSummary
-- [x] TUI review actions：view diff / view trace / apply / discard
+当前不足：
 
-## 4. 设计原则
+- [ ] 没有完整 mock provider parity harness
+- [ ] 没有请求快照测试覆盖全部工具 schema
+- [ ] 未实现 OpenAI 官方 adapter
+- [ ] 未实现 Anthropic adapter
 
-### 工具优先，而不是命令行拼接优先
+下一步：
 
-能用结构化工具表达的动作，不让模型直接写 shell：
+- 建立确定性 mock provider，覆盖 read、rg、多工具、shell、权限 approve/deny。
+- Provider tests 继续优先使用 fake client，不依赖真实网络。
+- 后续新增 provider 时只改 adapter，不改 AgentLoop 主体。
 
-- 文件读取用 `read_file`
-- 目录查看用 `list_dir`
-- 路径发现用 `glob_file_search`
-- 文本搜索用 `rg` / `search_code`
-- Git 查询用结构化 `git`
-- shell 只用于没有结构化工具覆盖的诊断动作
+### 3.3 ToolRegistry
 
-### 权限策略集中
+已完成：
 
-新增工具时必须同步：
+- [x] `ToolSpec`
+- [x] Pydantic args model
+- [x] OpenAI tools schema
+- [x] `risk_level`
+- [x] executor
+- [x] `allowed_tools`
+- [x] aliases：`read`、`list`、`glob`、`grep`、`search`、`shell`、`bash`、`patch`
 
-- ToolRegistry spec
-- args schema
-- risk level
-- executor
-- prompt contract
-- permission 测试
-- native tool path 测试
+当前工具：
 
-不要在多个模块复制风险等级或工具白名单。
+| Tool | 状态 | 说明 |
+|---|---|---|
+| `read_file` | 已完成 | 读取 repo-relative 文本文件，支持行范围和截断 |
+| `list_dir` | 已完成 | 列目录，未截断时完整 entries 进入 prompt context |
+| `glob_file_search` | 已完成 | 按 glob 查找路径 |
+| `rg` / `search_code` | 已完成 | 文本搜索 |
+| `git` | 已完成 | 结构化只读 git status/diff/log |
+| `run_shell_command` | 已完成 | 普通 shell，走 ShellPolicy |
+| `run_command` | 已完成 | 仅允许 declared verification command |
+| `apply_patch` | 已完成 | 应用统一 diff |
+| `repo_status` | legacy/builtin | 后续考虑 ToolRegistry 化 |
+| `detect_project` | legacy/builtin | 后续考虑 ToolRegistry 化 |
+| `show_diff` | legacy/builtin | 后续考虑 ToolRegistry 化 |
 
-### 运行时负责闭环
+下一步工具：
 
-Provider 不可信任为唯一安全边界。即使 provider 已经裁剪 tools schema，AgentLoop 仍必须在执行前检查：
+- [ ] `write_file`：默认仅 worktree，写前检查路径和权限
+- [ ] `edit_file`：精确替换或小 patch block
+- [ ] `todo_write`：记录 Agent 当前短期计划
+- [ ] `tool_search`：让模型查询可用工具能力
+- [ ] `session_status`：返回当前会话、权限、工具集、workspace 状态
 
-- 工具是否存在
-- 工具是否在 `allowed_tools`
-- 权限模式是否允许
-- shell policy 是否允许
-- 路径是否在 workspace 内
+新增工具检查表：
 
-### 会话可恢复、可审计
+- [ ] args model
+- [ ] executor
+- [ ] risk level
+- [ ] OpenAI schema 测试
+- [ ] 参数非法测试
+- [ ] permission 测试
+- [ ] native tool call 测试
+- [ ] JSON fallback 如需兼容则补测试
+- [ ] prompt contract 更新
+- [ ] 本文档更新
 
-每轮对话至少保留：
+### 3.4 Permission / Shell Policy
 
-- 用户输入
-- intent decision
-- provider request 关键上下文
-- tool calls
-- observations
-- final response
-- 错误和权限拒绝
+已完成：
 
-后续 resume、debug、质量评估都基于这些日志，而不是依赖终端画面。
+- [x] `PermissionMode`: Safe / Guided / Full / Custom
+- [x] `PermissionDecision`
+- [x] risk level 从 ToolRegistry 派生
+- [x] shell low-risk 自动执行
+- [x] shell 写入/安装/网络/git mutate 确认
+- [x] critical destructive 和 path escape 拒绝
+- [x] TUI pending shell confirmation
 
-## 5. 下一步开发重点
+当前不足：
 
-### 5.1 Runtime 稳定性
+- [ ] PermissionPolicy 仍不是独立对象
+- [ ] 工具确认和 shell 确认还没有完全统一
+- [ ] allow once / deny / change mode 回写不完整
+- [ ] Custom mode 未配置化
 
-- [ ] 抽出独立 `PermissionPolicy` 对象，统一 ToolRegistry risk、shell policy、确认规则
-- [ ] 将 legacy JSON action 工具执行逐步迁移到 ToolRegistry executor
-- [ ] 增加等价只读工具调用去重，避免模型重复 `list_dir` / `read_file`
-- [ ] 给工具结果增加统一字段：`tool_name`、`status`、`summary`、`payload`、`truncated`、`is_error`
+下一步：
 
-### 5.2 工具能力
+- 抽出 `PermissionPolicy`，输入 tool spec、mode、shell decision、workspace context，输出 allow/confirm/deny。
+- 确认结果要形成 observation 并回传模型。
+- 所有写主工作区、安装、网络、commit、push、reset、checkout 都必须有测试覆盖。
 
-- [ ] `write_file`，默认仅允许 worktree
-- [ ] `edit_file`，基于精确替换或 patch block
-- [ ] `todo_write`，记录 Agent 内部短期计划
-- [ ] `tool_search`，让模型按能力发现可用工具
-- [ ] `session_status`，返回当前会话、权限、工具集和 workspace 状态
+### 3.5 TUI
 
-### 5.3 Provider 与测试
+已完成：
 
-- [ ] 增加更完整的 OpenAI-compatible mock harness
-- [ ] 覆盖 read_file、rg、multi-tool、permission approve/deny、tool error、plain final text
-- [ ] 记录每个 provider 请求的 tools schema 快照
-- [ ] 后续再考虑 OpenAI 官方 adapter 和 Anthropic adapter
+- [x] TUI 启动
+- [x] `/status`
+- [x] chat / fix / shell / tool intent
+- [x] shell 自动执行和 pending confirmation
+- [x] tool request 进入 AgentLoop
+- [x] tool result 摘要展示
+- [x] conversation Markdown / JSONL 写入
+- [x] review actions：view diff / view trace / apply / discard
 
-### 5.4 TUI 体验
+当前不足：
 
-- [ ] 工具调用折叠/展开
-- [ ] 工具参数和完整输出 viewer
-- [ ] 会话列表与 resume
-- [ ] diff viewer 分页
-- [ ] permission prompt 的 allow once / deny / change mode
+- [ ] 工具调用不能折叠/展开
+- [ ] 完整工具参数和完整输出 viewer 不足
+- [ ] permission prompt 交互仍偏简单
+- [ ] session list / resume 未实现
+- [ ] provider health / doctor 未做 TUI surface
 
-## 6. 验证命令
+下一步：
 
-每轮代码改动至少运行：
+- 工具结果摘要保留在聊天流，完整 payload 通过日志或 viewer 查看。
+- 对 pending confirmation 支持 allow once / deny / change mode。
+- 增加 session picker 和 resume latest。
+
+### 3.6 Session / Trace / Conversation Log
+
+已完成：
+
+- [x] JSONL trace
+- [x] Markdown conversation log
+- [x] JSONL conversation log
+- [x] `/status` 展示路径
+- [x] tool/shell/chat/turn event
+- [x] ReviewSummary
+- [x] AttemptRecord
+- [x] ToolCallSummary
+
+当前不足：
+
+- [ ] 没有会话索引
+- [ ] 没有 resume latest/session-id
+- [ ] 没有 compact summary
+- [ ] 没有 session health probe
+
+下一步：
+
+- 为 `data/conversations` 增加轻量索引或扫描器。
+- 支持按 latest 或 session id 恢复上下文。
+- 对长会话生成 compact summary，保留关键工具结果和决策。
+
+## 4. 当前重点任务队列
+
+### 任务 1：统一 PermissionPolicy
+
+目标：
+
+把 tool risk、shell policy、allowed tools、permission mode、confirmation request 统一到一个可测试策略对象。
+
+验收：
+
+- Safe / Guided / Full / Custom 行为清晰
+- read-only 自动允许
+- write/install/network/git mutate 确认
+- destructive/path escape 拒绝
+- permission decision 写入 observation
+
+### 任务 2：工具结果统一结构
+
+目标：
+
+让所有工具返回模型可理解、日志可复盘的统一字段。
+
+建议字段：
+
+```text
+tool_name
+status
+summary
+is_error
+payload
+truncated
+next_offset
+stdout_excerpt
+stderr_excerpt
+duration_ms
+```
+
+验收：
+
+- read/list/rg/git/shell/patch 结果都能稳定进入 prompt context
+- 错误结果也能作为 tool result 回传模型
+
+### 任务 3：Mock Provider Harness
+
+目标：
+
+用确定性 fake provider 覆盖真实工具闭环，避免每次依赖真实模型行为。
+
+场景：
+
+- streaming text
+- read_file roundtrip
+- rg roundtrip
+- multi-tool turn
+- shell stdout
+- permission approve
+- permission deny
+- tool error
+- plain final text after tool result
+
+验收：
+
+- harness 能跑完整 AgentLoop
+- 每个场景都有 request count、tool result、final response 断言
+
+### 任务 4：TUI 会话恢复
+
+目标：
+
+让用户能查看和恢复最近会话。
+
+验收：
+
+- `/status` 展示 latest conversation
+- 支持 session list
+- 支持 resume latest
+- 恢复后模型能看到 compact history
+
+## 5. 测试策略
+
+基础验证命令：
 
 ```bash
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .
 ```
 
-涉及 TUI、工具调用、权限或 provider 的改动，必须补对应单测，不只做手工验证。
+按改动类型补测试：
+
+- Provider 改动：`tests/unit/test_openai_compatible_provider.py`
+- Prompt context 改动：`tests/unit/test_prompt_context.py`
+- AgentLoop 改动：`tests/unit/test_agent_loop.py`
+- ToolRegistry 改动：`tests/unit/test_tool_registry.py`
+- 权限改动：`tests/unit/test_permission_gate.py`、`tests/unit/test_shell_policy.py`
+- TUI 改动：`tests/unit/test_tui_app.py`、`tests/unit/test_tui_intent.py`
+- CLI 改动：`tests/integration/test_cli.py`
+
+测试原则：
+
+- 新行为先写失败测试，再实现。
+- 不只测函数存在，要测真实闭环。
+- 对“模型可能编造”的问题，测试必须断言进入 tool path，并断言 chat responder 未被调用。
+- 对工具调用，测试必须断言 observation 进入下一轮 provider input。
+
+## 6. 文档更新规则
+
+每次开发后执行：
+
+1. 如果用户可见能力变化，更新 `README.md`。
+2. 如果阶段优先级或大方向变化，更新 `MendCode_全局路线图.md`。
+3. 如果实现状态、接口、模块边界、测试策略或下一步任务变化，更新本文档。
+4. 如果发现可复用工程问题，更新 `MendCode_问题记录.md`。
+
+不要把所有细节都塞进路线图。路线图保持简要，本文档承载详细执行状态。
+
+## 7. 当前已验证命令
+
+最近一次文档整理前，以下命令通过：
+
+```bash
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .
+```
+
+每轮代码变更后必须重新运行，不能直接沿用本节历史记录。
