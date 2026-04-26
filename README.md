@@ -54,6 +54,8 @@ TUI 中可以尝试：
 读取 README.md 的前几行
 看下 git status
 pytest 失败了，帮我修复
+/sessions
+/resume <session_id>
 ```
 
 直接 CLI 修复仍作为过渡入口保留：
@@ -82,7 +84,7 @@ API key 不能写入项目仓库。优先使用环境变量或用户本地配置
 ```text
 app/
 ├── agent/          # 当前 AgentLoop、provider adapter、prompt context、权限、会话
-├── runtime/        # AgentRuntime wrapper、runtime turn/result contracts
+├── runtime/        # AgentRuntime wrapper、runtime turn/result contracts、session store
 ├── tools/          # ToolRegistry、工具 schema、只读工具和 patch 工具
 ├── tui/            # Textual UI、TuiController、意图路由、对话日志
 ├── workspace/      # shell policy/executor、验证 executor、worktree helper
@@ -96,6 +98,7 @@ app/
 - `repo_status`、`detect_project`、`show_diff` 等只读内置能力也应通过 `ToolRegistry` 暴露。
 - `write_file`、`edit_file`、`todo_write`、`tool_search` 等写入和工具发现能力也通过同一注册表暴露，并由权限策略裁剪。
 - `AgentRuntime` 是新的运行时边界；当前 `run_agent_loop()` 作为兼容 wrapper 保留。
+- `SessionStore` 负责扫描 `data/conversations/*.jsonl`，生成 session index、compact resume context 和 trace 工具事件视图。
 - `PermissionPolicy` 逻辑必须保持集中，避免重复维护风险表。
 - 工具 observation 必须足够结构化，既能回传给模型，也能持久化到日志。
 - 本地事实必须来自工具结果，不能来自普通聊天文本。

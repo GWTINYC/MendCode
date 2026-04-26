@@ -205,6 +205,8 @@ User Message
 - [x] TUI 启动
 - [x] `TuiController` 接管输入解析、intent routing 和 chat/shell/tool/fix 调度
 - [x] `/status`
+- [x] `/sessions`
+- [x] `/resume [session_id]`
 - [x] chat / fix / shell / tool intent
 - [x] shell 自动执行和 pending confirmation
 - [x] tool request 进入 AgentLoop
@@ -218,7 +220,7 @@ User Message
 - [ ] 工具调用不能折叠/展开
 - [ ] 完整工具参数和完整输出 viewer 不足
 - [ ] permission prompt 交互仍偏简单
-- [ ] session list / resume 未实现
+- [ ] session picker / trace 展开界面仍偏基础
 - [ ] provider health / doctor 未做 TUI surface
 
 下一步：
@@ -226,7 +228,7 @@ User Message
 - 继续把 worker 启动、completion 处理和 review action 迁到 controller 或 runtime-facing service。
 - 工具结果摘要保留在聊天流；conversation log 只保留摘要、样本和 trace/workspace 指针，完整 payload 通过 trace 或后续 viewer 查看。
 - 对 pending confirmation 支持 allow once / deny / change mode。
-- 增加 session picker 和 resume latest。
+- 增加 session picker，并把 trace viewer 做成可按需展开完整 payload 的 TUI 入口。
 
 ### 3.6 Session / Trace / Conversation Log
 
@@ -242,21 +244,21 @@ User Message
 - [x] AttemptRecord
 - [x] ToolCallSummary
 - [x] Session / CLI 能读取 enveloped `run_command` raw verification payload
+- [x] `SessionStore` 扫描 `data/conversations/*.jsonl`，支持 list/latest/session-id lookup
+- [x] compact resume context 包含最终回答和工具摘要，不回灌完整文件内容
+- [x] `/resume [session_id]` 会把 compact context 注入后续 chat history
+- [x] trace viewer helper 能读取工具事件摘要并保留完整 payload 入口
 
 当前不足：
 
-- [ ] 没有会话索引
-- [ ] 没有 resume latest/session-id
 - [ ] 没有 compact summary
 - [ ] 没有 session health probe
-- [ ] 还没有独立 viewer 从 trace 中按需展开完整工具输出
+- [ ] 还没有 TUI 独立 viewer 从 trace 中按需展开完整工具输出
 
 下一步：
 
-- 为 `data/conversations` 增加轻量索引或扫描器。
-- 支持按 latest 或 session id 恢复上下文。
 - 对长会话生成跨轮 compact summary，保留关键工具结果和决策。
-- 增加 trace viewer，用于查看 conversation log 中被压缩掉的完整工具 payload。
+- 把 trace viewer helper 接到 TUI 展开界面，用于查看 conversation log 中被压缩掉的完整工具 payload。
 
 ## 4. 当前重点任务队列
 
@@ -327,7 +329,7 @@ duration_ms
 
 - Mock provider harness 已完成基础版。
 - 已覆盖 read_file、list_dir、rg、多工具、shell stdout、tool error、allowed-tools denial、confirmation stop。
-- 后续继续扩展到 write 工具、permission allow/deny resume 和重复只读工具调用。
+- 后续继续扩展到 write 工具、permission allow/deny 和重复只读工具调用。
 
 场景：
 
@@ -354,10 +356,10 @@ duration_ms
 
 验收：
 
-- `/status` 展示 latest conversation
-- 支持 session list
-- 支持 resume latest
-- 恢复后模型能看到 compact history
+- [x] `/sessions` 展示 conversation sessions
+- [x] 支持 resume latest/session-id
+- [x] 恢复后模型能看到 compact history
+- [ ] TUI 中支持 trace payload 展开
 
 ## 5. 测试策略
 

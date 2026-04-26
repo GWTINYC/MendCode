@@ -61,14 +61,13 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 
 目标：让每轮对话都能恢复、审计、调试和评估。
 
-状态：早期能力已完成。
+状态：早期能力已完成；已有会话索引、`/sessions`、`/resume [session_id]`、compact resume context 和 trace 工具事件读取 API。
 
 下一步重点：
 
-- 会话列表
-- resume latest/session-id
 - compact summary
-- trace viewer
+- trace viewer 的 TUI 展开界面
+- 长会话 session health / 压缩策略
 
 ### Phase D：TUI 工作台体验
 

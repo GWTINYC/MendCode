@@ -103,6 +103,44 @@ def make_turn() -> AgentSessionTurn:
     )
 
 
+def write_conversation(
+    data_dir: Path,
+    *,
+    stem: str,
+    records: list[dict[str, object]],
+) -> None:
+    conversations_dir = data_dir / "conversations"
+    conversations_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = conversations_dir / f"{stem}.jsonl"
+    markdown_path = conversations_dir / f"{stem}.md"
+    jsonl_path.write_text(
+        "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+        encoding="utf-8",
+    )
+    markdown_path.write_text(
+        "\n".join(
+            [
+                "# MendCode Conversation",
+                "",
+                "repo: /repo/old",
+                "started_at: 2026-04-26T10:00:00+08:00",
+                f"run_id: {stem.rsplit('-', 1)[-1]}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def message_record(sequence: int, timestamp: str, role: str, message: str) -> dict[str, object]:
+    return {
+        "sequence": sequence,
+        "timestamp": timestamp,
+        "event_type": "message",
+        "payload": {"role": role, "message": message},
+    }
+
+
 class FakeSession:
     def __init__(
         self,
@@ -280,6 +318,95 @@ async def test_status_shows_conversation_log_path(tmp_path: Path) -> None:
         assert any(
             str(app.session_state.conversation_markdown_path) in message
             for message in app.message_texts
+        )
+
+
+async def test_sessions_command_lists_conversation_sessions(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    settings = make_settings(tmp_path)
+    write_conversation(
+        settings.data_dir,
+        stem="2026-04-26_100000-oldrun",
+        records=[
+            message_record(1, "2026-04-26T10:00:00+08:00", "You", "old task"),
+        ],
+    )
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=settings,
+        agent_session=FakeSession(make_turn()),
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.handle_user_input("/sessions")
+        await pilot.pause()
+
+        assert any("Session List" in message for message in app.message_texts)
+        assert any("oldrun" in message for message in app.message_texts)
+
+
+async def test_resume_command_renders_compact_previous_session_context(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    settings = make_settings(tmp_path)
+    full_content = "readme content\n" * 500
+    write_conversation(
+        settings.data_dir,
+        stem="2026-04-26_100000-oldrun",
+        records=[
+            message_record(1, "2026-04-26T10:00:00+08:00", "You", "读取 README"),
+            {
+                "sequence": 2,
+                "timestamp": "2026-04-26T10:00:01+08:00",
+                "event_type": "tool_result",
+                "payload": {
+                    "status": "completed",
+                    "summary": "Read README.md",
+                    "trace_path": "/tmp/trace.jsonl",
+                    "steps": [
+                        {
+                            "index": 1,
+                            "action": {"type": "tool_call", "action": "read_file"},
+                            "observation": {
+                                "status": "succeeded",
+                                "summary": "Read README.md",
+                                "payload": {
+                                    "relative_path": "README.md",
+                                    "content": full_content,
+                                },
+                            },
+                        }
+                    ],
+                },
+            },
+            message_record(
+                3,
+                "2026-04-26T10:00:02+08:00",
+                "MendCode",
+                "README 第一行是 MendCode。",
+            ),
+        ],
+    )
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=settings,
+        agent_session=FakeSession(make_turn()),
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.handle_user_input("/resume oldrun")
+        await pilot.pause()
+
+        rendered = "\n".join(app.message_texts)
+        assert "Resume Context" in rendered
+        assert "session_id: oldrun" in rendered
+        assert "MendCode: README 第一行是 MendCode。" in rendered
+        assert "read_file: succeeded - Read README.md" in rendered
+        assert full_content not in rendered
+        assert any(
+            history.role == "system" and "session_id: oldrun" in history.content
+            for history in app.session_state.chat_history
         )
 
 

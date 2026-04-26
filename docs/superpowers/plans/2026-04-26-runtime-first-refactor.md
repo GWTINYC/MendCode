@@ -225,23 +225,23 @@ Expected: all tests pass.
 - Test: `tests/unit/test_conversation_log.py`
 - Test: new `tests/unit/test_session_store.py`
 
-- [ ] **Step 1: Add session index tests**
+- [x] **Step 1: Add session index tests**
 
 Assert latest session lookup, list ordering, and missing-session errors.
 
-- [ ] **Step 2: Implement session index**
+- [x] **Step 2: Implement session index**
 
 Scan `data/conversations/*.jsonl`, read compact metadata, and expose latest/session-id lookup.
 
-- [ ] **Step 3: Add resume compact context tests**
+- [x] **Step 3: Add resume compact context tests**
 
 Assert resumed context includes final answers and compact tool summaries, not full trace payloads.
 
-- [ ] **Step 4: Add trace viewer helper**
+- [x] **Step 4: Add trace viewer helper**
 
 Given a trace path, return matching tool events with excerpts and full payload access.
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 Run:
 

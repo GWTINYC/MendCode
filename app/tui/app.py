@@ -9,9 +9,11 @@ from textual.css.query import NoMatches
 from textual.widgets import Input, RichLog, Static
 
 from app.agent.loop import AgentLoopInput, AgentLoopResult, run_agent_loop
+from app.agent.prompt_context import ChatMessage
 from app.agent.provider_factory import ProviderConfigurationError, build_agent_provider
 from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import Settings
+from app.runtime.session_store import SessionNotFoundError, SessionStore
 from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_responder
 from app.tui.commands import ChatCommand
 from app.tui.controller import TuiController
@@ -291,6 +293,12 @@ class MendCodeTextualApp(App[None]):
         if command.name in {"diff", "trace", "apply", "discard"}:
             self._run_review_action(command.name)
             return
+        if command.name == "sessions":
+            self._show_sessions()
+            return
+        if command.name == "resume":
+            self._show_resume_context(command.args)
+            return
         if command.name == "exit":
             self.exit()
 
@@ -305,6 +313,8 @@ class MendCodeTextualApp(App[None]):
                 "Natural shell - ls, pwd, git status, git diff, rg, cat/head/tail, find",
                 "/diff - show latest worktree diff",
                 "/trace - show latest trace excerpt",
+                "/sessions - list saved conversation sessions",
+                "/resume [session_id] - show compact context from a saved session",
                 "/apply - apply latest verified worktree changes",
                 "/discard - discard latest worktree",
                 "/exit - exit",
@@ -340,6 +350,44 @@ class MendCodeTextualApp(App[None]):
                 f"conversation_log: {conversation_log}",
             ]
         )
+
+    def _session_store(self) -> SessionStore:
+        return SessionStore(data_dir=self.settings.data_dir)
+
+    def _show_sessions(self) -> None:
+        sessions = self._session_store().list_sessions()
+        if not sessions:
+            self.append_message("System", "Session List\nNo saved sessions.")
+            return
+        lines = ["Session List"]
+        for session in sessions[:10]:
+            lines.append(
+                " | ".join(
+                    [
+                        session.session_id,
+                        session.updated_at or "",
+                        session.repo_path or "",
+                        f"events={session.event_count}",
+                    ]
+                )
+            )
+        self.append_message("System", "\n".join(lines))
+
+    def _show_resume_context(self, session_id: str) -> None:
+        target_session = session_id.strip() or None
+        try:
+            context = self._session_store().build_resume_context(target_session)
+        except SessionNotFoundError as exc:
+            self.append_message("Error", str(exc))
+            return
+        self._conversation_log.append_event(
+            "session_resume",
+            {"session_id": target_session or "latest"},
+        )
+        self.session_state.chat_history.append(
+            ChatMessage(role="system", content="Resume Context\n" + context)
+        )
+        self.append_message("System", "Resume Context\n" + context)
 
     def _set_verification_command(self, command: str) -> None:
         try:

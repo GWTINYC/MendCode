@@ -12,6 +12,24 @@ def test_test_command_parses_command_body() -> None:
     )
 
 
+def test_resume_command_parses_optional_session_id() -> None:
+    parsed = parse_chat_input("/resume abc123")
+
+    assert parsed == ParsedChatInput(
+        kind="command",
+        command=ChatCommand(name="resume", args="abc123"),
+    )
+
+
+def test_sessions_command_parses_without_args() -> None:
+    parsed = parse_chat_input("/sessions")
+
+    assert parsed == ParsedChatInput(
+        kind="command",
+        command=ChatCommand(name="sessions", args=""),
+    )
+
+
 def test_plain_text_parses_as_task_message() -> None:
     parsed = parse_chat_input("pytest is failing, fix it")
 

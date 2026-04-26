@@ -12,6 +12,8 @@ KNOWN_COMMANDS = {
     "trace",
     "apply",
     "discard",
+    "sessions",
+    "resume",
     "exit",
 }
 
