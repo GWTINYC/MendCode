@@ -6,6 +6,20 @@ from app.schemas.agent_action import Observation, ObservationStatus
 from app.tools.schemas import ToolResult
 
 ToolResultStatus = Literal["passed", "failed", "rejected"]
+_ENVELOPE_KEYS = frozenset(
+    {
+        "tool_name",
+        "status",
+        "summary",
+        "is_error",
+        "payload",
+        "truncated",
+        "next_offset",
+        "stdout_excerpt",
+        "stderr_excerpt",
+        "duration_ms",
+    }
+)
 
 
 def _observation_status(status: ObservationStatus | ToolResultStatus) -> ObservationStatus:
@@ -27,8 +41,22 @@ def tool_observation(
     stderr_excerpt: str | None = None,
     duration_ms: int | None = None,
 ) -> Observation:
+    """Build an observation with reserved envelope keys at the top level.
+
+    Tool-specific values that collide with reserved envelope keys are preserved
+    under nested ``payload``. Non-reserved payload keys are also copied to the
+    top level for compatibility with existing consumers.
+    """
     observation_status = _observation_status(status)
     tool_payload = dict(payload or {})
+    payload_truncated = tool_payload.get("truncated")
+    truncated_value = (
+        truncated
+        if truncated is not None
+        else payload_truncated
+        if isinstance(payload_truncated, bool)
+        else False
+    )
     stdout_value = stdout_excerpt
     if stdout_value is None:
         stdout_value = str(tool_payload.get("stdout_excerpt", "") or "")
@@ -42,14 +70,15 @@ def tool_observation(
         "summary": summary,
         "is_error": observation_status != "succeeded",
         "payload": tool_payload,
-        "truncated": bool(tool_payload.get("truncated", False) if truncated is None else truncated),
+        "truncated": truncated_value,
         "next_offset": next_offset if next_offset is not None else tool_payload.get("next_offset"),
         "stdout_excerpt": stdout_value,
         "stderr_excerpt": stderr_value,
         "duration_ms": duration_ms if duration_ms is not None else tool_payload.get("duration_ms"),
     }
     for key, value in tool_payload.items():
-        envelope.setdefault(key, value)
+        if key not in _ENVELOPE_KEYS:
+            envelope[key] = value
 
     return Observation(
         status=observation_status,

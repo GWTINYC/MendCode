@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from app.tools.observations import (
     observation_from_tool_result,
     tool_observation,
@@ -47,6 +49,40 @@ def test_tool_observation_requires_error_message_for_failed_status() -> None:
     assert observation.payload["is_error"] is True
     assert observation.payload["payload"]["relative_path"] == "missing.txt"
     assert observation.error_message == "path does not exist"
+
+
+def test_tool_observation_preserves_reserved_key_collisions_in_nested_payload() -> None:
+    observation = tool_observation(
+        tool_name="read_file",
+        status="succeeded",
+        summary="Read file",
+        payload={
+            "status": "passed",
+            "summary": "raw",
+            "tool_name": "raw_tool",
+            "truncated": "raw",
+            "content": "demo",
+        },
+    )
+
+    assert observation.payload["tool_name"] == "read_file"
+    assert observation.payload["status"] == "succeeded"
+    assert observation.payload["summary"] == "Read file"
+    assert observation.payload["truncated"] is False
+    assert observation.payload["payload"]["tool_name"] == "raw_tool"
+    assert observation.payload["payload"]["status"] == "passed"
+    assert observation.payload["payload"]["summary"] == "raw"
+    assert observation.payload["payload"]["truncated"] == "raw"
+    assert observation.payload["content"] == "demo"
+
+
+def test_tool_observation_rejects_failed_status_without_error_message() -> None:
+    with pytest.raises(ValueError):
+        tool_observation(
+            tool_name="read_file",
+            status="failed",
+            summary="Failed to read file",
+        )
 
 
 def test_observation_from_tool_result_maps_passed_to_succeeded(tmp_path: Path) -> None:
