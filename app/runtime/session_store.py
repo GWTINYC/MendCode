@@ -205,7 +205,12 @@ def _format_inline_payload(payload: dict[str, object]) -> str:
         if isinstance(value, (dict, list)):
             rendered = json.dumps(value, ensure_ascii=False, sort_keys=True)
         else:
-            rendered = str(value)
+            rendered = (
+                str(value)
+                .replace("\r\n", "\\n")
+                .replace("\n", "\\n")
+                .replace("\r", "\\n")
+            )
         if len(rendered) > 120:
             rendered = rendered[:120] + "...[truncated]"
         parts.append(f"{key}={rendered}")

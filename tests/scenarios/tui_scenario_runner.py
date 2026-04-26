@@ -43,6 +43,8 @@ class ScenarioTranscript:
     visible_messages: list[str]
     jsonl_records: list[dict[str, Any]]
     chat_calls: list[str]
+    chat_history: list[tuple[str, str | None]]
+    chat_contexts: list[list[tuple[str, str | None]]]
     tool_calls: list[str]
     shell_calls: list[tuple[str, Path, bool]]
 
@@ -66,6 +68,19 @@ class ScenarioTranscript:
             if record.get("event_type") == "tool_result"
         ]
 
+    @property
+    def chat_history_text(self) -> str:
+        return "\n".join(
+            f"{role}: {content or ''}" for role, content in self.chat_history
+        )
+
+    @property
+    def chat_context_texts(self) -> list[str]:
+        return [
+            "\n".join(f"{role}: {content or ''}" for role, content in context)
+            for context in self.chat_contexts
+        ]
+
     def debug_text(self) -> str:
         return "\n".join(
             [
@@ -75,6 +90,8 @@ class ScenarioTranscript:
                 self.visible_text,
                 f"routes: {self.route_events}",
                 f"chat_calls: {self.chat_calls}",
+                f"chat_history: {self.chat_history}",
+                f"chat_contexts: {self.chat_contexts}",
                 f"tool_calls: {self.tool_calls}",
                 f"shell_calls: {self.shell_calls}",
                 f"tool_results: {self.tool_results}",
@@ -86,9 +103,13 @@ class FakeChatResponder:
     def __init__(self, response: str) -> None:
         self.response = response
         self.calls: list[str] = []
+        self.contexts: list[list[tuple[str, str | None]]] = []
 
     def respond(self, message: str, context) -> ChatResponse:
         self.calls.append(message)
+        self.contexts.append(
+            [(history.role, history.content) for history in context.history]
+        )
         return ChatResponse(content=self.response)
 
 
@@ -214,6 +235,49 @@ def make_settings(tmp_path: Path) -> Settings:
     )
 
 
+def write_saved_conversation(
+    data_dir: Path,
+    *,
+    stem: str,
+    records: list[dict[str, object]],
+) -> None:
+    conversations_dir = data_dir / "conversations"
+    conversations_dir.mkdir(parents=True, exist_ok=True)
+    jsonl_path = conversations_dir / f"{stem}.jsonl"
+    markdown_path = conversations_dir / f"{stem}.md"
+    jsonl_path.write_text(
+        "\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n",
+        encoding="utf-8",
+    )
+    markdown_path.write_text(
+        "\n".join(
+            [
+                "# MendCode Conversation",
+                "",
+                "repo: /repo/old",
+                "started_at: 2026-04-26T10:00:00+08:00",
+                f"run_id: {stem.rsplit('-', 1)[-1]}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+
+def message_record(
+    sequence: int,
+    timestamp: str,
+    role: str,
+    message: str,
+) -> dict[str, object]:
+    return {
+        "sequence": sequence,
+        "timestamp": timestamp,
+        "event_type": "message",
+        "payload": {"role": role, "message": message},
+    }
+
+
 def init_git_repo(tmp_path: Path, files: dict[str, str]) -> Path:
     repo_path = tmp_path / "repo"
     repo_path.mkdir()
@@ -298,6 +362,11 @@ class TuiScenarioRunner:
             visible_messages=list(app.message_texts),
             jsonl_records=records,
             chat_calls=list(chat_responder.calls),
+            chat_history=[
+                (history.role, history.content)
+                for history in app.session_state.chat_history
+            ],
+            chat_contexts=list(chat_responder.contexts),
             tool_calls=list(tool_runner.calls),
             shell_calls=list(shell_executor.calls),
         )
