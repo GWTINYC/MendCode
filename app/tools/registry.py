@@ -14,6 +14,7 @@ from app.tools.arguments import (
     RunCommandArgs,
     RunShellCommandArgs,
 )
+from app.tools.observations import observation_from_tool_result, tool_observation
 from app.tools.read_only import (
     glob_file_search,
     list_dir,
@@ -41,21 +42,17 @@ def _trim_output(value: str | bytes | None) -> str:
 
 
 def tool_result_to_observation(result: ToolResult) -> Observation:
-    status = "succeeded" if result.status == "passed" else result.status
-    return Observation(
-        status=status,
-        summary=result.summary,
-        payload=result.payload,
-        error_message=result.error_message,
-    )
+    return observation_from_tool_result(result)
 
 
 def _failed(
+    tool_name: str,
     summary: str,
     error_message: str,
     payload: dict[str, object] | None = None,
 ) -> Observation:
-    return Observation(
+    return tool_observation(
+        tool_name=tool_name,
         status="failed",
         summary=summary,
         payload=payload or {},
@@ -64,11 +61,13 @@ def _failed(
 
 
 def _rejected(
+    tool_name: str,
     summary: str,
     error_message: str,
     payload: dict[str, object] | None = None,
 ) -> Observation:
-    return Observation(
+    return tool_observation(
+        tool_name=tool_name,
         status="rejected",
         summary=summary,
         payload=payload or {},
@@ -129,11 +128,16 @@ def _shell_result_to_observation(result: ShellCommandResult) -> Observation:
         status = "rejected"
     else:
         status = "failed"
-    return Observation(
+    payload = result.model_dump(mode="json")
+    return tool_observation(
+        tool_name="run_shell_command",
         status=status,
         summary=f"Ran shell command: {result.command}",
-        payload=result.model_dump(mode="json"),
+        payload=payload,
         error_message=None if status == "succeeded" else result.stderr_excerpt,
+        stdout_excerpt=result.stdout_excerpt,
+        stderr_excerpt=result.stderr_excerpt,
+        duration_ms=result.duration_ms,
     )
 
 
@@ -172,7 +176,12 @@ def _git_command(args: GitArgs, workspace_path: Path) -> tuple[list[str] | None,
 def _git(args: GitArgs, context: ToolExecutionContext) -> Observation:
     command_parts, error_message = _git_command(args, context.workspace_path)
     if error_message is not None:
-        return _rejected("Unable to run git", error_message, payload=args.model_dump(mode="json"))
+        return _rejected(
+            "git",
+            "Unable to run git",
+            error_message,
+            payload=args.model_dump(mode="json"),
+        )
     assert command_parts is not None
     command = shlex.join(command_parts)
     try:
@@ -186,6 +195,7 @@ def _git(args: GitArgs, context: ToolExecutionContext) -> Observation:
         )
     except subprocess.TimeoutExpired as exc:
         return _failed(
+            "git",
             "Unable to run git",
             f"git command timed out after {context.settings.verification_timeout_seconds} seconds",
             payload={
@@ -195,7 +205,7 @@ def _git(args: GitArgs, context: ToolExecutionContext) -> Observation:
             },
         )
     except OSError as exc:
-        return _failed("Unable to run git", str(exc), payload={"command": command})
+        return _failed("git", "Unable to run git", str(exc), payload={"command": command})
 
     payload = {
         "command": command,
@@ -205,16 +215,25 @@ def _git(args: GitArgs, context: ToolExecutionContext) -> Observation:
     }
     if completed.returncode != 0:
         return _failed(
+            "git",
             "Unable to run git",
             completed.stderr.strip() or "git command failed",
             payload=payload,
         )
-    return Observation(status="succeeded", summary=f"Ran git: {command}", payload=payload)
+    return tool_observation(
+        tool_name="git",
+        status="succeeded",
+        summary=f"Ran git: {command}",
+        payload=payload,
+        stdout_excerpt=payload["stdout_excerpt"],
+        stderr_excerpt=payload["stderr_excerpt"],
+    )
 
 
 def _run_shell_command(args: RunShellCommandArgs, context: ToolExecutionContext) -> Observation:
     if not args.command.strip():
         return _rejected(
+            "run_shell_command",
             "Unable to run shell command",
             "command must not be empty",
             payload={"command": args.command},
@@ -230,6 +249,7 @@ def _run_shell_command(args: RunShellCommandArgs, context: ToolExecutionContext)
 def _run_command(args: RunCommandArgs, context: ToolExecutionContext) -> Observation:
     if not args.command.strip():
         return _rejected(
+            "run_command",
             "Unable to run command",
             "command must not be empty",
             payload={"command": args.command},
@@ -247,11 +267,16 @@ def _run_command(args: RunCommandArgs, context: ToolExecutionContext) -> Observa
     status = "succeeded" if result.status == "passed" else result.status
     if status == "timed_out":
         status = "failed"
-    return Observation(
+    payload = result.model_dump(mode="json")
+    return tool_observation(
+        tool_name="run_command",
         status=status,
         summary=f"Ran command: {args.command}",
-        payload=result.model_dump(mode="json"),
+        payload=payload,
         error_message=None if result.status == "passed" else result.stderr_excerpt,
+        stdout_excerpt=result.stdout_excerpt,
+        stderr_excerpt=result.stderr_excerpt,
+        duration_ms=result.duration_ms,
     )
 
 
@@ -289,6 +314,7 @@ def _apply_patch(args: ApplyPatchArgs, context: ToolExecutionContext) -> Observa
     error_message = _validate_patch_paths(paths, context.workspace_path)
     if error_message is not None:
         return _rejected(
+            "apply_patch",
             "Unable to apply patch",
             error_message,
             payload={"paths": paths},
@@ -307,6 +333,7 @@ def _apply_patch(args: ApplyPatchArgs, context: ToolExecutionContext) -> Observa
         )
     except subprocess.TimeoutExpired as exc:
         return _failed(
+            "apply_patch",
             "Unable to apply patch",
             f"git apply timed out after {context.settings.verification_timeout_seconds} seconds",
             payload={
@@ -317,7 +344,12 @@ def _apply_patch(args: ApplyPatchArgs, context: ToolExecutionContext) -> Observa
             },
         )
     except OSError as exc:
-        return _failed("Unable to apply patch", str(exc), payload={"command": shlex.join(command)})
+        return _failed(
+            "apply_patch",
+            "Unable to apply patch",
+            str(exc),
+            payload={"command": shlex.join(command)},
+        )
 
     payload = {
         "command": shlex.join(command),
@@ -328,6 +360,7 @@ def _apply_patch(args: ApplyPatchArgs, context: ToolExecutionContext) -> Observa
     }
     if completed.returncode != 0:
         return _failed(
+            "apply_patch",
             "Unable to apply patch",
             completed.stderr.strip() or "git apply failed",
             payload=payload,
@@ -335,7 +368,14 @@ def _apply_patch(args: ApplyPatchArgs, context: ToolExecutionContext) -> Observa
     for pycache_path in context.workspace_path.rglob("__pycache__"):
         if pycache_path.is_dir():
             shutil.rmtree(pycache_path, ignore_errors=True)
-    return Observation(status="succeeded", summary="Applied patch", payload=payload)
+    return tool_observation(
+        tool_name="apply_patch",
+        status="succeeded",
+        summary="Applied patch",
+        payload=payload,
+        stdout_excerpt=payload["stdout_excerpt"],
+        stderr_excerpt=payload["stderr_excerpt"],
+    )
 
 
 def default_tool_registry() -> ToolRegistry:

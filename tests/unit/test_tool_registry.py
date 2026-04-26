@@ -186,7 +186,12 @@ def test_tool_result_to_observation_maps_passed_result(tmp_path: Path) -> None:
 
     assert observation.status == "succeeded"
     assert observation.summary == "Read README.md"
-    assert observation.payload == {"relative_path": "README.md"}
+    assert observation.payload["tool_name"] == "read_file"
+    assert observation.payload["status"] == "succeeded"
+    assert observation.payload["summary"] == "Read README.md"
+    assert observation.payload["is_error"] is False
+    assert observation.payload["payload"] == {"relative_path": "README.md"}
+    assert observation.payload["relative_path"] == "README.md"
     assert observation.error_message is None
 
 
@@ -237,6 +242,10 @@ def test_registry_executes_read_file_tool(tmp_path: Path) -> None:
     observation = registry.get("read_file").execute({"path": "README.md"}, context)
 
     assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "read_file"
+    assert observation.payload["status"] == "succeeded"
+    assert observation.payload["payload"]["relative_path"] == "README.md"
+    assert observation.payload["payload"]["content"] == "hello\n"
     assert observation.payload["relative_path"] == "README.md"
     assert observation.payload["content"] == "hello\n"
 
@@ -256,6 +265,8 @@ def test_registry_executes_search_code_alias(tmp_path: Path) -> None:
     )
 
     assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "search_code"
+    assert observation.payload["payload"]["total_matches"] == 2
     assert observation.payload["total_matches"] == 2
     assert observation.payload["matches"] == [
         {"relative_path": "src.py", "line_number": 1, "line_text": "alpha"}
@@ -310,6 +321,8 @@ def test_git_status_uses_structured_operation(tmp_path: Path) -> None:
     observation = registry.get("git").execute({"operation": "status"}, context)
 
     assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "git"
+    assert observation.payload["payload"]["command"] == "git status --short"
     assert observation.payload["command"] == "git status --short"
     assert "README.md" in observation.payload["stdout_excerpt"]
 
@@ -329,6 +342,8 @@ def test_git_log_uses_structured_operation(tmp_path: Path) -> None:
     observation = registry.get("git").execute({"operation": "log", "limit": 1}, context)
 
     assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "git"
+    assert observation.payload["payload"]["command"] == "git log --oneline -n 1"
     assert observation.payload["command"] == "git log --oneline -n 1"
     assert "initial commit" in observation.payload["stdout_excerpt"]
 
@@ -361,6 +376,8 @@ def test_run_command_keeps_verification_allowlist(tmp_path: Path) -> None:
     )
 
     assert observation.status == "rejected"
+    assert observation.payload["tool_name"] == "run_command"
+    assert observation.payload["is_error"] is True
     assert "declared" in str(observation.error_message)
 
 
@@ -385,4 +402,6 @@ def test_apply_patch_rejects_repo_escaping_path(tmp_path: Path) -> None:
     observation = registry.get("apply_patch").execute({"patch": patch}, context)
 
     assert observation.status == "rejected"
+    assert observation.payload["tool_name"] == "apply_patch"
+    assert observation.payload["is_error"] is True
     assert "patch path escapes workspace root" in str(observation.error_message)

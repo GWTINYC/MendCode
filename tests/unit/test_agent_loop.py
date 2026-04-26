@@ -309,7 +309,7 @@ def test_agent_loop_executes_run_shell_command_action(tmp_path: Path) -> None:
     assert result.status == "completed"
     assert result.steps[0].observation.status == "succeeded"
     assert result.steps[0].observation.payload["command"] == "ls"
-    assert result.steps[0].observation.payload["status"] == "passed"
+    assert result.steps[0].observation.payload["payload"]["status"] == "passed"
     assert "README.md" in result.steps[0].observation.payload["stdout_excerpt"]
 
 
@@ -558,7 +558,7 @@ def test_agent_loop_run_command_rejects_undeclared_verification_command(
 
     assert result.status == "failed"
     assert result.steps[0].observation.status == "rejected"
-    assert result.steps[0].observation.payload["status"] == "rejected"
+    assert result.steps[0].observation.payload["payload"]["status"] == "rejected"
     assert "declared" in str(result.steps[0].observation.error_message)
 
 
