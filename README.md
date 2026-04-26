@@ -97,7 +97,7 @@ app/
 - `ToolRegistry` 是工具 schema、风险等级和 executor 的来源。
 - `repo_status`、`detect_project`、`show_diff` 等只读内置能力也应通过 `ToolRegistry` 暴露。
 - `write_file`、`edit_file`、`todo_write`、`tool_search` 等写入和工具发现能力也通过同一注册表暴露，并由权限策略裁剪。
-- `AgentRuntime` 是新的运行时边界；当前 `run_agent_loop()` 作为兼容 wrapper 保留。
+- `AgentRuntime` 是新的运行时边界；当前 `run_agent_loop()` 作为兼容 wrapper 保留，主循环已迁入 `app.runtime.agent_loop`。
 - `SessionStore` 负责扫描 `data/conversations/*.jsonl`，生成 session index、compact resume context 和 trace 工具事件视图。
 - `PermissionPolicy` 逻辑必须保持集中，避免重复维护风险表。
 - 工具 observation 必须足够结构化，既能回传给模型，也能持久化到日志。

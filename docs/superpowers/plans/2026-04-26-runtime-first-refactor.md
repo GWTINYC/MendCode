@@ -133,7 +133,7 @@ Define `RuntimeTurnInput`, `RuntimeTurnResult`, `RuntimeToolStep`, and `RuntimeS
 
 Keep `run_agent_loop()` as a compatibility wrapper that constructs `AgentRuntime`.
 
-Current slice: `run_agent_loop()` now constructs `AgentRuntime`; `AgentRuntime.run_turn()` delegates to the preserved internal implementation. The trace-stable implementation body remains as `_run_agent_loop_impl` while later slices split it into smaller runtime units.
+Current slice: `run_agent_loop()` now constructs `AgentRuntime`; `AgentRuntime.run_turn()` delegates to `app.runtime.agent_loop.run_agent_loop_turn`. The trace-stable loop body has moved into runtime, while action handling helpers remain in `app.agent.loop` as a transitional dependency.
 
 - [x] **Step 3: Keep trace output stable**
 
@@ -247,6 +247,38 @@ Run:
 
 ```bash
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q tests/unit/test_conversation_log.py tests/unit/test_tui_app.py tests/unit/test_prompt_context.py
+```
+
+Expected: all tests pass.
+
+## Task 7: Runtime Loop Body Extraction
+
+**Files:**
+- Create: `app/runtime/agent_loop.py`
+- Modify: `app/runtime/agent_runtime.py`
+- Modify: `app/agent/loop.py`
+- Test: `tests/unit/test_agent_runtime.py`
+- Test: `tests/unit/test_agent_loop.py`
+- Test: `tests/unit/test_agent_loop_tool_closure.py`
+
+- [x] **Step 1: Add runtime delegation regression**
+
+Assert `AgentRuntime` default runner delegates to `app.runtime.agent_loop.run_agent_loop_turn`.
+
+- [x] **Step 2: Move loop body into runtime module**
+
+Keep trace events, provider turns, permission stops, step budget behavior, and final response gate stable.
+
+- [x] **Step 3: Leave compatibility wrapper**
+
+Keep `app.agent.loop._run_agent_loop_impl()` as a transitional wrapper so existing imports do not break.
+
+- [x] **Step 4: Run focused tests**
+
+Run:
+
+```bash
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q tests/unit/test_agent_runtime.py tests/unit/test_agent_loop.py tests/unit/test_agent_loop_tool_closure.py
 ```
 
 Expected: all tests pass.

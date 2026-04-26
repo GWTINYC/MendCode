@@ -34,13 +34,13 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 
 目标：让 OpenAI-compatible 原生 `tool_calls` 稳定完成 `tool_call -> tool_result -> final_response`，并把 AgentLoop 收敛为可复用 Runtime。
 
-状态：基础版已完成，进入 Runtime-first 重构。
+状态：基础版已完成；AgentRuntime、runtime loop、session store 已抽出，仍在继续剥离 legacy action helper。
 
 下一步重点：
 
 - 统一工具结果结构
 - 将 legacy tool path 迁移到 ToolRegistry
-- 抽出 AgentRuntime
+- 将 action handling helpers 从 `app.agent.loop` 迁入 runtime
 - 增加等价只读工具调用去重
 - 建设确定性 mock provider harness
 

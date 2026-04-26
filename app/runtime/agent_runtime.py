@@ -20,6 +20,6 @@ class AgentRuntime(BaseModel):
 
     @staticmethod
     def _default_runner(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopResult:
-        from app.agent.loop import _run_agent_loop_impl
+        from app.runtime.agent_loop import run_agent_loop_turn
 
-        return _run_agent_loop_impl(loop_input, settings)
+        return run_agent_loop_turn(loop_input, settings)

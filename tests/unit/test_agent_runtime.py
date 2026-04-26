@@ -84,3 +84,43 @@ def test_agent_runtime_run_turn_delegates_to_runner(tmp_path: Path) -> None:
     assert result.status == "completed"
     assert result.summary == "runtime handled inspect runtime"
     assert seen[0].problem_statement == "inspect runtime"
+
+
+def test_agent_runtime_default_runner_uses_runtime_loop(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from app.runtime import agent_loop as runtime_agent_loop
+
+    seen: list[AgentLoopInput] = []
+
+    def fake_run_agent_loop_turn(
+        loop_input: AgentLoopInput,
+        settings: Settings,
+    ) -> AgentLoopResult:
+        seen.append(loop_input)
+        return AgentLoopResult(
+            run_id="agent-runtime-default",
+            status="completed",
+            summary="runtime loop handled turn",
+            trace_path=None,
+            workspace_path=str(loop_input.repo_path),
+            steps=[final_step()],
+        )
+
+    monkeypatch.setattr(
+        runtime_agent_loop,
+        "run_agent_loop_turn",
+        fake_run_agent_loop_turn,
+    )
+
+    result = AgentRuntime(settings=settings_for(tmp_path)).run_turn(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="inspect default runner",
+            actions=[],
+        )
+    )
+
+    assert result.summary == "runtime loop handled turn"
+    assert seen[0].problem_statement == "inspect default runner"
