@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -319,8 +320,7 @@ def assert_used_shell_command(transcript: ScenarioTranscript, command: str) -> N
         _fail(transcript, f"expected shell command {command!r}, got {commands!r}")
 
 
-def assert_used_only_shell_route(transcript: ScenarioTranscript, command: str) -> None:
-    assert_used_shell_command(transcript, command)
+def assert_routed_shell_command(transcript: ScenarioTranscript, command: str) -> None:
     matching_routes = [
         event
         for event in transcript.route_events
@@ -331,6 +331,11 @@ def assert_used_only_shell_route(transcript: ScenarioTranscript, command: str) -
             transcript,
             f"expected an intent route with kind='shell' and command={command!r}",
         )
+
+
+def assert_used_only_shell_route(transcript: ScenarioTranscript, command: str) -> None:
+    assert_used_shell_command(transcript, command)
+    assert_routed_shell_command(transcript, command)
     if transcript.chat_calls:
         _fail(transcript, f"expected no chat calls, got {transcript.chat_calls}")
     if transcript.tool_calls:
@@ -379,6 +384,25 @@ def assert_no_fabricated_command_claims(transcript: ScenarioTranscript) -> None:
             _fail(transcript, f"visible transcript contains fabricated command claim: {phrase}")
 
 
+def assert_no_contradictory_success_claims(
+    transcript: ScenarioTranscript,
+    *,
+    target: str,
+) -> None:
+    visible_text = transcript.visible_text
+    target_success_phrases = [
+        f"已读取 {target}",
+        f"成功读取 {target}",
+        f"读取了 {target}",
+        f"{target} 的内容",
+    ]
+    for phrase in target_success_phrases:
+        if phrase in visible_text:
+            _fail(transcript, f"visible transcript contains contradictory success claim: {phrase}")
+    if target in visible_text and "内容如下" in visible_text:
+        _fail(transcript, "visible transcript contains contradictory success claim: 内容如下")
+
+
 def assert_answer_is_concise(
     transcript: ScenarioTranscript,
     *,
@@ -416,6 +440,43 @@ def assert_has_evidence_from_observation(
     _fail(transcript, f"expected compact tool_result evidence for {tool_name}")
 
 
+def assert_has_rejected_evidence_from_observation(
+    transcript: ScenarioTranscript,
+    tool_name: str,
+) -> None:
+    matching_steps: list[dict[str, Any]] = []
+    for result in transcript.tool_results:
+        for step in result.get("steps", []):
+            if not isinstance(step, dict) or step.get("action") != tool_name:
+                continue
+            matching_steps.append(step)
+            if _has_rejected_meaningful_tool_evidence(step):
+                return
+    if matching_steps:
+        _fail(transcript, f"expected rejected compact tool_result evidence for {tool_name}")
+    _fail(transcript, f"expected compact tool_result evidence for {tool_name}")
+
+
+def assert_no_repeated_equivalent_tool_calls(
+    transcript: ScenarioTranscript,
+    *,
+    limit: int,
+) -> None:
+    counts: dict[tuple[str, str], int] = {}
+    for result in transcript.tool_results:
+        for step in result.get("steps", []):
+            action = str(step.get("action"))
+            payload = step.get("payload", {})
+            relative_path = "."
+            if isinstance(payload, dict):
+                relative_path = str(payload.get("relative_path", "."))
+            key = (action, relative_path)
+            counts[key] = counts.get(key, 0) + 1
+    repeated = {key: count for key, count in counts.items() if count > limit}
+    if repeated:
+        _fail(transcript, f"repeated equivalent tool calls exceeded limit {limit}: {repeated}")
+
+
 def _has_successful_meaningful_tool_evidence(
     step: dict[str, Any],
     tool_name: str,
@@ -442,3 +503,29 @@ def _has_successful_meaningful_tool_evidence(
         "pass",
         "ok",
     }
+
+
+def _has_rejected_meaningful_tool_evidence(step: dict[str, Any]) -> bool:
+    status = str(step.get("status", "")).strip().lower()
+    if status != "rejected":
+        return False
+    error_message = str(step.get("error_message", "")).strip()
+    if error_message and not _is_generic_rejection_text(error_message, step):
+        return True
+    payload = step.get("payload")
+    if isinstance(payload, dict):
+        for key in {"relative_path", "path", "content", "content_excerpt", "matches"}:
+            if payload.get(key):
+                return True
+    summary = str(step.get("summary", "")).strip()
+    if _is_generic_rejection_text(summary, step):
+        return False
+    return bool(re.search(r"[\w.-]+[/\\][\w./\\-]+|[\w.-]+\.[A-Za-z0-9]{1,8}", summary))
+
+
+def _is_generic_rejection_text(text: str, step: dict[str, Any]) -> bool:
+    normalized = text.strip().lower()
+    if normalized in {"", "rejected", "reject", "failed", "failure", "error"}:
+        return True
+    tool_name = str(step.get("action", "")).strip().lower()
+    return bool(tool_name) and normalized == tool_name
