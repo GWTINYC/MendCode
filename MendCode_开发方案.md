@@ -62,13 +62,15 @@ User Message
 - [x] 工具后普通文本包装为 `final_response`
 - [x] final response gate 阻止失败 observation 被标记 completed
 - [x] `allowed_tools` 执行期检查
+- [x] deterministic mock provider harness 覆盖 native tool-call 闭环
+- [x] read/list/rg/multi-tool/shell/error/allowed-tools/confirmation stop 场景测试
 
 当前不足：
 
 - [ ] legacy JSON action path 和 native tool path 仍有部分重复逻辑
 - [ ] 没有等价只读工具调用去重
 - [ ] Provider request/response 调试摘要不足
-- [ ] 工具结果字段尚未完全统一
+- [ ] legacy/builtin 工具结果尚未完全收敛到统一 envelope
 
 下一步：
 
@@ -89,17 +91,18 @@ User Message
 - [x] API key redaction
 - [x] scoped `allowed_tools`
 - [x] 越权 tool call 拒绝
+- [x] mock tool provider harness 覆盖 tool result 回传后的 final response
 
 当前不足：
 
-- [ ] 没有完整 mock provider parity harness
+- [ ] mock provider harness 仍需扩展到 future write tools 和 permission allow/deny resume
 - [ ] 没有请求快照测试覆盖全部工具 schema
 - [ ] 未实现 OpenAI 官方 adapter
 - [ ] 未实现 Anthropic adapter
 
 下一步：
 
-- 建立确定性 mock provider，覆盖 read、rg、多工具、shell、权限 approve/deny。
+- 扩展确定性 mock provider，覆盖 write 工具、权限确认恢复、tool retry 和重复调用去重。
 - Provider tests 继续优先使用 fake client，不依赖真实网络。
 - 后续新增 provider 时只改 adapter，不改 AgentLoop 主体。
 
@@ -114,6 +117,8 @@ User Message
 - [x] executor
 - [x] `allowed_tools`
 - [x] aliases：`read`、`list`、`glob`、`grep`、`search`、`shell`、`bash`、`patch`
+- [x] shared tool observation envelope
+- [x] `rg` 和 `search_code` observation 保持各自 tool identity
 
 当前工具：
 
@@ -163,6 +168,7 @@ User Message
 - [x] shell 写入/安装/网络/git mutate 确认
 - [x] critical destructive 和 path escape 拒绝
 - [x] TUI pending shell confirmation
+- [x] stdout-only `printf` 低风险允许，重定向仍需确认
 
 当前不足：
 
@@ -216,6 +222,7 @@ User Message
 - [x] ReviewSummary
 - [x] AttemptRecord
 - [x] ToolCallSummary
+- [x] Session / CLI 能读取 enveloped `run_command` raw verification payload
 
 当前不足：
 
@@ -252,6 +259,15 @@ User Message
 
 让所有工具返回模型可理解、日志可复盘的统一字段。
 
+状态：
+
+- 基础 observation envelope 已完成。
+- ToolRegistry 中的 read/list/glob/rg/search_code/git/shell/run_command/apply_patch 已接入。
+- envelope 顶层保留通用字段；原始工具 payload 保留在 nested `payload`。
+- 与 envelope 顶层键冲突的原始字段，例如 verification `status=passed`，从 nested `payload.status` 读取。
+- AgentSession 和 CLI 已兼容 enveloped `run_command` payload。
+- 后续继续收敛 legacy/builtin tool payload。
+
 建议字段：
 
 ```text
@@ -269,8 +285,8 @@ duration_ms
 
 验收：
 
-- read/list/rg/git/shell/patch 结果都能稳定进入 prompt context
-- 错误结果也能作为 tool result 回传模型
+- [x] read/list/rg/git/shell/patch 结果都能稳定进入 prompt context
+- [x] 错误结果也能作为 tool result 回传模型
 
 ### 任务 3：Mock Provider Harness
 
@@ -278,22 +294,28 @@ duration_ms
 
 用确定性 fake provider 覆盖真实工具闭环，避免每次依赖真实模型行为。
 
+状态：
+
+- Mock provider harness 已完成基础版。
+- 已覆盖 read_file、list_dir、rg、多工具、shell stdout、tool error、allowed-tools denial、confirmation stop。
+- 后续继续扩展到 write 工具、permission allow/deny resume 和重复只读工具调用。
+
 场景：
 
-- streaming text
-- read_file roundtrip
-- rg roundtrip
-- multi-tool turn
-- shell stdout
-- permission approve
-- permission deny
-- tool error
-- plain final text after tool result
+- [ ] streaming text
+- [x] read_file roundtrip
+- [x] rg roundtrip
+- [x] multi-tool turn
+- [x] shell stdout
+- [ ] permission approve
+- [x] permission deny / confirmation stop
+- [x] tool error
+- [x] plain final text after tool result
 
 验收：
 
-- harness 能跑完整 AgentLoop
-- 每个场景都有 request count、tool result、final response 断言
+- [x] harness 能跑完整 AgentLoop
+- [x] 核心场景都有 observation handoff、tool result、final response 断言
 
 ### 任务 4：TUI 会话恢复
 
