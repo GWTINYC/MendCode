@@ -15,7 +15,7 @@ from app.tools.schemas import ToolResult
 from app.tools.structured import ToolExecutionContext, ToolRegistry, ToolRisk, ToolSpec
 
 
-def _to_observation(result: ToolResult) -> Observation:
+def tool_result_to_observation(result: ToolResult) -> Observation:
     status = "succeeded" if result.status == "passed" else result.status
     return Observation(
         status=status,
@@ -26,7 +26,7 @@ def _to_observation(result: ToolResult) -> Observation:
 
 
 def _execute_read_file(args: ReadFileArgs, context: ToolExecutionContext) -> Observation:
-    return _to_observation(
+    return tool_result_to_observation(
         read_file(
             context.workspace_path,
             args.path,
@@ -38,7 +38,7 @@ def _execute_read_file(args: ReadFileArgs, context: ToolExecutionContext) -> Obs
 
 
 def _execute_list_dir(args: ListDirArgs, context: ToolExecutionContext) -> Observation:
-    return _to_observation(
+    return tool_result_to_observation(
         list_dir(
             context.workspace_path,
             args.path,
@@ -51,7 +51,7 @@ def _execute_glob_file_search(
     args: GlobFileSearchArgs,
     context: ToolExecutionContext,
 ) -> Observation:
-    return _to_observation(
+    return tool_result_to_observation(
         glob_file_search(
             context.workspace_path,
             args.pattern,
@@ -61,7 +61,7 @@ def _execute_glob_file_search(
 
 
 def _execute_rg(args: RgArgs, context: ToolExecutionContext) -> Observation:
-    return _to_observation(
+    return tool_result_to_observation(
         search_code(
             context.workspace_path,
             args.query,

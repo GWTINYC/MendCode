@@ -7,7 +7,8 @@ import app.tools as tool_exports
 import app.tools.structured as structured
 from app.config.settings import Settings
 from app.schemas.agent_action import Observation
-from app.tools.registry import default_tool_registry
+from app.tools.registry import default_tool_registry, tool_result_to_observation
+from app.tools.schemas import ToolResult
 from app.tools.structured import (
     ToolExecutionContext,
     ToolInvocation,
@@ -166,7 +167,25 @@ def test_package_exports_structured_tool_aliases() -> None:
 def test_default_registry_contains_read_only_tools() -> None:
     registry = default_tool_registry()
 
-    assert registry.names()[:4] == ["glob_file_search", "list_dir", "read_file", "rg"]
+    assert registry.names() == ["glob_file_search", "list_dir", "read_file", "rg"]
+
+
+def test_tool_result_to_observation_maps_passed_result(tmp_path: Path) -> None:
+    result = ToolResult(
+        tool_name="read_file",
+        status="passed",
+        summary="Read README.md",
+        payload={"relative_path": "README.md"},
+        error_message=None,
+        workspace_path=str(tmp_path),
+    )
+
+    observation = tool_result_to_observation(result)
+
+    assert observation.status == "succeeded"
+    assert observation.summary == "Read README.md"
+    assert observation.payload == {"relative_path": "README.md"}
+    assert observation.error_message is None
 
 
 def test_default_registry_generates_openai_schemas() -> None:
