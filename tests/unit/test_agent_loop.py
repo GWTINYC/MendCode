@@ -4,6 +4,12 @@ import sys
 from pathlib import Path
 
 from app.agent.loop import AgentLoopInput, run_agent_loop
+from app.agent.openai_compatible import (
+    ChatMessage,
+    OpenAICompatibleAgentProvider,
+    OpenAICompletion,
+    OpenAIToolCall,
+)
 from app.agent.provider import AgentProviderStepInput, ProviderResponse
 from app.config.settings import Settings
 from app.tools.structured import ToolInvocation
@@ -84,6 +90,171 @@ class NativeToolProvider:
 class FailingProvider:
     def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
         return ProviderResponse.failed("provider unavailable")
+
+
+class DirectoryListingProvider:
+    def __init__(self) -> None:
+        self.calls: list[AgentProviderStepInput] = []
+
+    def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
+        self.calls.append(step_input)
+        if len(self.calls) == 1:
+            return ProviderResponse(
+                status="succeeded",
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_list",
+                        name="list_dir",
+                        args={"path": "."},
+                        source="openai_tool_call",
+                    )
+                ],
+            )
+        entries = step_input.observations[-1].observation.payload["entries"]
+        names = ", ".join(str(entry["relative_path"]) for entry in entries)
+        return ProviderResponse(
+            status="succeeded",
+            actions=[
+                {
+                    "type": "final_response",
+                    "status": "completed",
+                    "summary": f"当前目录包含: {names}",
+                }
+            ],
+        )
+
+
+class SequentialOpenAIClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def complete(
+        self,
+        *,
+        model: str,
+        messages: list[ChatMessage],
+        tools: list[dict[str, object]],
+        timeout_seconds: int,
+    ) -> OpenAICompletion:
+        self.calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "tools": tools,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        if len(self.calls) == 1:
+            return OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(
+                        id="call_list",
+                        name="list_dir",
+                        arguments='{"path":"."}',
+                    )
+                ]
+            )
+        assert any(message.role == "tool" for message in messages)
+        return OpenAICompletion(content="当前目录包含 README.md。")
+
+
+def test_agent_loop_tool_request_passes_allowed_tools_and_grounds_final_answer(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "README.md").write_text("demo\n", encoding="utf-8")
+    provider = DirectoryListingProvider()
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="帮我查看当前文件夹里的文件",
+            provider=provider,
+            verification_commands=[],
+            allowed_tools={"list_dir", "read_file"},
+            step_budget=4,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert "README.md" in result.summary
+    assert provider.calls[0].allowed_tools == {"list_dir", "read_file"}
+    assert provider.calls[1].observations[0].tool_invocation is not None
+    assert provider.calls[1].observations[0].tool_invocation.id == "call_list"
+    assert any(
+        entry["relative_path"] == "README.md"
+        for entry in result.steps[0].observation.payload["entries"]
+    )
+
+
+def test_agent_loop_openai_native_tool_call_roundtrip_grounds_final_text(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "README.md").write_text("demo\n", encoding="utf-8")
+    client = SequentialOpenAIClient()
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=client,
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="帮我查看当前文件夹里的文件",
+            provider=provider,
+            verification_commands=[],
+            allowed_tools={"list_dir", "read_file"},
+            step_budget=4,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.summary == "当前目录包含 README.md。"
+    assert len(client.calls) == 2
+    assert [tool["function"]["name"] for tool in client.calls[0]["tools"]] == [
+        "list_dir",
+        "read_file",
+    ]
+    assert any(message.role == "tool" for message in client.calls[1]["messages"])
+
+
+def test_agent_loop_rejects_native_tool_outside_allowed_tools(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_patch",
+                    name="apply_patch",
+                    args={"patch": "diff --git a/README.md b/README.md"},
+                    source="openai_tool_call",
+                )
+            ]
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="inspect files",
+            provider=provider,
+            allowed_tools={"list_dir", "read_file"},
+            step_budget=2,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.steps[0].observation.status == "rejected"
+    assert result.steps[0].observation.error_message == "tool is not allowed in this turn"
 
 
 def test_agent_loop_executes_allowed_search_code_action(tmp_path: Path) -> None:

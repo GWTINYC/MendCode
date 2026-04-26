@@ -10,7 +10,19 @@ from app.config.settings import Settings
 from app.schemas.agent_action import Observation
 
 ToolInvocationSource = Literal["openai_tool_call", "json_action"]
+AllowedTools = set[str] | frozenset[str] | list[str] | tuple[str, ...] | None
 _TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+_TOOL_ALIASES: dict[str, tuple[str, ...]] = {
+    "read": ("read_file",),
+    "ls": ("list_dir",),
+    "list": ("list_dir",),
+    "glob": ("glob_file_search",),
+    "grep": ("rg", "search_code"),
+    "search": ("search_code",),
+    "shell": ("run_shell_command",),
+    "bash": ("run_shell_command",),
+    "patch": ("apply_patch",),
+}
 
 
 def validate_tool_name(name: str) -> str:
@@ -111,8 +123,27 @@ class ToolRegistry:
         except KeyError as exc:
             raise KeyError(f"unknown tool: {name}") from exc
 
-    def names(self) -> list[str]:
-        return sorted(self._specs)
+    def _normalize_allowed_tools(self, allowed_tools: AllowedTools = None) -> set[str] | None:
+        if allowed_tools is None:
+            return None
+        normalized: set[str] = set()
+        for raw_name in allowed_tools:
+            validate_tool_name(raw_name)
+            expanded_names = _TOOL_ALIASES.get(raw_name, (raw_name,))
+            for name in expanded_names:
+                if name not in self._specs:
+                    raise KeyError(f"unknown allowed tool: {raw_name}")
+                normalized.add(name)
+        return normalized
 
-    def openai_tools(self) -> list[dict[str, object]]:
-        return [self._specs[name].to_openai_tool() for name in self.names()]
+    def names(self, allowed_tools: AllowedTools = None) -> list[str]:
+        normalized = self._normalize_allowed_tools(allowed_tools)
+        if normalized is None:
+            return sorted(self._specs)
+        return sorted(normalized)
+
+    def openai_tools(self, allowed_tools: AllowedTools = None) -> list[dict[str, object]]:
+        return [
+            self._specs[name].to_openai_tool()
+            for name in self.names(allowed_tools=allowed_tools)
+        ]

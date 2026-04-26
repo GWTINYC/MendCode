@@ -39,6 +39,12 @@ from app.workspace.shell_policy import ShellPolicy
 from app.workspace.worktree import prepare_worktree
 
 AgentLoopStatus = str
+_BUILTIN_TOOL_NAMES = {
+    "repo_status",
+    "detect_project",
+    "apply_patch_to_worktree",
+    "show_diff",
+}
 
 
 class AgentLoopInput(BaseModel):
@@ -50,6 +56,7 @@ class AgentLoopInput(BaseModel):
     provider: Any | None = None
     verification_commands: list[str] = Field(default_factory=list)
     provider_context: str | None = None
+    allowed_tools: set[str] | None = None
     permission_mode: PermissionMode = "guided"
     step_budget: int = Field(default=12, ge=1)
     use_worktree: bool = False
@@ -653,6 +660,15 @@ def _tool_call_action_for_invocation(invocation: ToolInvocation) -> ToolCallActi
         return None
 
 
+def _allowed_tool_names(allowed_tools: set[str] | None) -> set[str] | None:
+    if allowed_tools is None:
+        return None
+    registry_tools = default_tool_registry().names(
+        allowed_tools={name for name in allowed_tools if name not in _BUILTIN_TOOL_NAMES}
+    )
+    return set(registry_tools).union(allowed_tools.intersection(_BUILTIN_TOOL_NAMES))
+
+
 def _handle_tool_invocation(
     *,
     invocation: ToolInvocation,
@@ -661,6 +677,7 @@ def _handle_tool_invocation(
     settings: Settings,
     permission_mode: PermissionMode,
     verification_commands: list[str],
+    allowed_tools: set[str] | None = None,
 ) -> _HandledAction:
     action = _tool_call_action_for_invocation(invocation)
     if action is None:
@@ -673,6 +690,23 @@ def _handle_tool_invocation(
             type="final_response",
             status="failed",
             summary=observation.summary,
+        )
+        return _HandledAction(
+            stop=True,
+            status="failed",
+            summary=observation.summary,
+            step=AgentStep(index=index, action=action, observation=observation),
+        )
+
+    normalized_allowed_tools = _allowed_tool_names(allowed_tools)
+    if normalized_allowed_tools is not None and invocation.name not in normalized_allowed_tools:
+        observation = _rejected_observation(
+            "Tool denied by allowed-tools gate",
+            "tool is not allowed in this turn",
+            payload={
+                "tool_name": invocation.name,
+                "allowed_tools": sorted(normalized_allowed_tools),
+            },
         )
         return _HandledAction(
             stop=True,
@@ -897,6 +931,7 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
                     remaining_steps=loop_input.step_budget - index,
                     observations=observation_history,
                     context=loop_input.provider_context,
+                    allowed_tools=loop_input.allowed_tools,
                 )
             )
             if provider_response.status != "succeeded":
@@ -937,6 +972,7 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
                         settings=settings,
                         permission_mode=loop_input.permission_mode,
                         verification_commands=loop_input.verification_commands,
+                        allowed_tools=loop_input.allowed_tools,
                     )
                     record_handled_action(handled, tool_invocation=invocation)
                     index += 1

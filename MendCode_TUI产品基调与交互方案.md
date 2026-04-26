@@ -233,7 +233,9 @@ anthropic
 openai-compatible
 ```
 
-当前已落地的是 `openai-compatible` 的 Hybrid ToolRegistry provider：优先向支持的模型发送 OpenAI tools schema 并解析原生 `tool_calls`，模型可调用 `read_file` / `list_dir` / `glob_file_search` / `rg` / `search_code` / `git` / `run_shell_command` / `run_command` / `apply_patch` 等结构化工具。JSON Action 仍保留为不支持原生 tool call、模型降级或 endpoint 明确拒绝 `tools` 参数时的 fallback。MendCode 继续负责 schema 校验、权限判断、工具执行和 trace，工具调用不会绕过 Guided Mode 的确认边界。Anthropic 原生 tool calling 适配仍未完成。
+当前已落地的是 `openai-compatible` 的 Hybrid ToolRegistry provider：优先向支持的模型发送 OpenAI tools schema 并解析原生 `tool_calls`，模型可调用 `read_file` / `list_dir` / `glob_file_search` / `rg` / `search_code` / `git` / `run_shell_command` / `run_command` / `apply_patch` 等结构化工具。JSON Action 仍保留为不支持原生 tool call、模型降级或 endpoint 明确拒绝 `tools` 参数时的 fallback。MendCode 继续负责 schema 校验、权限判断、工具执行和 trace，工具调用不会绕过 Guided Mode 的确认边界。
+
+自然语言工具请求已经支持 scoped tools：例如“帮我查看当前文件夹里的文件”这类只读请求，只向模型暴露 `list_dir` / `read_file` / `glob_file_search` / `rg` / `search_code` / `git` 等只读工具，并在 AgentLoop 层再次拒绝越权工具调用。Anthropic 原生 tool calling 适配仍未完成。
 
 验证证据：
 
@@ -276,6 +278,7 @@ MendCode 不采用“先生成完整计划再机械执行”的模式。
 - [ ] 模型决定下一步想做什么
 - [x] Provider-driven loop 每步请求下一条 MendCode Action
 - [x] 支持 OpenAI 原生 tool call 形式的结构化工具调用
+- [x] 支持按场景裁剪 OpenAI tools schema，避免只读请求暴露写入工具
 - [x] MendCode 判断动作是否允许
 - [x] MendCode 执行工具
 - [x] MendCode 记录 trace
@@ -467,6 +470,7 @@ Custom Mode：
 - [x] 工具调用摘要展示
 - [x] 自然语言工具请求可进入 AgentLoop，由模型选择 `list_dir` / `read_file` / `search_code` 等结构化工具并回传结果
 - [x] 本地可读会话日志：消息、intent、chat/shell/tool/turn 结果写入 Markdown 与 JSONL
+- [x] 自然语言工具请求默认使用只读 scoped tools，AgentLoop 会拒绝模型越权工具调用
 - [x] 工具：`repo_status` / `detect_project` / `run_command` / `run_shell_command` / `read_file` / `list_dir` / `glob_file_search` / `rg` / `git` / `search_code`
 - [x] 生成 patch proposal schema
 - [x] 用户确认后 apply 到 worktree 的底层能力

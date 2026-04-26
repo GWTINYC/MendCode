@@ -49,6 +49,14 @@ def test_safe_mode_requires_confirmation_for_run_command():
     assert "safe mode requires confirmation" in decision.reason
 
 
+def test_safe_mode_uses_registry_risk_for_restricted_shell_tools() -> None:
+    decision = decide_permission(tool_call("run_shell_command"), mode="safe")
+
+    assert decision.status == "confirm"
+    assert decision.risk_level == "medium"
+    assert "run_shell_command" in decision.reason
+
+
 def test_safe_mode_requires_confirmation_for_apply_patch() -> None:
     decision = decide_permission(tool_call("apply_patch"), mode="safe")
 

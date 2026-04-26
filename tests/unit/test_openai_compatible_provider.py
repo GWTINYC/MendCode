@@ -202,6 +202,65 @@ def test_openai_compatible_provider_sends_registered_tools_to_client() -> None:
     assert client.calls[0]["tools"] == default_tool_registry().openai_tools()
 
 
+def test_openai_compatible_provider_sends_only_allowed_tools() -> None:
+    client = FakeClient(
+        OpenAICompletion(
+            tool_calls=[
+                OpenAIToolCall(
+                    id="call-1",
+                    name="list_dir",
+                    arguments='{"path":"."}',
+                )
+            ]
+        )
+    )
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=client,
+    )
+
+    response = provider.next_action(
+        step_input().model_copy(update={"allowed_tools": {"read_file", "list_dir"}})
+    )
+
+    assert response.status == "succeeded"
+    assert [tool["function"]["name"] for tool in client.calls[0]["tools"]] == [
+        "list_dir",
+        "read_file",
+    ]
+
+
+def test_openai_compatible_provider_rejects_tool_call_outside_allowed_tools() -> None:
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=FakeClient(
+            OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(
+                        id="call-1",
+                        name="apply_patch",
+                        arguments='{"patch":"diff --git a/x b/x"}',
+                    )
+                ]
+            )
+        ),
+    )
+
+    response = provider.next_action(
+        step_input().model_copy(update={"allowed_tools": {"read_file", "list_dir"}})
+    )
+
+    assert response.status == "failed"
+    assert response.observation is not None
+    assert response.observation.error_message == "Provider returned disallowed tool call"
+
+
 def test_openai_compatible_provider_falls_back_when_tools_are_unsupported() -> None:
     client = ToolsUnsupportedClient(
         '{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}'

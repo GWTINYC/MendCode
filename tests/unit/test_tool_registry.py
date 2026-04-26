@@ -201,6 +201,30 @@ def test_default_registry_generates_openai_schemas() -> None:
     assert "path" in read_file_schema["function"]["parameters"]["properties"]
 
 
+def test_registry_filters_openai_schemas_to_allowed_tools() -> None:
+    registry = default_tool_registry()
+
+    tools = registry.openai_tools(allowed_tools={"read", "glob", "grep"})
+
+    assert [tool["function"]["name"] for tool in tools] == [
+        "glob_file_search",
+        "read_file",
+        "rg",
+        "search_code",
+    ]
+
+
+def test_registry_rejects_unknown_allowed_tool_name() -> None:
+    registry = default_tool_registry()
+
+    try:
+        registry.openai_tools(allowed_tools={"delete_repo"})
+    except KeyError as exc:
+        assert "unknown allowed tool" in str(exc)
+    else:  # pragma: no cover - defensive assertion
+        raise AssertionError("expected unknown allowed tool to be rejected")
+
+
 def test_registry_executes_read_file_tool(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
     registry = default_tool_registry()

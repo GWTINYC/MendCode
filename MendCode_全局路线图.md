@@ -58,6 +58,7 @@ mendcode
 - [x] command policy / executor
 - [x] shell policy / executor
 - [x] TUI 自然语言工具请求进入 AgentLoop，由模型选择结构化工具并回传 observation
+- [x] 自然语言工具请求支持 scoped tools，只读场景不会向模型暴露写入工具
 - [x] `repo_status` / `detect_project`
 - [x] `read_file` / `search_code`
 - [x] `run_shell_command`
@@ -174,7 +175,7 @@ Phase A 已完成。
 
 - [x] Permission Gate 最小实现已落地
 - [x] Safe / Guided / Full / Custom 模式已定义
-- [x] 首批工具风险等级已定义
+- [x] 工具风险等级从 ToolRegistry 派生，避免权限表和工具定义漂移
 - [x] Guided Mode 已允许只读工具、验证命令和 worktree patch
 - [x] Safe Mode 对中风险工具返回确认请求
 - [x] 确认请求已统一为 `user_confirmation_request` action
@@ -200,8 +201,10 @@ Phase A 已完成。
 - [x] provider prompt context / repair contract
 - [x] ToolRegistry primitives 与 Pydantic args models
 - [x] OpenAI-compatible provider 可发送 tools schema 并解析原生 `tool_calls`
+- [x] OpenAI-compatible provider 可按 `allowed_tools` 发送裁剪后的 tools schema，并拒绝模型返回的越权工具
 - [x] prompt context 可把原生 tool observation 写回 OpenAI assistant/tool message
 - [x] Agent loop 可顺序执行原生 `ToolInvocation`，并保留 JSON Action fallback
+- [x] Agent loop 会把 native tool result 回传给下一轮模型；工具后普通文本可收束为 final response
 
 验证证据：
 
@@ -229,6 +232,7 @@ Phase A 已完成。
 - [x] `run_command`，仅用于声明过的验证命令
 - [x] `run_shell_command`，用于普通低风险诊断命令
 - [x] shell policy / executor
+- [x] Agent loop `allowed_tools` 执行期检查
 - [x] `read_file`
 - [x] `list_dir`
 - [x] `glob_file_search`
@@ -245,6 +249,7 @@ Phase A 已完成。
 - [x] 用户描述“pytest 失败”后，过渡入口能运行测试并解析失败
 - [x] 用户描述“pytest 失败”后，Agent 能读取测试文件、搜索候选实现
 - [x] 用户输入 `ls`、`git status` 或“列一下当前目录”后，TUI 能自动运行安全 shell 并展示摘要
+- [x] 用户输入“帮我查看当前文件夹里的文件”后，OpenAI-compatible fake client 可走通 `tool_call -> tool result -> final text`
 - [x] 高风险 shell 命令会进入确认状态，不立即执行
 
 ### Phase E：Patch Proposal 与验证闭环

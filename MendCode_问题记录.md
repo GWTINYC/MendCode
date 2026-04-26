@@ -1368,3 +1368,40 @@ mendcode开发方案的第一句话是什么
 - 对工具后收尾要兼容真实模型的普通文本输出，但不能在没有 observation 时放宽 JSON Action 合约
 - 文件内容、目录内容、代码内容、Git 状态等本地事实问题必须走工具路径
 - 后续如果仍出现重复工具调用，应考虑在 AgentLoop 层增加“等价只读工具调用去重”保护，而不只依赖 prompt
+
+---
+
+## 问题 35：工具表面过宽和权限风险表漂移，会让只读请求暴露写入能力
+
+- 时间：2026-04-26
+- 阶段：OpenAI-compatible scoped tools / Permission Gate
+- 状态：已解决
+
+### 现象
+
+自然语言工具请求已经能进入 AgentLoop，但 provider 默认会收到完整 ToolRegistry schema。对于“帮我查看当前文件夹里的文件”这类只读请求，模型理论上仍能看到 `apply_patch`、`run_shell_command`、`run_command` 等不需要的工具。
+
+同时，权限风险等级曾在 `app/agent/permission.py` 中单独维护一份硬编码表，而 ToolRegistry 中也有 `risk_level`。新增或调整工具时，两处定义容易不一致。
+
+### 根因
+
+- ToolRegistry 只有“全部 tools schema”输出，没有按场景裁剪的 `allowed_tools`
+- OpenAI-compatible provider 没有把当前场景工具集传给 tools schema
+- AgentLoop 没有在执行 native tool invocation 前二次检查当前工具是否被允许
+- Permission Gate 的风险来源没有复用 ToolRegistry
+
+### 解决方案
+
+- ToolRegistry 增加 `allowed_tools` 过滤和常用别名归一，例如 `read`、`glob`、`grep`
+- `AgentLoopInput` / `AgentProviderStepInput` 增加 `allowed_tools`
+- OpenAI-compatible provider 按 `allowed_tools` 发送裁剪后的 tools schema，并拒绝模型返回的越权工具
+- AgentLoop 在执行 native tool invocation 前再次检查 `allowed_tools`
+- TUI 自然语言工具请求默认只开放只读工具：`list_dir` / `read_file` / `glob_file_search` / `rg` / `search_code` / `git`
+- Permission Gate 改为从 ToolRegistry 派生风险等级，`run_shell_command` 等 restricted shell 工具在 Safe 模式下按中风险确认
+
+### 后续约束
+
+- 任何面向模型暴露的工具集都必须经过场景级 `allowed_tools` 裁剪
+- AgentLoop 不能只信任 provider；执行前仍要做工具允许检查
+- 新增工具时优先在 ToolRegistry 定义风险等级，再由 Permission Gate 派生
+- 只读自然语言请求不得暴露写入、验证、安装、网络或任意 shell 工具

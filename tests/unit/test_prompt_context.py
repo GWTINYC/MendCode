@@ -35,6 +35,23 @@ def test_provider_messages_include_repair_contract_and_allowed_tools() -> None:
     assert "python -m pytest -q" in messages[1].content
 
 
+def test_provider_messages_describe_scoped_allowed_tools() -> None:
+    messages = build_provider_messages(
+        AgentProviderStepInput(
+            problem_statement="list files",
+            verification_commands=[],
+            step_index=1,
+            remaining_steps=4,
+            observations=[],
+            allowed_tools={"read_file", "list_dir"},
+        )
+    )
+
+    assert "Allowed native tools in this turn: list_dir, read_file." in messages[0].content
+    assert "apply_patch" not in messages[0].content
+    assert "run_shell_command" not in messages[0].content
+
+
 def test_system_prompt_prefers_native_tools_over_json_actions() -> None:
     messages = build_provider_messages(
         AgentProviderStepInput(
@@ -374,7 +391,7 @@ def test_provider_messages_dump_openai_tool_message_shapes() -> None:
         "content": (
             '{"action": null, "action_type": null, "error_message": null, '
             '"payload": {"content": "hello", "relative_path": "README.md"}, '
-            '"status": "succeeded", "summary": "Read README.md", "tool_name": null}'
+            '"status": "succeeded", "summary": "Read README.md", "tool_name": "read_file"}'
         ),
         "tool_call_id": "call_1",
     }

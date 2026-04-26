@@ -4,6 +4,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
+from app.tools.registry import default_tool_registry
 from app.tools.structured import ToolInvocation
 
 
@@ -132,9 +133,16 @@ def summarize_observation_record(
     if action is not None:
         action_payload = action.model_dump(mode="json")
     observation = record.observation
+    tool_invocation_name = (
+        record.tool_invocation.name if record.tool_invocation is not None else None
+    )
     return {
         "action_type": action.type if action is not None else None,
-        "tool_name": getattr(action, "action", None) if action is not None else None,
+        "tool_name": (
+            getattr(action, "action", None)
+            if action is not None
+            else tool_invocation_name
+        ),
         "action": action_payload,
         "status": observation.status,
         "summary": _trim_text(
@@ -249,36 +257,61 @@ def _native_tool_result_messages(
     return messages
 
 
-def _system_prompt() -> str:
-    return (
+def _system_prompt(allowed_tools: set[str] | None = None) -> str:
+    registry = default_tool_registry()
+    tool_names = registry.names(allowed_tools=allowed_tools)
+    scoped_prompt = allowed_tools is not None
+    text = (
         "You are MendCode's action planner. Use native tool calls when tools are available. "
         "Return JSON only when no native tool call is needed, such as final_response or "
         "a patch_proposal fallback. The JSON object must be a valid MendCodeAction.\n"
         "Allowed action types: assistant_message, tool_call, patch_proposal, "
         "user_confirmation_request, final_response.\n"
-        "Allowed tool actions: repo_status, detect_project, read_file, list_dir, "
-        "glob_file_search, search_code, rg, git, apply_patch, apply_patch_to_worktree, "
-        "show_diff, run_shell_command, run_command.\n"
+        f"Allowed native tools in this turn: {', '.join(tool_names)}.\n"
+    )
+    if not scoped_prompt:
+        text += (
+            "Allowed JSON tool actions: repo_status, detect_project, read_file, list_dir, "
+            "glob_file_search, search_code, rg, git, apply_patch, apply_patch_to_worktree, "
+            "show_diff, run_shell_command, run_command.\n"
+        )
+    text += (
         "Use the discriminator field named type. Do not use action_type. Examples: "
         '{"type": "tool_call", "action": "repo_status", "reason": "inspect", "args": {}}; '
         '{"type": "final_response", "status": "completed", "summary": "verified", '
         '"recommended_actions": []}.\n'
         "Prefer structured tools over raw shell: use read_file for file content, "
         "list_dir for directory inspection, glob_file_search for path discovery, rg or "
-        "search_code for text search, git for repository inspection, and apply_patch for "
-        "unified diffs. Use run_shell_command only when no structured tool fits. Use "
-        "run_command only for declared verification commands from verification_commands.\n"
+        "search_code for text search, and git for repository inspection."
+    )
+    if "apply_patch" in tool_names:
+        text += " Use apply_patch for unified diffs."
+    if "run_shell_command" in tool_names:
+        text += " Use run_shell_command only when no structured tool fits."
+    if "run_command" in tool_names:
+        text += (
+            " Use run_command only for declared verification commands "
+            "from verification_commands."
+        )
+    text += (
+        "\n"
         "When list_dir returns truncated=false, the listed entries are complete; do not "
         "repeat list_dir for the same path with a larger max_entries. When the "
         "observations answer the user, return a final_response JSON instead of making "
         "more tool calls.\n"
-        "Repair workflow: inspect repo status and project type if unknown; run or inspect "
-        "verification failure; read failing test files; search candidate implementation; "
-        "propose a unified diff patch with patch_proposal; rerun verification; show_diff; "
-        "then return final_response.\n"
+    )
+    if not scoped_prompt or {"run_command", "apply_patch"}.intersection(tool_names):
+        text += (
+            "Repair workflow: inspect repo status and project type if unknown; run or inspect "
+            "verification failure; read failing test files; search candidate implementation; "
+            "propose a unified diff patch with patch_proposal; rerun verification; show_diff; "
+            "then return final_response.\n"
+        )
+    text += (
         'Never claim completed after a failed verification. Use "status": "failed" when '
         "the repair is not verified or the step budget is low."
     )
+    return text
 
 
 def build_provider_messages(
@@ -312,7 +345,7 @@ def build_provider_messages(
         "observations": observations,
     }
     messages = [
-        ChatMessage(role="system", content=_system_prompt()),
+        ChatMessage(role="system", content=_system_prompt(step_input.allowed_tools)),
         ChatMessage(
             role="user",
             content=json.dumps(user_context, ensure_ascii=False, sort_keys=True),

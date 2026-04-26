@@ -165,10 +165,19 @@ class OpenAICompatibleAgentProvider:
     def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
         messages = build_provider_messages(step_input, secret_values=[self._api_key])
         try:
+            openai_tools = self._tool_registry.openai_tools(
+                allowed_tools=step_input.allowed_tools,
+            )
+            allowed_tool_names = set(
+                self._tool_registry.names(allowed_tools=step_input.allowed_tools)
+            )
+        except KeyError as exc:
+            return ProviderResponse.failed(str(exc.args[0]))
+        try:
             completion = self._client.complete(
                 model=self._model,
                 messages=messages,
-                tools=self._tool_registry.openai_tools(),
+                tools=openai_tools,
                 timeout_seconds=self._timeout_seconds,
             )
         except Exception as exc:
@@ -208,6 +217,8 @@ class OpenAICompatibleAgentProvider:
                     self._tool_registry.get(tool_call.name)
                 except KeyError:
                     return ProviderResponse.failed("Provider returned unknown tool call")
+                if tool_call.name not in allowed_tool_names:
+                    return ProviderResponse.failed("Provider returned disallowed tool call")
                 try:
                     tool_invocations.append(
                         ToolInvocation(

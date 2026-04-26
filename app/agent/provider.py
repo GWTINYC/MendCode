@@ -33,6 +33,7 @@ class AgentProviderStepInput(BaseModel):
     remaining_steps: int = Field(ge=0)
     observations: list[AgentObservationRecord] = Field(default_factory=list)
     context: str | None = None
+    allowed_tools: set[str] | None = None
 
 
 class ProviderResponse(BaseModel):

@@ -3,24 +3,23 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from app.schemas.agent_action import RiskLevel, ToolCallAction, UserConfirmationRequestAction
+from app.tools.registry import default_tool_registry
+from app.tools.structured import ToolRisk
 
 PermissionMode = Literal["safe", "guided", "full", "custom"]
 PermissionStatus = Literal["allow", "confirm", "deny"]
 
-_TOOL_RISK: dict[str, RiskLevel] = {
+_BUILTIN_TOOL_RISK: dict[str, RiskLevel] = {
     "repo_status": "low",
     "detect_project": "low",
-    "read_file": "low",
-    "list_dir": "low",
-    "glob_file_search": "low",
-    "search_code": "low",
-    "rg": "low",
-    "git": "low",
     "show_diff": "low",
-    "run_shell_command": "low",
-    "run_command": "medium",
-    "apply_patch": "medium",
     "apply_patch_to_worktree": "medium",
+}
+_REGISTRY_RISK_MAP: dict[ToolRisk, RiskLevel] = {
+    ToolRisk.READ_ONLY: "low",
+    ToolRisk.WRITE_WORKTREE: "medium",
+    ToolRisk.SHELL_RESTRICTED: "medium",
+    ToolRisk.DANGEROUS: "high",
 }
 
 
@@ -33,7 +32,10 @@ class PermissionDecision(BaseModel):
 
 
 def _tool_risk(action: ToolCallAction) -> RiskLevel:
-    return _TOOL_RISK[action.action]
+    if action.action in _BUILTIN_TOOL_RISK:
+        return _BUILTIN_TOOL_RISK[action.action]
+    registry = default_tool_registry()
+    return _REGISTRY_RISK_MAP[registry.get(action.action).risk_level]
 
 
 def decide_permission(action: ToolCallAction, mode: PermissionMode) -> PermissionDecision:

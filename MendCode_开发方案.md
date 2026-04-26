@@ -43,6 +43,7 @@ mendcode
 - [x] Provider-driven Agent loop：每步基于 observation history 请求下一条 action
 - [x] OpenAI-compatible JSON Action provider
 - [x] Hybrid ToolRegistry / OpenAI 原生 tool call 支持；JSON Action 保留为 fallback
+- [x] OpenAI-compatible `allowed_tools` scoped tools，工具请求可按场景裁剪 tools schema
 - [x] Provider prompt context 与修复契约
 - [x] fake provider 修复闭环：patch proposal -> worktree apply -> verify -> diff -> final
 - [x] worktree 内 patch proposal 执行
@@ -55,6 +56,7 @@ mendcode
 - [x] 普通 shell command policy / executor
 - [x] TUI 自然语言 shell 意图识别
 - [x] TUI 自然语言工具请求：例如“帮我查看当前文件夹里的文件”会进入工具 Agent，而不是普通 chat
+- [x] 自然语言工具请求默认只暴露只读工具，并在 AgentLoop 层拒绝越权 native tool invocation
 - [x] Guided Mode 下低风险 shell 查询自动执行
 - [x] 高风险 shell 命令进入确认状态
 - [x] Agent loop `run_shell_command` 工具
@@ -97,6 +99,7 @@ mendcode
 - [ ] 真实模型端到端修复稳定性验证
 - [x] patch proposal schema
 - [x] 真实 LLM 可通过 OpenAI-compatible tool calls 调用结构化工具，JSON Action 保留为 fallback
+- [x] `tool_call -> tool result -> final text` 闭环已有 OpenAI-compatible fake client 回归测试
 - [ ] 真实 LLM 输出 patch proposal 稳定性验证
 - [x] diff summary 与 TUI review 收尾
 - [x] 最小单轮 TUI-shaped 入口
@@ -203,7 +206,7 @@ mendcode
 - [x] 已新增 `app/agent/permission.py`
 - [x] 已定义 `PermissionMode`: Safe / Guided / Full / Custom
 - [x] 已定义 `PermissionDecision`
-- [x] 已建立首批工具风险等级
+- [x] 工具风险等级从 ToolRegistry 派生，避免权限表和工具定义漂移
 - [x] Guided Mode 已允许只读工具、`run_command` 和 worktree patch
 - [x] Safe Mode 会对中风险工具返回确认请求
 - [x] Full Mode 允许已知工具
@@ -251,6 +254,7 @@ mendcode
 - [x] 业务层只消费真实 provider 归一化后的 MendCode Action
 - [x] API key 不写入项目仓库，provider prompt 支持 secret redaction
 - [x] OpenAI-compatible provider 可发送 ToolRegistry 生成的 tools schema，并解析原生 `tool_calls`
+- [x] OpenAI-compatible provider 可按 `allowed_tools` 裁剪 tools schema，并拒绝模型返回的越权工具
 - [x] Prompt context 可把原生 tool observation 写回 OpenAI assistant/tool message
 - [x] JSON Action 仍作为不支持原生 tool call、模型降级或 endpoint 明确拒绝 `tools` 参数时的 fallback
 
@@ -276,6 +280,7 @@ mendcode
 - [x] observation history
 - [x] trace event
 - [x] ToolRegistry primitives 与 Pydantic args models
+- [x] `allowed_tools` 可在 AgentLoop / provider step input 中限制当前场景工具集
 - [x] Agent loop 可顺序执行原生 `ToolInvocation`，同时保留 JSON Action fallback 与 legacy JSON git 兼容
 
 首批工具：

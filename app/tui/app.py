@@ -28,6 +28,15 @@ from app.workspace.review_actions import (
 from app.workspace.shell_executor import ShellCommandResult, execute_shell_command
 from app.workspace.shell_policy import ShellPolicy
 
+READ_ONLY_TOOL_AGENT_TOOLS = {
+    "glob_file_search",
+    "git",
+    "list_dir",
+    "read_file",
+    "rg",
+    "search_code",
+}
+
 ReviewActionExecutor = Callable[[str, AgentSessionTurn], ReviewActionResult]
 ToolAgentRunner = Callable[..., AgentLoopResult]
 
@@ -599,6 +608,7 @@ class MendCodeTextualApp(App[None]):
                 problem_statement=problem_statement,
                 provider=build_agent_provider(self.settings),
                 verification_commands=[],
+                allowed_tools=READ_ONLY_TOOL_AGENT_TOOLS,
                 permission_mode="guided",
                 step_budget=8,
                 use_worktree=False,
