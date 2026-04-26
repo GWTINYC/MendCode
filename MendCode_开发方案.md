@@ -42,6 +42,7 @@ mendcode
 - [x] `ScriptedAgentProvider`，用于在真实 LLM provider 前逐步生成 MendCode actions
 - [x] Provider-driven Agent loop：每步基于 observation history 请求下一条 action
 - [x] OpenAI-compatible JSON Action provider
+- [x] Hybrid ToolRegistry / OpenAI 原生 tool call 支持；JSON Action 保留为 fallback
 - [x] Provider prompt context 与修复契约
 - [x] fake provider 修复闭环：patch proposal -> worktree apply -> verify -> diff -> final
 - [x] worktree 内 patch proposal 执行
@@ -86,13 +87,15 @@ mendcode
 
 - [x] LLM Provider 抽象底座
 - [x] OpenAI-compatible JSON Action adapter
-- [ ] OpenAI / Anthropic 原生 adapter
+- [x] OpenAI 原生 tool-call registry 支持
+- [ ] Anthropic 原生 adapter
 - [x] Provider 错误降级为 observation
 - [x] Provider-driven 动态 tool-use loop 底座
 - [x] 真实 provider 的 prompt/action 契约底座
 - [ ] 真实模型端到端修复稳定性验证
 - [x] patch proposal schema
-- [ ] 真实 LLM 输出 patch proposal
+- [x] 真实 LLM 可通过 OpenAI tool calls 调用结构化工具，JSON Action 保留为 fallback
+- [ ] 真实 LLM 输出 patch proposal 稳定性验证
 - [x] diff summary 与 TUI review 收尾
 - [x] 最小单轮 TUI-shaped 入口
 - [x] 工具调用摘要展示
@@ -227,7 +230,7 @@ mendcode
 交付：
 
 - [x] Provider env config
-- [ ] OpenAI adapter
+- [x] OpenAI adapter 原生 tool-call registry 支持
 - [ ] Anthropic adapter
 - [x] OpenAI-compatible adapter
 - [x] JSON action fallback
@@ -243,6 +246,14 @@ mendcode
 - [x] 切换 provider 不影响 Agent loop 主体
 - [x] 业务层只消费真实 provider 归一化后的 MendCode Action
 - [x] API key 不写入项目仓库，provider prompt 支持 secret redaction
+- [x] OpenAI-compatible provider 可发送 ToolRegistry 生成的 tools schema，并解析原生 `tool_calls`
+- [x] Prompt context 可把原生 tool observation 写回 OpenAI assistant/tool message
+- [x] JSON Action 仍作为不支持原生 tool call 或模型降级时的 fallback
+
+验证证据：
+
+- [x] `PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q`
+- [x] `PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .`
 
 ---
 
@@ -260,6 +271,8 @@ mendcode
 - [x] worktree execution context
 - [x] observation history
 - [x] trace event
+- [x] ToolRegistry primitives 与 Pydantic args models
+- [x] Agent loop 可顺序执行原生 `ToolInvocation`，同时保留 JSON Action fallback 与 legacy JSON git 兼容
 
 首批工具：
 
@@ -268,8 +281,13 @@ mendcode
 - [x] `run_command`，仅用于已声明 verification command
 - [x] `run_shell_command`，用于普通低风险诊断命令
 - [x] `read_file`
+- [x] `list_dir`
+- [x] `glob_file_search`
+- [x] `rg`
+- [x] `git`
 - [x] `search_code`
 - [x] `apply_patch_to_worktree`
+- [x] `apply_patch`
 - [x] `show_diff`
 
 验收：

@@ -233,7 +233,12 @@ anthropic
 openai-compatible
 ```
 
-当前已落地的是 `openai-compatible` 的 JSON Action provider：模型每步返回一个 MendCode Action JSON 对象，MendCode 负责 schema 校验、权限判断、工具执行和 trace。OpenAI / Anthropic 原生 tool calling 适配仍未完成。
+当前已落地的是 `openai-compatible` 的 Hybrid ToolRegistry provider：优先向支持的模型发送 OpenAI tools schema 并解析原生 `tool_calls`，模型可调用 `read_file` / `list_dir` / `glob_file_search` / `rg` / `git` / `run_shell_command` / `run_command` / `apply_patch` 等结构化工具。JSON Action 仍保留为不支持原生 tool call 或模型降级时的 fallback。MendCode 继续负责 schema 校验、权限判断、工具执行和 trace，工具调用不会绕过 Guided Mode 的确认边界。Anthropic 原生 tool calling 适配仍未完成。
+
+验证证据：
+
+- [x] `PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q`
+- [x] `PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .`
 
 推荐配置优先级：
 
@@ -270,6 +275,7 @@ MendCode 不采用“先生成完整计划再机械执行”的模式。
 
 - [ ] 模型决定下一步想做什么
 - [x] Provider-driven loop 每步请求下一条 MendCode Action
+- [x] 支持 OpenAI 原生 tool call 形式的结构化工具调用
 - [x] MendCode 判断动作是否允许
 - [x] MendCode 执行工具
 - [x] MendCode 记录 trace
@@ -282,7 +288,12 @@ MendCode 不采用“先生成完整计划再机械执行”的模式。
 - [x] `run_command`
 - [x] `run_shell_command`
 - [x] `read_file`
+- [x] `list_dir`
+- [x] `glob_file_search`
+- [x] `rg`
+- [x] `git`
 - [x] `search_code`
+- [x] `apply_patch`
 - [x] `apply_patch_to_worktree`
 - [x] `show_diff`
 
@@ -330,7 +341,7 @@ Action 类型：
 - `user_confirmation_request`
 - `final_response`
 
-Provider 层负责把 OpenAI tool call、Anthropic tool use、OpenAI-compatible JSON text 统一归一化为 MendCode Action。
+Provider 层负责把 OpenAI tool call、Anthropic tool use、OpenAI-compatible JSON text 统一归一化为 MendCode Action。当前已落地 OpenAI-compatible provider 的原生 `tool_calls` 解析和 JSON Action fallback。
 
 业务层只处理：
 
@@ -449,10 +460,11 @@ Custom Mode：
 - [x] 自然语言 shell 查询输入
 - [x] Guided permission mode
 - [x] Provider-driven Action loop 底座
-- [x] LLM Action loop 的 JSON Action prompt/context 底座
+- [x] LLM Action loop 的 OpenAI tool-call prompt/context 底座
+- [x] JSON Action prompt/context fallback
 - [ ] 真实模型端到端修复稳定性验证
 - [x] 工具调用摘要展示
-- [x] 工具：`repo_status` / `detect_project` / `run_command` / `run_shell_command` / `read_file` / `search_code`
+- [x] 工具：`repo_status` / `detect_project` / `run_command` / `run_shell_command` / `read_file` / `list_dir` / `glob_file_search` / `rg` / `git` / `search_code`
 - [x] 生成 patch proposal schema
 - [x] 用户确认后 apply 到 worktree 的底层能力
 - [x] 运行验证

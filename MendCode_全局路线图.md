@@ -53,6 +53,7 @@ mendcode
 - [x] `ScriptedAgentProvider` provider 边界
 - [x] Agent loop runner
 - [x] Provider-driven next-action loop
+- [x] Hybrid ToolRegistry / OpenAI 原生 tool call 支持；JSON Action 保留为 fallback
 - [x] Git worktree 隔离
 - [x] command policy / executor
 - [x] shell policy / executor
@@ -195,6 +196,15 @@ Phase A 已完成。
 - [x] provider 错误降级
 - [x] provider-driven loop 错误降级
 - [x] provider prompt context / repair contract
+- [x] ToolRegistry primitives 与 Pydantic args models
+- [x] OpenAI-compatible provider 可发送 tools schema 并解析原生 `tool_calls`
+- [x] prompt context 可把原生 tool observation 写回 OpenAI assistant/tool message
+- [x] Agent loop 可顺序执行原生 `ToolInvocation`，并保留 JSON Action fallback
+
+验证证据：
+
+- [x] `PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q`
+- [x] `PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .`
 
 停手点：
 
@@ -218,6 +228,11 @@ Phase A 已完成。
 - [x] `run_shell_command`，用于普通低风险诊断命令
 - [x] shell policy / executor
 - [x] `read_file`
+- [x] `list_dir`
+- [x] `glob_file_search`
+- [x] `rg`
+- [x] `git`
+- [x] `apply_patch`
 - [x] fake provider 修复闭环验证
 - [x] `search_code`
 - [x] 失败测试文件读取
