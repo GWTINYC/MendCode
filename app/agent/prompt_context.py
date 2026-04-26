@@ -87,6 +87,9 @@ def _selected_payload(
             )
     entries = payload.get("entries")
     if isinstance(entries, list):
+        entry_limit = (
+            len(entries) if payload.get("truncated") is False else limits.max_search_matches
+        )
         selected["entries"] = [
             {
                 str(entry_key): _trim_text(
@@ -96,10 +99,10 @@ def _selected_payload(
                 )
                 for entry_key, entry_value in entry.items()
             }
-            for entry in entries[: limits.max_search_matches]
+            for entry in entries[:entry_limit]
             if isinstance(entry, dict)
         ]
-        selected["entries_truncated"] = len(entries) > limits.max_search_matches
+        selected["entries_truncated"] = len(entries) > entry_limit
     matches = payload.get("matches")
     if isinstance(matches, list):
         selected["matches"] = [
@@ -265,6 +268,10 @@ def _system_prompt() -> str:
         "search_code for text search, git for repository inspection, and apply_patch for "
         "unified diffs. Use run_shell_command only when no structured tool fits. Use "
         "run_command only for declared verification commands from verification_commands.\n"
+        "When list_dir returns truncated=false, the listed entries are complete; do not "
+        "repeat list_dir for the same path with a larger max_entries. When the "
+        "observations answer the user, return a final_response JSON instead of making "
+        "more tool calls.\n"
         "Repair workflow: inspect repo status and project type if unknown; run or inspect "
         "verification failure; read failing test files; search candidate implementation; "
         "propose a unified diff patch with patch_proposal; rerun verification; show_diff; "

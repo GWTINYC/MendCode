@@ -289,6 +289,47 @@ def test_provider_messages_redact_and_truncate_openai_tool_result_content() -> N
     assert "x" * 80 not in messages[-1].content
 
 
+def test_provider_messages_include_all_untruncated_directory_entries() -> None:
+    entries = [
+        {"name": f"file_{index}.txt", "relative_path": f"file_{index}.txt"}
+        for index in range(12)
+    ]
+    messages = build_provider_messages(
+        AgentProviderStepInput(
+            problem_statement="list files",
+            verification_commands=[],
+            step_index=2,
+            remaining_steps=4,
+            observations=[
+                AgentObservationRecord(
+                    tool_invocation=ToolInvocation(
+                        id="call_1",
+                        name="list_dir",
+                        args={"path": "."},
+                        source="openai_tool_call",
+                        group_id="provider-1",
+                    ),
+                    observation=Observation(
+                        status="succeeded",
+                        summary="Listed .",
+                        payload={
+                            "relative_path": ".",
+                            "entries": entries,
+                            "total_entries": len(entries),
+                            "truncated": False,
+                        },
+                    ),
+                )
+            ],
+        )
+    )
+
+    assert "file_0.txt" in messages[1].content
+    assert "file_11.txt" in messages[1].content
+    assert "file_11.txt" in messages[-1].content
+    assert '"entries_truncated": false' in messages[1].content
+
+
 def test_provider_messages_dump_openai_tool_message_shapes() -> None:
     messages = build_provider_messages(
         AgentProviderStepInput(

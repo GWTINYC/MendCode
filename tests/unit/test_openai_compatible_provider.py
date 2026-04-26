@@ -7,7 +7,8 @@ from app.agent.openai_compatible import (
     extract_action_json,
     redact_secret,
 )
-from app.agent.provider import AgentProviderStepInput
+from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
+from app.schemas.agent_action import Observation, ToolCallAction
 from app.tools.registry import default_tool_registry
 
 
@@ -439,6 +440,45 @@ def test_openai_compatible_provider_rejects_invalid_json() -> None:
     assert response.status == "failed"
     assert response.observation is not None
     assert response.observation.error_message == "Provider returned invalid JSON action"
+
+
+def test_openai_compatible_provider_wraps_text_after_tool_observation() -> None:
+    action = ToolCallAction(
+        type="tool_call",
+        action="read_file",
+        reason="read document",
+        args={"path": "MendCode_开发方案.md"},
+    )
+    observation = Observation(
+        status="succeeded",
+        summary="Read MendCode_开发方案.md",
+        payload={"relative_path": "MendCode_开发方案.md", "content": "本文档是当前开发执行方案。"},
+    )
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=FakeClient("第一句话是：本文档是当前开发执行方案。"),
+    )
+
+    response = provider.next_action(
+        AgentProviderStepInput(
+            problem_statement="mendcode开发方案的第一句话是什么",
+            verification_commands=[],
+            step_index=2,
+            remaining_steps=4,
+            observations=[AgentObservationRecord(action=action, observation=observation)],
+        )
+    )
+
+    assert response.status == "succeeded"
+    assert response.action == {
+        "type": "final_response",
+        "status": "completed",
+        "summary": "第一句话是：本文档是当前开发执行方案。",
+        "recommended_actions": [],
+    }
 
 
 def test_openai_compatible_provider_rejects_invalid_action_schema() -> None:

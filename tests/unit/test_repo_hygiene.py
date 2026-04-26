@@ -9,7 +9,7 @@ def test_gitignore_covers_runtime_artifacts() -> None:
 
     assert ".env" in contents
     assert ".worktrees/" in contents
-    assert "data/traces/" in contents
+    assert "data/" in contents
     assert ".pytest_cache/" in contents
     assert ".ruff_cache/" in contents
     assert "__pycache__/" in contents

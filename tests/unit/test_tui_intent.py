@@ -72,6 +72,17 @@ def test_rule_based_intent_router_maps_file_listing_to_tool_request(
     assert decision.kind == "tool"
 
 
+def test_rule_based_intent_router_maps_document_content_questions_to_tool_request(
+    tmp_path: Path,
+) -> None:
+    decision = RuleBasedIntentRouter().route(
+        "mendcode开发方案的第一句话是什么",
+        IntentContext(repo_path=tmp_path),
+    )
+
+    assert decision.kind == "tool"
+
+
 def test_rule_based_intent_router_keeps_general_questions_as_chat(tmp_path: Path) -> None:
     decision = RuleBasedIntentRouter().route(
         "what can you do?",
@@ -112,6 +123,23 @@ def test_openai_intent_router_keeps_rule_based_shell_commands_local(
 
     assert decision.kind == "shell"
     assert decision.command == "ls"
+    assert client.calls == []
+
+
+def test_openai_intent_router_keeps_rule_based_tool_requests_local(
+    tmp_path: Path,
+) -> None:
+    client = FakeClient("chat")
+    router = OpenAICompatibleIntentRouter(
+        model="test-model",
+        api_key="secret-key",
+        timeout_seconds=12,
+        client=client,
+    )
+
+    decision = router.route("请查看当前文件夹下有哪些文件", IntentContext(repo_path=tmp_path))
+
+    assert decision.kind == "tool"
     assert client.calls == []
 
 

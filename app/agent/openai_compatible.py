@@ -184,7 +184,10 @@ class OpenAICompatibleAgentProvider:
                         "Provider request failed: "
                         f"{redact_secret(str(retry_exc), self._api_key)}"
                     )
-                return _response_from_action_text(content)
+                return _response_from_action_text(
+                    content,
+                    text_final_status=_text_final_status(step_input),
+                )
             return ProviderResponse.failed(
                 f"Provider request failed: {redact_secret(str(exc), self._api_key)}"
             )
@@ -217,7 +220,10 @@ class OpenAICompatibleAgentProvider:
                 except ValidationError:
                     return ProviderResponse.failed("Provider returned invalid tool call")
             return ProviderResponse(status="succeeded", tool_invocations=tool_invocations)
-        return _response_from_action_text(completion.content)
+        return _response_from_action_text(
+            completion.content,
+            text_final_status=_text_final_status(step_input),
+        )
 
 
 def _looks_like_unsupported_tools_error(exc: Exception) -> bool:
@@ -235,12 +241,36 @@ def _looks_like_unsupported_tools_error(exc: Exception) -> bool:
     return any(marker in message for marker in unsupported_markers)
 
 
-def _response_from_action_text(content: str) -> ProviderResponse:
+def _text_final_status(step_input: AgentProviderStepInput) -> str | None:
+    if not step_input.observations:
+        return None
+    if all(record.observation.status == "succeeded" for record in step_input.observations):
+        return "completed"
+    return "failed"
+
+
+def _response_from_action_text(
+    content: str,
+    *,
+    text_final_status: str | None = None,
+) -> ProviderResponse:
     if not content.strip():
         return ProviderResponse.failed("Provider returned empty response")
     try:
         payload = extract_action_json(content)
     except (json.JSONDecodeError, ValueError):
+        if text_final_status is not None:
+            return ProviderResponse(
+                status="succeeded",
+                actions=[
+                    {
+                        "type": "final_response",
+                        "status": text_final_status,
+                        "summary": content.strip(),
+                        "recommended_actions": [],
+                    }
+                ],
+            )
         return ProviderResponse.failed("Provider returned invalid JSON action")
     try:
         parse_mendcode_action(payload)

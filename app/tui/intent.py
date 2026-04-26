@@ -79,7 +79,7 @@ class RuleBasedIntentRouter:
     def route(self, message: str, context: IntentContext) -> IntentDecision:
         if looks_like_fix_request(message):
             return IntentDecision(kind="fix", source="rule")
-        if looks_like_tool_request(message):
+        if looks_like_tool_request(message) or looks_like_file_content_request(message):
             return IntentDecision(kind="tool", source="rule")
         shell_command = plan_rule_based_shell_command(message)
         if shell_command is not None:
@@ -103,7 +103,7 @@ class OpenAICompatibleIntentRouter:
 
     def route(self, message: str, context: IntentContext) -> IntentDecision:
         rule_decision = self._rule_router.route(message, context)
-        if rule_decision.kind in {"fix", "shell"}:
+        if rule_decision.kind in {"fix", "shell", "tool"}:
             return rule_decision
 
         try:
@@ -140,6 +140,35 @@ def looks_like_tool_request(message: str) -> bool:
         any(term in normalized for term in file_terms)
         and any(term in normalized for term in directory_terms)
         and any(term in normalized for term in inspection_terms)
+    )
+
+
+def looks_like_file_content_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    document_terms = (
+        "文件",
+        "文档",
+        ".md",
+        "readme",
+        "开发方案",
+        "路线图",
+        "交互方案",
+        "问题记录",
+    )
+    content_terms = (
+        "第一句话",
+        "第一行",
+        "开头",
+        "内容",
+        "写了什么",
+        "是什么",
+        "查看",
+        "读取",
+        "看一下",
+        "看下",
+    )
+    return any(term in normalized for term in document_terms) and any(
+        term in normalized for term in content_terms
     )
 
 
