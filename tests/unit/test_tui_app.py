@@ -1,13 +1,15 @@
 import asyncio
+import json
 import subprocess
 import threading
 from pathlib import Path
 
 import pytest
 
-from app.agent.loop import AgentLoopResult
+from app.agent.loop import AgentLoopResult, AgentStep
 from app.agent.session import AgentSessionTurn, ReviewSummary, ToolCallSummary
 from app.config.settings import Settings
+from app.schemas.agent_action import FinalResponseAction, Observation, ToolCallAction
 from app.tui.app import MendCodeTextualApp
 from app.tui.chat import ChatResponse
 from app.workspace.review_actions import ReviewActionResult
@@ -171,6 +173,63 @@ class FakeShellExecutor:
         )
 
 
+class FakeToolAgentRunner:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def __call__(self, *, problem_statement: str) -> AgentLoopResult:
+        self.calls.append(problem_statement)
+        return AgentLoopResult(
+            run_id="agent-tool-test",
+            status="completed",
+            summary="当前文件夹包含 README.md。",
+            trace_path="/tmp/tool-trace.jsonl",
+            workspace_path="/tmp/repo",
+            steps=[
+                AgentStep(
+                    index=1,
+                    action=ToolCallAction(
+                        type="tool_call",
+                        action="list_dir",
+                        reason="inspect current directory",
+                        args={"path": "."},
+                    ),
+                    observation=Observation(
+                        status="succeeded",
+                        summary="Listed .",
+                        payload={
+                            "relative_path": ".",
+                            "total_entries": 1,
+                            "entries": [
+                                {
+                                    "relative_path": "README.md",
+                                    "name": "README.md",
+                                    "type": "file",
+                                    "size_bytes": 5,
+                                }
+                            ],
+                        },
+                        error_message=None,
+                    ),
+                ),
+                AgentStep(
+                    index=2,
+                    action=FinalResponseAction(
+                        type="final_response",
+                        status="completed",
+                        summary="当前文件夹包含 README.md。",
+                    ),
+                    observation=Observation(
+                        status="succeeded",
+                        summary="Recorded agent action",
+                        payload={},
+                        error_message=None,
+                    ),
+                ),
+            ],
+        )
+
+
 async def wait_until(predicate, timeout: float = 2.0) -> None:
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
@@ -196,6 +255,32 @@ async def test_app_starts_with_repo_header_and_help_hint(tmp_path: Path) -> None
         assert str(repo_path) in app.header_text
         assert "branch: master" in app.header_text or "branch: main" in app.header_text
         assert any("/help" in message for message in app.message_texts)
+        assert app.session_state.conversation_markdown_path is not None
+        assert app.session_state.conversation_jsonl_path is not None
+        assert "Message 1 - System" in app.session_state.conversation_markdown_path.read_text(
+            encoding="utf-8"
+        )
+
+
+async def test_status_shows_conversation_log_path(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        agent_session=FakeSession(make_turn()),
+    )
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.handle_user_input("/status")
+        await pilot.pause()
+
+        assert app.session_state.conversation_markdown_path is not None
+        assert any("conversation_log:" in message for message in app.message_texts)
+        assert any(
+            str(app.session_state.conversation_markdown_path) in message
+            for message in app.message_texts
+        )
 
 
 async def test_plain_message_without_test_command_runs_general_chat(
@@ -222,6 +307,14 @@ async def test_plain_message_without_test_command_runs_general_chat(
             "I can discuss the repo before tools run." in message
             for message in app.message_texts
         )
+        assert app.session_state.conversation_jsonl_path is not None
+        records = [
+            json.loads(line)
+            for line in app.session_state.conversation_jsonl_path.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ]
+        assert "chat_result" in [record["event_type"] for record in records]
 
 
 async def test_shell_command_runs_automatically_and_renders_output(tmp_path: Path) -> None:
@@ -242,6 +335,14 @@ async def test_shell_command_runs_automatically_and_renders_output(tmp_path: Pat
         assert any("Shell Result" in message for message in app.message_texts)
         assert any("command: ls" in message for message in app.message_texts)
         assert any("README.md" in message for message in app.message_texts)
+        assert app.session_state.conversation_jsonl_path is not None
+        records = [
+            json.loads(line)
+            for line in app.session_state.conversation_jsonl_path.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ]
+        assert "shell_result" in [record["event_type"] for record in records]
 
 
 async def test_natural_language_shell_request_runs_planned_command(
@@ -260,6 +361,46 @@ async def test_natural_language_shell_request_runs_planned_command(
         await wait_until(lambda: not app.session_state.running)
 
         assert shell_executor.calls == [("ls", repo_path, False)]
+
+
+async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    shell_executor = FakeShellExecutor()
+    chat_responder = FakeChatResponder("fabricated answer")
+    tool_agent_runner = FakeToolAgentRunner()
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        chat_responder=chat_responder,
+        shell_executor=shell_executor,
+        tool_agent_runner=tool_agent_runner,
+    )
+
+    async with app.run_test():
+        app.handle_user_input("帮我查看当前文件夹里的文件")
+        await wait_until(lambda: not app.session_state.running)
+
+        assert tool_agent_runner.calls == ["帮我查看当前文件夹里的文件"]
+        assert chat_responder.calls == []
+        assert shell_executor.calls == []
+        assert any("list_dir" in message for message in app.message_texts)
+        assert any("README.md" in message for message in app.message_texts)
+        assert app.session_state.conversation_markdown_path is not None
+        markdown = app.session_state.conversation_markdown_path.read_text(encoding="utf-8")
+        assert "intent" in markdown
+        assert '"kind": "tool"' in markdown
+        assert "Tool Result" in markdown
+        assert "README.md" in markdown
+        assert app.session_state.conversation_jsonl_path is not None
+        records = [
+            json.loads(line)
+            for line in app.session_state.conversation_jsonl_path.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ]
+        assert "tool_result" in [record["event_type"] for record in records]
 
 
 async def test_dangerous_shell_command_waits_for_confirmation(tmp_path: Path) -> None:

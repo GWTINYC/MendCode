@@ -11,7 +11,7 @@ from app.agent.prompt_context import ChatMessage
 from app.agent.provider_factory import ProviderConfigurationError
 from app.config.settings import Settings
 
-IntentKind = Literal["chat", "fix", "shell"]
+IntentKind = Literal["chat", "fix", "shell", "tool"]
 
 FIX_INTENT_TERMS = (
     "fix",
@@ -79,6 +79,8 @@ class RuleBasedIntentRouter:
     def route(self, message: str, context: IntentContext) -> IntentDecision:
         if looks_like_fix_request(message):
             return IntentDecision(kind="fix", source="rule")
+        if looks_like_tool_request(message):
+            return IntentDecision(kind="tool", source="rule")
         shell_command = plan_rule_based_shell_command(message)
         if shell_command is not None:
             return IntentDecision(kind="shell", source="rule", command=shell_command)
@@ -116,6 +118,8 @@ class OpenAICompatibleIntentRouter:
         normalized = content.strip().lower()
         if normalized.startswith("fix"):
             return IntentDecision(kind="fix", source="model")
+        if normalized.startswith("tool"):
+            return IntentDecision(kind="tool", source="model")
         shell_command = _parse_model_shell_command(content)
         if shell_command is not None:
             return IntentDecision(kind="shell", source="model", command=shell_command)
@@ -125,6 +129,18 @@ class OpenAICompatibleIntentRouter:
 def looks_like_fix_request(message: str) -> bool:
     normalized = message.strip().lower()
     return any(term in normalized for term in FIX_INTENT_TERMS)
+
+
+def looks_like_tool_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    file_terms = ("文件", "file", "files")
+    directory_terms = ("当前文件夹", "当前目录", "current folder", "current directory")
+    inspection_terms = ("查看", "看一下", "看下", "列出", "列一下", "有哪些", "list", "show")
+    return (
+        any(term in normalized for term in file_terms)
+        and any(term in normalized for term in directory_terms)
+        and any(term in normalized for term in inspection_terms)
+    )
 
 
 def plan_rule_based_shell_command(message: str) -> str | None:
@@ -170,13 +186,14 @@ def _build_intent_messages(*, message: str, context: IntentContext) -> list[Chat
             role="system",
             content=(
                 "Classify the user's message for MendCode. Return exactly one word: "
-                "fix or chat, or return shell: <command>. Return fix only when the "
+                "fix, tool, or chat, or return shell: <command>. Return fix only when the "
                 "user wants code changes, debugging, tests fixed, or command-driven "
-                "repair. Return shell: <command> when the user wants to inspect the "
-                "local repository or run a normal terminal command without asking for "
-                "a repair. Prefer simple commands such as ls, pwd, git status, git diff, "
-                "rg, cat, head, tail, and find. Return chat for questions, explanations, "
-                "thanks, or general discussion.\n"
+                "repair. Return tool when the user asks MendCode to inspect local "
+                "repository files, directories, code, or git state using its tools, "
+                "for example listing current folder files or reading a file. Return "
+                "shell: <command> only for explicit terminal commands such as ls, pwd, "
+                "git status, git diff, rg, cat, head, tail, and find. Return chat for "
+                "questions, explanations, thanks, or general discussion.\n"
                 f"repo_path: {context.repo_path}\n"
                 f"verification_command: {verification}"
             ),

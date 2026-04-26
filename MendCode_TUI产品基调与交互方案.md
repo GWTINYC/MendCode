@@ -457,6 +457,7 @@ Custom Mode：
 - [x] `mendcode` 启动 TUI
 - [ ] 轻量 repo scan
 - [x] 聊天输入
+- [x] 自然语言工具请求输入
 - [x] 自然语言 shell 查询输入
 - [x] Guided permission mode
 - [x] Provider-driven Action loop 底座
@@ -464,6 +465,8 @@ Custom Mode：
 - [x] JSON Action prompt/context fallback
 - [ ] 真实模型端到端修复稳定性验证
 - [x] 工具调用摘要展示
+- [x] 自然语言工具请求可进入 AgentLoop，由模型选择 `list_dir` / `read_file` / `search_code` 等结构化工具并回传结果
+- [x] 本地可读会话日志：消息、intent、chat/shell/tool/turn 结果写入 Markdown 与 JSONL
 - [x] 工具：`repo_status` / `detect_project` / `run_command` / `run_shell_command` / `read_file` / `list_dir` / `glob_file_search` / `rg` / `git` / `search_code`
 - [x] 生成 patch proposal schema
 - [x] 用户确认后 apply 到 worktree 的底层能力
@@ -580,6 +583,7 @@ Actions:
 - [x] 用户不需要提供手工文本替换补丁
 - [x] 用户可以只用自然语言描述问题
 - [x] Agent 能展示每一步工具调用摘要
+- [x] 用户能通过 `/status` 找到当前会话日志文件
 - [x] Agent 的修改只发生在 worktree
 - [x] 修复结果必须有验证命令证明
 - [x] 用户可以查看 diff summary 的底层数据

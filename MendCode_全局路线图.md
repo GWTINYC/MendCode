@@ -57,6 +57,7 @@ mendcode
 - [x] Git worktree 隔离
 - [x] command policy / executor
 - [x] shell policy / executor
+- [x] TUI 自然语言工具请求进入 AgentLoop，由模型选择结构化工具并回传 observation
 - [x] `repo_status` / `detect_project`
 - [x] `read_file` / `search_code`
 - [x] `run_shell_command`
@@ -66,6 +67,7 @@ mendcode
 - [x] verification command 执行
 - [x] diff summary
 - [x] JSONL trace
+- [x] TUI 会话日志写入 `data/conversations/*.md` 与 `*.jsonl`
 - [x] `mendcode fix "<problem>" --test "<command>"` 过渡入口
 - [x] pytest 风格失败日志解析
 - [x] `ReviewSummary` 会话审查摘要模型
@@ -280,9 +282,11 @@ mendcode
 
 - [ ] 启动轻量 repo scan
 - [x] 聊天输入
+- [x] 自然语言工具请求输入
 - [x] 自然语言 shell 查询输入
 - [x] Guided Mode 默认权限
 - [x] 工具调用摘要展示
+- [x] 本地可读会话日志
 - [ ] 详情展开
 - [x] 工程审查收尾
 - [x] view diff / trace / apply / discard

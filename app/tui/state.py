@@ -1,11 +1,12 @@
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Literal
 
 from app.agent.prompt_context import ChatMessage
 from app.agent.session import AgentSessionTurn
 from app.workspace.review_actions import ReviewActionResult
 
-RunningKind = Literal["agent", "chat", "shell"]
+RunningKind = Literal["agent", "chat", "shell", "tool"]
 
 
 @dataclass
@@ -37,6 +38,12 @@ class TuiSessionState:
     chat_history: list[ChatMessage] = field(default_factory=list)
     pending_fix: PendingFix | None = None
     pending_shell: PendingShell | None = None
+    conversation_markdown_path: Path | None = None
+    conversation_jsonl_path: Path | None = None
+
+    def set_conversation_paths(self, *, markdown_path: Path, jsonl_path: Path) -> None:
+        self.conversation_markdown_path = markdown_path
+        self.conversation_jsonl_path = jsonl_path
 
     @property
     def verification_commands(self) -> list[str]:
@@ -136,3 +143,19 @@ class TuiSessionState:
         self.running = False
         self.running_kind = None
         self.last_turn_status = "shell_failed"
+
+    def mark_tool_started(self, task: str) -> None:
+        self.recent_task = task
+        self.running = True
+        self.running_kind = "tool"
+        self.last_turn_status = "running_tool"
+
+    def mark_tool_completed(self, status: str) -> None:
+        self.running = False
+        self.running_kind = None
+        self.last_turn_status = status
+
+    def mark_tool_failed(self) -> None:
+        self.running = False
+        self.running_kind = None
+        self.last_turn_status = "tool_failed"

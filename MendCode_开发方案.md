@@ -54,11 +54,13 @@ mendcode
 - [x] verification command 执行
 - [x] 普通 shell command policy / executor
 - [x] TUI 自然语言 shell 意图识别
+- [x] TUI 自然语言工具请求：例如“帮我查看当前文件夹里的文件”会进入工具 Agent，而不是普通 chat
 - [x] Guided Mode 下低风险 shell 查询自动执行
 - [x] 高风险 shell 命令进入确认状态
 - [x] Agent loop `run_shell_command` 工具
 - [x] `run_command` 保持 verification-only 语义
 - [x] JSONL trace
+- [x] TUI 会话日志：每轮消息、intent、chat/shell/tool/turn 结果写入本地 Markdown 与 JSONL，`/status` 可查看路径
 - [x] `read_file`
 - [x] `search_code`
 - [x] `apply_patch_to_worktree` 底层 patch helper
@@ -100,8 +102,10 @@ mendcode
 - [x] 最小单轮 TUI-shaped 入口
 - [x] 工具调用摘要展示
 - [x] apply / discard 收尾动作
+- [x] 自然语言工具请求进入 AgentLoop 并由模型选择结构化工具
 - [x] 自然语言 shell 工具调用
 - [x] shell pending confirmation 状态
+- [x] 本地可读会话日志
 - [x] `/status` 展示 pending shell 状态
 
 ---
@@ -343,6 +347,7 @@ mendcode
 - [x] 自然语言 shell 查询输入
 - [x] Guided Mode 默认权限
 - [x] 工具调用摘要展示
+- [x] 本地可读会话日志
 - [ ] 详情展开
 - [x] 工程审查收尾
 - [x] view diff / trace / apply / discard

@@ -61,6 +61,17 @@ def test_rule_based_intent_router_maps_natural_language_shell_requests(
     assert decision.command == "ls"
 
 
+def test_rule_based_intent_router_maps_file_listing_to_tool_request(
+    tmp_path: Path,
+) -> None:
+    decision = RuleBasedIntentRouter().route(
+        "帮我查看当前文件夹里的文件",
+        IntentContext(repo_path=tmp_path),
+    )
+
+    assert decision.kind == "tool"
+
+
 def test_rule_based_intent_router_keeps_general_questions_as_chat(tmp_path: Path) -> None:
     decision = RuleBasedIntentRouter().route(
         "what can you do?",
@@ -119,6 +130,20 @@ def test_openai_intent_router_can_plan_shell_command_for_ambiguous_message(
 
     assert decision.kind == "shell"
     assert decision.command == "git status"
+
+
+def test_openai_intent_router_accepts_model_tool_classification(tmp_path: Path) -> None:
+    client = FakeClient("tool")
+    router = OpenAICompatibleIntentRouter(
+        model="test-model",
+        api_key="secret-key",
+        timeout_seconds=12,
+        client=client,
+    )
+
+    decision = router.route("show project files", IntentContext(repo_path=tmp_path))
+
+    assert decision.kind == "tool"
 
 
 def test_openai_intent_router_falls_back_to_chat_when_classification_fails(

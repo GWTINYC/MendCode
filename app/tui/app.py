@@ -8,11 +8,13 @@ from textual.app import App, ComposeResult
 from textual.css.query import NoMatches
 from textual.widgets import Input, RichLog, Static
 
+from app.agent.loop import AgentLoopInput, AgentLoopResult, run_agent_loop
 from app.agent.provider_factory import ProviderConfigurationError, build_agent_provider
 from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import Settings
 from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_responder
 from app.tui.commands import ChatCommand, CommandParseError, parse_chat_input
+from app.tui.conversation_log import ConversationLog
 from app.tui.intent import IntentContext, IntentRouter, build_intent_router
 from app.tui.state import TuiSessionState
 from app.workspace.project_detection import detect_project
@@ -27,6 +29,7 @@ from app.workspace.shell_executor import ShellCommandResult, execute_shell_comma
 from app.workspace.shell_policy import ShellPolicy
 
 ReviewActionExecutor = Callable[[str, AgentSessionTurn], ReviewActionResult]
+ToolAgentRunner = Callable[..., AgentLoopResult]
 
 _CONFIRM_TERMS = {"start", "yes", "y", "confirm", "开始", "确认", "可以", "执行", "好", "好的"}
 _CANCEL_TERMS = {"cancel", "no", "n", "stop", "取消", "不用", "停止", "算了"}
@@ -177,6 +180,7 @@ class MendCodeTextualApp(App[None]):
         intent_router: IntentRouter | None = None,
         review_action_executor: ReviewActionExecutor | None = None,
         shell_executor: ShellExecutor | None = None,
+        tool_agent_runner: ToolAgentRunner | None = None,
     ) -> None:
         super().__init__()
         self.repo_path = repo_path
@@ -189,6 +193,15 @@ class MendCodeTextualApp(App[None]):
         self._intent_router = intent_router
         self._review_action_executor = review_action_executor
         self._shell_executor = shell_executor
+        self._tool_agent_runner = tool_agent_runner
+        self._conversation_log = ConversationLog.create(
+            data_dir=settings.data_dir,
+            repo_path=repo_path,
+        )
+        self.session_state.set_conversation_paths(
+            markdown_path=self._conversation_log.markdown_path,
+            jsonl_path=self._conversation_log.jsonl_path,
+        )
 
     def compose(self) -> ComposeResult:
         yield Static(self.header_text, id="repo-header")
@@ -212,6 +225,7 @@ class MendCodeTextualApp(App[None]):
     def append_message(self, role: str, message: str) -> None:
         line = f"{role}: {message}"
         self.message_texts.append(line)
+        self._conversation_log.append_message(role, message)
         try:
             chat_log = self.query_one("#chat-log", RichLog)
         except NoMatches:
@@ -258,6 +272,15 @@ class MendCodeTextualApp(App[None]):
                     verification_command=self.session_state.verification_command,
                 ),
             )
+            self._conversation_log.append_event(
+                "intent",
+                {
+                    "kind": decision.kind,
+                    "source": decision.source,
+                    "command": decision.command,
+                    "message": task,
+                },
+            )
         except ProviderConfigurationError as exc:
             self.append_message("Error", str(exc))
             return
@@ -270,6 +293,9 @@ class MendCodeTextualApp(App[None]):
                 self._start_chat(task)
                 return
             self._prepare_shell_command(decision.command, source=decision.source)
+            return
+        if decision.kind == "tool":
+            self._start_tool_request(task)
             return
         self._prepare_fix(task, source=decision.source)
 
@@ -322,6 +348,7 @@ class MendCodeTextualApp(App[None]):
             if self.session_state.pending_shell
             else "none"
         )
+        conversation_log = self.session_state.conversation_markdown_path or "not set"
         return "\n".join(
             [
                 f"repo: {self.repo_path}",
@@ -334,6 +361,7 @@ class MendCodeTextualApp(App[None]):
                 f"pending_fix: {self.session_state.pending_fix is not None}",
                 f"pending_shell: {pending_shell}",
                 f"last_turn: {last_turn}",
+                f"conversation_log: {conversation_log}",
             ]
         )
 
@@ -518,6 +546,14 @@ class MendCodeTextualApp(App[None]):
         self.session_state.mark_chat_started()
         self._run_chat_worker(message)
 
+    def _start_tool_request(self, task: str) -> None:
+        if self.session_state.running:
+            self.append_message("Error", "A request is already running.")
+            return
+        self.session_state.mark_tool_started(task)
+        self.append_message("Agent", f"Running tools: {task}")
+        self._run_tool_worker(task)
+
     @work(thread=True, exclusive=True, exit_on_error=False)
     def _run_turn_worker(self, task: str, verification_command: str) -> None:
         try:
@@ -546,8 +582,33 @@ class MendCodeTextualApp(App[None]):
             return
         self.call_from_thread(self._complete_shell, result)
 
+    @work(thread=True, exclusive=True, exit_on_error=False)
+    def _run_tool_worker(self, task: str) -> None:
+        try:
+            runner = self._tool_agent_runner or self._run_tool_agent_loop
+            result = runner(problem_statement=task)
+        except Exception as exc:  # pragma: no cover - exercised through UI behavior
+            self.call_from_thread(self._complete_tool_error, exc)
+            return
+        self.call_from_thread(self._complete_tool_request, result)
+
+    def _run_tool_agent_loop(self, *, problem_statement: str) -> AgentLoopResult:
+        return run_agent_loop(
+            AgentLoopInput(
+                repo_path=self.repo_path,
+                problem_statement=problem_statement,
+                provider=build_agent_provider(self.settings),
+                verification_commands=[],
+                permission_mode="guided",
+                step_budget=8,
+                use_worktree=False,
+            ),
+            self.settings,
+        )
+
     def _complete_shell_error(self, exc: Exception) -> None:
         self.session_state.mark_shell_failed()
+        self._conversation_log.append_event("shell_error", {"error": str(exc)})
         self.append_message("Error", str(exc))
 
     def _complete_shell(self, result: ShellCommandResult) -> None:
@@ -555,14 +616,36 @@ class MendCodeTextualApp(App[None]):
             self.session_state.mark_shell_completed()
         else:
             self.session_state.mark_shell_failed()
+        self._conversation_log.append_event(
+            "shell_result",
+            result.model_dump(mode="json"),
+        )
         self._render_shell_result(result)
+
+    def _complete_tool_error(self, exc: Exception) -> None:
+        self.session_state.mark_tool_failed()
+        self._conversation_log.append_event("tool_error", {"error": str(exc)})
+        self.append_message("Error", str(exc))
+
+    def _complete_tool_request(self, result: AgentLoopResult) -> None:
+        self.session_state.mark_tool_completed(result.status)
+        self._conversation_log.append_event(
+            "tool_result",
+            result.model_dump(mode="json"),
+        )
+        self._render_tool_result(result)
 
     def _complete_turn_error(self, exc: Exception) -> None:
         self.session_state.mark_turn_failed()
+        self._conversation_log.append_event("turn_error", {"error": str(exc)})
         self.append_message("Error", str(exc))
 
     def _complete_turn(self, turn: AgentSessionTurn) -> None:
         self.session_state.mark_turn_completed(turn)
+        self._conversation_log.append_event(
+            "turn_result",
+            turn.model_dump(mode="json"),
+        )
         self._render_turn(turn)
 
     @work(thread=True, exclusive=True, exit_on_error=False)
@@ -585,12 +668,20 @@ class MendCodeTextualApp(App[None]):
 
     def _complete_chat_error(self, exc: Exception) -> None:
         self.session_state.mark_chat_failed()
+        self._conversation_log.append_event("chat_error", {"error": str(exc)})
         self.append_message("Error", str(exc))
 
     def _complete_chat(self, message: str, response: ChatResponse) -> None:
         self.session_state.mark_chat_completed(
             user_message=message,
             assistant_message=response.content,
+        )
+        self._conversation_log.append_event(
+            "chat_result",
+            {
+                "message": message,
+                "response": response.content,
+            },
         )
         self.append_message("MendCode", response.content)
 
@@ -609,6 +700,37 @@ class MendCodeTextualApp(App[None]):
         if result.stderr_excerpt:
             lines.extend(["stderr:", result.stderr_excerpt])
         self.append_message("Shell", "Shell Result\n" + "\n".join(lines))
+
+    def _render_tool_result(self, result: AgentLoopResult) -> None:
+        lines = [
+            f"status: {result.status}",
+            f"summary: {result.summary}",
+            f"trace_path: {result.trace_path or ''}",
+        ]
+        for step in result.steps:
+            if step.action.type != "tool_call":
+                continue
+            action_name = getattr(step.action, "action", "tool_call")
+            lines.append(
+                f"{step.index}. {action_name}: "
+                f"{step.observation.status} - {step.observation.summary}"
+            )
+            entries = step.observation.payload.get("entries")
+            if isinstance(entries, list):
+                for entry in entries[:20]:
+                    if not isinstance(entry, dict):
+                        continue
+                    relative_path = entry.get("relative_path")
+                    entry_type = entry.get("type")
+                    if relative_path is not None:
+                        lines.append(f"  - {relative_path} ({entry_type or 'unknown'})")
+            content = step.observation.payload.get("content")
+            if isinstance(content, str) and content:
+                lines.append(content)
+            stdout = step.observation.payload.get("stdout_excerpt")
+            if isinstance(stdout, str) and stdout:
+                lines.extend(["stdout:", stdout])
+        self.append_message("Agent", "Tool Result\n" + "\n".join(lines))
 
     def _render_turn(self, turn: AgentSessionTurn) -> None:
         if turn.tool_summaries:
