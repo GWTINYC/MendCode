@@ -239,6 +239,40 @@ def test_attempt_record_tracks_failed_verification_after_passed_command() -> Non
     ]
 
 
+def test_attempt_record_ignores_enveloped_passed_verification_after_patch() -> None:
+    loop_result = AgentLoopResult(
+        run_id="agent-6",
+        status="completed",
+        summary="verification passed",
+        trace_path="data/traces/agent-6.jsonl",
+        workspace_path=".worktrees/agent-6",
+        steps=[
+            patch_step(1, "succeeded"),
+            tool_step(
+                2,
+                "run_command",
+                Observation(
+                    status="succeeded",
+                    summary="Ran command",
+                    payload={
+                        "tool_name": "run_command",
+                        "status": "succeeded",
+                        "payload": {
+                            "status": "passed",
+                            "command": "python -m pytest -q",
+                        },
+                        "command": "python -m pytest -q",
+                    },
+                ),
+            ),
+        ],
+    )
+
+    attempts = build_attempt_records(loop_result)
+
+    assert attempts == []
+
+
 def test_review_summary_is_verified_only_after_passed_verification() -> None:
     loop_result = AgentLoopResult(
         run_id="agent-1",
@@ -280,6 +314,40 @@ def test_review_summary_is_verified_only_after_passed_verification() -> None:
         summary="verification passed",
         recommended_actions=["view_diff", "view_trace", "discard", "apply"],
     )
+
+
+def test_review_summary_uses_enveloped_raw_verification_status() -> None:
+    loop_result = AgentLoopResult(
+        run_id="agent-7",
+        status="completed",
+        summary="verification passed",
+        trace_path="data/traces/agent-7.jsonl",
+        workspace_path=".worktrees/agent-7",
+        steps=[
+            tool_step(
+                1,
+                "run_command",
+                Observation(
+                    status="succeeded",
+                    summary="Ran command",
+                    payload={
+                        "tool_name": "run_command",
+                        "status": "succeeded",
+                        "payload": {
+                            "status": "passed",
+                            "command": "python -m pytest -q",
+                        },
+                        "command": "python -m pytest -q",
+                    },
+                ),
+            )
+        ],
+    )
+
+    summary = build_review_summary(loop_result)
+
+    assert summary.status == "verified"
+    assert summary.verification_status == "passed"
 
 
 def test_review_summary_is_failed_when_latest_verification_failed() -> None:

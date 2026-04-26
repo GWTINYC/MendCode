@@ -3,6 +3,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.agent.loop import AgentLoopInput, AgentLoopResult, run_agent_loop
 from app.agent.permission import PermissionMode
 from app.config.settings import Settings, get_settings
+from app.schemas.agent_action import Observation
 
 
 class ReviewSummary(BaseModel):
@@ -111,13 +112,25 @@ def build_tool_summaries(loop_result: AgentLoopResult) -> list[ToolCallSummary]:
     return summaries
 
 
+def _raw_tool_payload(observation: Observation) -> dict[str, object]:
+    raw_payload = observation.payload.get("payload")
+    return raw_payload if isinstance(raw_payload, dict) else {}
+
+
+def _verification_status_from_observation(observation: Observation) -> str:
+    raw_status = _raw_tool_payload(observation).get("status")
+    if raw_status is not None:
+        return str(raw_status)
+    return str(observation.payload.get("status", observation.status))
+
+
 def _latest_verification_status(loop_result: AgentLoopResult) -> str:
     for step in reversed(loop_result.steps):
         if (
             step.action.type == "tool_call"
             and getattr(step.action, "action", None) == "run_command"
         ):
-            return str(step.observation.payload.get("status", step.observation.status))
+            return _verification_status_from_observation(step.observation)
     return "not_run"
 
 
@@ -169,10 +182,8 @@ def build_attempt_records(loop_result: AgentLoopResult) -> list[AttemptRecord]:
                 next_step.action.type == "tool_call"
                 and getattr(next_step.action, "action", None) == "run_command"
             ):
-                verification_status = str(
-                    next_step.observation.payload.get(
-                        "status", next_step.observation.status
-                    )
+                verification_status = _verification_status_from_observation(
+                    next_step.observation
                 )
                 error_message = next_step.observation.error_message
                 if verification_status != "passed":
