@@ -15,6 +15,7 @@ from app.agent.loop import (
 )
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
 from app.config.settings import Settings
+from app.runtime.final_response_gate import apply_final_response_gate
 from app.schemas.agent_action import build_invalid_action_observation
 from app.schemas.trace import TraceEvent
 from app.tracing.recorder import TraceRecorder
@@ -91,58 +92,6 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 observation=handled.step.observation,
             )
         )
-
-    def apply_final_response_gate(handled) -> tuple[AgentLoopStatus, str]:
-        if isinstance(handled.step.action, FinalResponseAction):
-
-            def is_successful_patch_boundary(step: AgentStep) -> bool:
-                if step.observation.status != "succeeded":
-                    return False
-                if step.action.type == "patch_proposal":
-                    return True
-                return (
-                    step.action.type == "tool_call"
-                    and getattr(step.action, "action", None)
-                    in {"apply_patch", "apply_patch_to_worktree"}
-                )
-
-            last_patch_index = next(
-                (
-                    index
-                    for index, step in reversed(list(enumerate(steps[:-1])))
-                    if is_successful_patch_boundary(step)
-                ),
-                None,
-            )
-            observation_start_index = (
-                0 if last_patch_index is None else last_patch_index + 1
-            )
-            meaningful_steps = [
-                step
-                for step in steps[observation_start_index:-1]
-                if step.action.type != "assistant_message"
-            ]
-            if handled.step.action.status == "completed" and last_patch_index is not None:
-                last_post_patch_verification = next(
-                    (
-                        step.observation
-                        for step in reversed(steps[last_patch_index + 1 : -1])
-                        if step.action.type == "tool_call"
-                        and getattr(step.action, "action", None) == "run_command"
-                    ),
-                    None,
-                )
-                if (
-                    last_post_patch_verification is None
-                    or last_post_patch_verification.status != "succeeded"
-                ):
-                    return "failed", "Agent loop ended with failed observations"
-            if (
-                handled.step.action.status == "completed"
-                and any(step.observation.status != "succeeded" for step in meaningful_steps)
-            ):
-                return "failed", "Agent loop ended with failed observations"
-        return handled.status, handled.summary
 
     if loop_input.provider is not None:
         index = 1
@@ -244,7 +193,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
             )
             record_handled_action(handled)
             if handled.stop:
-                status, summary = apply_final_response_gate(handled)
+                status, summary = apply_final_response_gate(steps=steps[:-1], handled=handled)
                 break
             index += 1
         if index > loop_input.step_budget and summary == "Agent loop ended without final response":
@@ -262,7 +211,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
             )
             record_handled_action(handled)
             if handled.stop:
-                status, summary = apply_final_response_gate(handled)
+                status, summary = apply_final_response_gate(steps=steps[:-1], handled=handled)
                 break
 
     trace_path = recorder.record(

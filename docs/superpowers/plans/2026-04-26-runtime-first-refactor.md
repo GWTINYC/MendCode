@@ -283,6 +283,33 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 
 Expected: all tests pass.
 
+## Task 8: Final Response Gate Extraction
+
+**Files:**
+- Create: `app/runtime/final_response_gate.py`
+- Modify: `app/runtime/agent_loop.py`
+- Test: `tests/unit/test_final_response_gate.py`
+- Test: `tests/unit/test_agent_loop.py`
+- Test: `tests/unit/test_agent_loop_tool_closure.py`
+
+- [x] **Step 1: Add final response gate tests**
+
+Cover failed observations blocking completed final responses, patch requiring verification, and patch plus successful verification allowing completion.
+
+- [x] **Step 2: Extract gate helper**
+
+Move final response gate logic out of `run_agent_loop_turn()` into `app.runtime.final_response_gate.apply_final_response_gate()`.
+
+- [x] **Step 3: Run focused tests**
+
+Run:
+
+```bash
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q tests/unit/test_final_response_gate.py tests/unit/test_agent_loop.py tests/unit/test_agent_loop_tool_closure.py
+```
+
+Expected: all tests pass.
+
 ## Final Verification
 
 Run:
