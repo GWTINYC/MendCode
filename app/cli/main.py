@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from app.agent.loop import AgentLoopInput, run_agent_loop
+from app.agent.loop import AgentLoopInput, AgentStep, run_agent_loop
 from app.agent.provider import ScriptedAgentProvider
 from app.agent.provider_factory import ProviderConfigurationError, build_agent_provider
 from app.agent.session import AgentSession, AgentSessionTurn
@@ -216,13 +216,29 @@ def _run_review_actions(*, repo_path: Path, turn: AgentSessionTurn) -> None:
             return
 
 
+def _verification_payload_from_observation_payload(
+    payload: dict[str, object],
+) -> dict[str, object]:
+    raw_payload = payload.get("payload")
+    if isinstance(raw_payload, dict) and "command" in raw_payload:
+        return raw_payload
+    return payload
+
+
+def _verification_command_result_from_step(step: AgentStep) -> VerificationCommandResult | None:
+    if step.action.type != "tool_call" or getattr(step.action, "action", None) != "run_command":
+        return None
+    payload = _verification_payload_from_observation_payload(step.observation.payload)
+    if "command" not in payload:
+        return None
+    return VerificationCommandResult.model_validate(payload)
+
+
 def _command_results_from_steps(turn: AgentSessionTurn) -> list[VerificationCommandResult]:
     return [
-        VerificationCommandResult.model_validate(step.observation.payload)
+        command_result
         for step in turn.result.steps
-        if step.action.type == "tool_call"
-        and getattr(step.action, "action", None) == "run_command"
-        and "command" in step.observation.payload
+        if (command_result := _verification_command_result_from_step(step)) is not None
     ]
 
 
@@ -423,11 +439,9 @@ def fix_problem(
         raise typer.Exit(code=1)
 
     command_results = [
-        VerificationCommandResult.model_validate(step.observation.payload)
+        command_result
         for step in result.steps
-        if step.action.type == "tool_call"
-        and getattr(step.action, "action", None) == "run_command"
-        and "command" in step.observation.payload
+        if (command_result := _verification_command_result_from_step(step)) is not None
     ]
     insight = extract_failure_insight(command_results)
     location_result = None
