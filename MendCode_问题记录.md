@@ -201,6 +201,32 @@
 - 问题记录写“哪些坑不能再踩”
 - 不再新增同类根文档，除非先明确文档职责并合并重叠内容
 
+### 问题 8：ShellPolicy 只识别带空格重定向会留下写入绕过
+
+状态：已修复，后续需持续覆盖
+
+现象：
+
+`printf hello > marker.txt` 会被识别为重定向并要求确认，但 `printf hello>marker.txt`、`cat README.md>copy.txt` 这类无空格相邻重定向曾被 `shlex.split` 保留在普通参数 token 中，绕过重定向确认。
+
+根因：
+
+- ShellPolicy 只检测独立 token 或 token 开头的 `>`、`>>`、`1>`、`2>`、`&>`。
+- shell 语法允许重定向操作符与参数相邻，不要求空格。
+- 低风险 allowlist 扩展到 `printf` 后，stdout-only 命令可自动执行，放大了该解析缺口。
+
+处理：
+
+- ShellPolicy 增加 token 内部相邻输出重定向检测。
+- `printf hello>marker.txt`、`cat README.md>copy.txt` 现在要求确认。
+- `printf hello>../outside.txt`、`cat README.md>../copy.txt` 现在直接拒绝为 critical path escape。
+
+后续约束：
+
+- 新增 shell allowlist 命令时，必须同时测试带空格和无空格的重定向写入。
+- ShellPolicy 测试要覆盖 shell 语法等价形式，不能只测人类常写的空格格式。
+- 任何低风险 shell 命令都不能绕过 redirection、compound command、path escape 三类安全检查。
+
 ## 3. 后续重点风险
 
 ### 风险 A：模型重复调用等价只读工具
