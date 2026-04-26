@@ -57,6 +57,8 @@ User Message
 已完成：
 
 - [x] `MendCodeAction` / `Observation`
+- [x] `AgentRuntime` compatibility wrapper
+- [x] `RuntimeTurnInput` / `RuntimeTurnResult` / `RuntimeToolStep`
 - [x] Provider-driven step loop
 - [x] step budget
 - [x] observation history
@@ -73,6 +75,7 @@ User Message
 
 当前不足：
 
+- [ ] provider loop implementation body 仍暂存在 `app.agent.loop._run_agent_loop_impl`
 - [ ] legacy JSON action path 和 native tool path 仍有部分重复逻辑
 - [ ] 没有等价只读工具调用去重
 - [ ] Provider request/response 调试摘要不足
@@ -80,6 +83,7 @@ User Message
 
 下一步：
 
+- 继续把 `_run_agent_loop_impl` 拆入 runtime 内部小模块，最终让 `app.agent.loop` 只保留兼容数据模型和 wrapper。
 - 把 `_execute_tool_call` 中的 legacy 分支逐步收敛到 ToolRegistry。
 - 给 AgentLoop 增加最近工具调用指纹，处理重复 `list_dir` / `read_file` / `rg`。
 - 把 provider 调试摘要写入 trace，注意不要落 API key。

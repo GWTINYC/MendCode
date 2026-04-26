@@ -125,19 +125,21 @@ Expected: all tests pass.
 - Test: `tests/unit/test_agent_loop.py`
 - Test: `tests/unit/test_agent_session.py`
 
-- [ ] **Step 1: Add runtime turn models**
+- [x] **Step 1: Add runtime turn models**
 
 Define `RuntimeTurnInput`, `RuntimeTurnResult`, `RuntimeToolStep`, and `RuntimeStatus`.
 
-- [ ] **Step 2: Move provider loop into `AgentRuntime.run_turn()`**
+- [x] **Step 2: Move provider loop into `AgentRuntime.run_turn()`**
 
 Keep `run_agent_loop()` as a compatibility wrapper that constructs `AgentRuntime`.
 
-- [ ] **Step 3: Keep trace output stable**
+Current slice: `run_agent_loop()` now constructs `AgentRuntime`; `AgentRuntime.run_turn()` delegates to the preserved internal implementation. The trace-stable implementation body remains as `_run_agent_loop_impl` while later slices split it into smaller runtime units.
+
+- [x] **Step 3: Keep trace output stable**
 
 Existing trace event names can remain during migration.
 
-- [ ] **Step 4: Run session tests**
+- [x] **Step 4: Run session tests**
 
 Run:
 

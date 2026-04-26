@@ -795,7 +795,7 @@ def _handle_action_payload(
     )
 
 
-def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopResult:
+def _run_agent_loop_impl(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopResult:
     recorder = TraceRecorder(settings.traces_dir)
     run_id = f"agent-{uuid4().hex[:12]}"
     workspace_path = loop_input.repo_path
@@ -1056,3 +1056,9 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
         workspace_path=str(workspace_path),
         steps=steps,
     )
+
+
+def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopResult:
+    from app.runtime.agent_runtime import AgentRuntime
+
+    return AgentRuntime(settings=settings).run_turn(loop_input)

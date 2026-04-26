@@ -82,6 +82,7 @@ API key 不能写入项目仓库。优先使用环境变量或用户本地配置
 ```text
 app/
 ├── agent/          # 当前 AgentLoop、provider adapter、prompt context、权限、会话
+├── runtime/        # AgentRuntime wrapper、runtime turn/result contracts
 ├── tools/          # ToolRegistry、工具 schema、只读工具和 patch 工具
 ├── tui/            # Textual UI、意图路由、对话日志
 ├── workspace/      # shell policy/executor、验证 executor、worktree helper
@@ -93,7 +94,7 @@ app/
 
 - `ToolRegistry` 是工具 schema、风险等级和 executor 的来源。
 - `repo_status`、`detect_project`、`show_diff` 等只读内置能力也应通过 `ToolRegistry` 暴露。
-- `AgentLoop` 是执行边界，在运行 native tool call 前必须重新检查 allowed tools。
+- `AgentRuntime` 是新的运行时边界；当前 `run_agent_loop()` 作为兼容 wrapper 保留。
 - `PermissionPolicy` 逻辑必须保持集中，避免重复维护风险表。
 - 工具 observation 必须足够结构化，既能回传给模型，也能持久化到日志。
 - 本地事实必须来自工具结果，不能来自普通聊天文本。
