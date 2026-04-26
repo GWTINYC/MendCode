@@ -1175,3 +1175,196 @@ git status
 - 新增 shell 允许项时，必须同时补 shell policy 单测和 TUI 行为测试
 - 新增 Agent 工具时，必须同步更新 action schema、permission risk、prompt contract 和 loop 测试
 - fix intent 应优先于 direct shell intent，避免“pytest 失败”“git status 报错”等修复请求被误判成 shell 查询
+
+---
+
+## 问题 31：TUI 对话如果不落盘，真实模型问题很难复盘
+
+- 时间：2026-04-26
+- 阶段：TUI 对话日志与自然语言工具调用调试
+- 状态：已解决
+
+### 现象
+
+用户在 TUI 中发现 MendCode 没有按预期自主调用工具，而是在普通聊天里编造目录内容。最初只能依赖终端画面和用户描述判断，无法稳定还原：
+
+- 用户原始输入
+- intent 分类结果
+- 是否进入 AgentLoop
+- 工具调用步骤
+- provider 最终返回内容
+- TUI 展示给用户的实际文本
+
+### 根因
+
+- TUI 之前只把对话展示在界面里，没有按轮次写入本地持久化文件
+- Agent trace 只覆盖 AgentLoop 内部，不能完整覆盖 intent、chat responder、shell responder 和用户消息
+- 当问题发生在“进入 AgentLoop 之前”时，只有 trace 不够定位根因
+
+### 解决方案
+
+- 新增 `app/tui/conversation_log.py`
+- 每次 TUI 会话写入 `data/conversations/` 下的 Markdown 和 JSONL
+- 记录用户消息、系统消息、intent event、chat_result、tool_result、shell_result 等关键事件
+- 将 `data/` 加入 `.gitignore`，避免本地对话和 trace 污染 Git 工作树
+- 用单测覆盖 conversation log 的 Markdown / JSONL 输出和 TUI 写入行为
+
+### 后续约束
+
+- 后续排查 TUI 真实模型行为时，优先查看 `data/conversations/*.md` 和对应 trace
+- 用户可见的“编造事实”“未调用工具”“工具结果丢失”都应先从日志确认实际路径
+- 新增 TUI 分支路径时，必须同步写 conversation event，否则后续无法复盘
+
+---
+
+## 问题 32：OpenAI-compatible intent 分类会覆盖规则识别出的工具请求，导致模型编造本地事实
+
+- 时间：2026-04-26
+- 阶段：TUI 自然语言工具请求
+- 状态：已解决
+
+### 现象
+
+用户输入：
+
+```text
+请查看当前文件夹下有哪些文件
+```
+
+MendCode 没有调用工具，而是进入普通 chat responder，并编造了类似 `.bashrc`、`.profile`、`project` 等并不存在于当前仓库根目录的内容。
+
+对话日志显示该轮事件是：
+
+```text
+kind: chat
+source: model
+```
+
+没有 `tool_result`，说明问题不是工具执行失败，而是请求被路由到了无工具聊天路径。
+
+### 根因
+
+- `RuleBasedIntentRouter` 已经能把“查看当前文件夹下有哪些文件”识别为 `tool`
+- 但 `OpenAICompatibleIntentRouter` 当时只短路保留 `fix` 和 `shell`
+- 规则识别出的 `tool` 会继续交给模型做 intent 分类
+- 模型一旦返回 `chat`，TUI 就进入没有工具绑定的普通聊天 responder
+- chat prompt 虽然要求“不要声称运行工具”，但真实模型仍可能忽略约束并编造本地结果
+
+### 解决方案
+
+- `OpenAICompatibleIntentRouter` 对规则识别出的 `tool` 也直接返回，不再让模型覆盖
+- 增加回归测试：`请查看当前文件夹下有哪些文件` 必须保持 `tool`，且不调用模型分类
+- 后续又扩展规则：文档内容类问题也进入 `tool`，例如 `mendcode开发方案的第一句话是什么`
+
+### 后续约束
+
+- 对本地文件、目录、代码、Git 状态相关请求，规则层一旦能确定是工具请求，就不应再交给模型改判为 chat
+- 普通 chat responder 不能被用来回答需要本地事实的问题
+- 新增自然语言工具入口时，要同时补 rule router 和 OpenAI-compatible router 的覆盖测试
+
+---
+
+## 问题 33：native tool 调用失败后，如果 final gate 只看最后状态，可能错误标记 completed
+
+- 时间：2026-04-26
+- 阶段：AgentLoop native tool calling / final response gate
+- 状态：已解决
+
+### 现象
+
+AgentLoop 支持 OpenAI native tool call 后，模型可以连续发起 `read_file`、`list_dir`、`search_code` 等工具调用。但如果前面某个 native tool observation 已经失败或被拒绝，模型后续仍可能返回：
+
+```json
+{"type": "final_response", "status": "completed", "summary": "done"}
+```
+
+如果 final gate 不检查完整 observation 序列，就可能把包含失败工具调用的回合错误标记为 completed。
+
+### 根因
+
+- JSON action 路径和 native tool call 路径进入 AgentLoop 的方式不同
+- 早期 final gate 对 native tool observation 的失败传播覆盖不足
+- 一些工具注册和 action schema 处于过渡期，`search_code` 等工具需要同时兼容 JSON action 与 native tool invocation
+
+### 解决方案
+
+- 加强 AgentLoop final response gate：`completed` 前检查本轮 meaningful observations
+- native tool 的 failed / rejected observation 会阻止 completed final response
+- 补充 native tool invocation 相关测试：
+  - native search_code 可执行
+  - 多个 native tool invocation 可顺序执行
+  - unknown native tool 会 rejected
+  - native failed observation 会阻止 completed
+  - patch 之后的 verification gate 不会被后续成功步骤掩盖
+- 同步工具注册，保证 `search_code` 等工具在 registry 中可被 native tool path 找到
+
+### 后续约束
+
+- AgentLoop 的完成状态必须由 observation 证据决定，不能只信任模型的 final_response
+- native tool call 与 JSON action 进入同一权限、执行、trace 和 final gate 体系
+- 新增工具时，要同时覆盖 JSON action path 和 native tool path
+
+---
+
+## 问题 34：工具已经拿到有效结果后，模型重复调用工具并用普通文本收尾，会导致 TUI 显示失败或继续编造
+
+- 时间：2026-04-26
+- 阶段：TUI 自然语言工具请求 / OpenAI-compatible native tool calling
+- 状态：已解决
+
+### 现象
+
+用户输入：
+
+```text
+帮我查看当前文件夹内有哪些文件
+```
+
+日志显示 MendCode 已经成功进入 `tool` 路径，并拿到了有效目录结果，但模型连续请求了多次等价工具：
+
+- `list_dir {"path": "."}`
+- `list_dir {"path": ".", "max_entries": 50}`
+- `list_dir {"path": ".", "max_entries": 100}`
+- `run_shell_command {"command": "ls -la"}`
+
+最后模型没有返回合法 MendCode `final_response` JSON，provider 报：
+
+```text
+Provider returned invalid MendCode action
+```
+
+同一轮后续用户又问：
+
+```text
+mendcode开发方案的第一句话是什么
+```
+
+该请求被分到普通 `chat`，模型没有读取文件，却编造了 `docs/mendcode-dev-plan.md` 和不存在的正文内容。
+
+### 根因
+
+- `list_dir` 的真实 observation 中 `truncated=false`，但传回模型的 prompt context 仍只保留前 8 条 entries
+- 模型看到的上下文像是“目录可能没列完”，于是重复扩大 `max_entries`
+- prompt contract 没有明确告诉模型：`truncated=false` 代表当前 entries 已完整，不要重复 list_dir
+- OpenAI-compatible provider 对“工具调用之后的普通文本回答”过于严格，只接受合法 JSON Action
+- 文件内容类问题没有规则路由到 `tool`，导致普通 chat responder 直接回答本地事实问题
+
+### 解决方案
+
+- prompt context 在 `list_dir` 返回 `truncated=false` 时保留完整 entries
+- system prompt 明确要求：
+  - `truncated=false` 时不要重复对同一路径调用 `list_dir`
+  - observation 足够回答用户时返回 `final_response`
+- OpenAI-compatible provider 在已有 observation 后，如果模型返回普通文本，会包装成 `final_response`
+- 新增 `looks_like_file_content_request`，让文档内容类自然语言问题进入 `tool`
+- 增加回归测试覆盖：
+  - 未截断目录 entries 完整传给模型
+  - 工具 observation 后普通文本可安全收尾
+  - 文档第一句话类问题进入 `tool`
+
+### 后续约束
+
+- 工具 observation 传给模型时，不能丢失会影响模型决策的完整性信号
+- 对工具后收尾要兼容真实模型的普通文本输出，但不能在没有 observation 时放宽 JSON Action 合约
+- 文件内容、目录内容、代码内容、Git 状态等本地事实问题必须走工具路径
+- 后续如果仍出现重复工具调用，应考虑在 AgentLoop 层增加“等价只读工具调用去重”保护，而不只依赖 prompt
