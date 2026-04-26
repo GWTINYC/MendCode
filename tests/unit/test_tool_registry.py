@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import pytest
 
+import app.tools as tool_exports
 from app.config.settings import Settings
 from app.schemas.agent_action import Observation
 from app.tools.structured import (
@@ -116,3 +117,8 @@ def test_registry_rejects_duplicate_tool_names() -> None:
 def test_tool_invocation_requires_non_empty_name() -> None:
     with pytest.raises(ValidationError):
         ToolInvocation(id=None, name="", args={}, source="json_action")
+
+
+def test_package_exports_structured_tool_aliases() -> None:
+    assert "ToolExecutor" in tool_exports.__all__
+    assert "ToolInvocationSource" in tool_exports.__all__
