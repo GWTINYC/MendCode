@@ -45,6 +45,8 @@ def test_shell_policy_auto_allows_low_risk_read_only_commands(
         "curl https://example.test",
         "echo hello > README.md",
         "printf hello > marker.txt",
+        "printf hello>marker.txt",
+        "cat README.md>copy.txt",
     ],
 )
 def test_shell_policy_requires_confirmation_for_risky_commands(
@@ -56,6 +58,22 @@ def test_shell_policy_requires_confirmation_for_risky_commands(
     assert decision.allowed is False
     assert decision.requires_confirmation is True
     assert decision.risk_level in {"medium", "high"}
+
+
+@pytest.mark.parametrize("command", ["printf hello>../outside.txt", "cat README.md>../copy.txt"])
+def test_shell_policy_rejects_adjacent_redirection_escaping_root(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+
+    decision = make_policy(repo_path).evaluate(command, repo_path)
+
+    assert decision.allowed is False
+    assert decision.requires_confirmation is False
+    assert decision.risk_level == "critical"
+    assert decision.reason == "redirection target escapes allowed workspace root"
 
 
 @pytest.mark.parametrize("command", ["rm -rf /", "sudo rm -rf /", "rm ../outside.txt"])

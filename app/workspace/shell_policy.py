@@ -13,6 +13,7 @@ _NETWORK_COMMANDS = {"curl", "wget"}
 _INSTALL_COMMANDS = {"apt", "apt-get", "brew"}
 _SHELL_SUBSTITUTION_RE = re.compile(r"(`|\$\()")
 _REDIRECT_RE = re.compile(r"^(?:&>|[0-9]?>>|[0-9]?>)(?P<path>.*)$")
+_INLINE_REDIRECT_RE = re.compile(r"(?:&>|[0-9]?>>|[0-9]?>)(?P<path>.*)$")
 _CRITICAL_RM_ROOT_RE = re.compile(
     r"^(?:sudo\s+)?rm\s+-(?:[^\s]*r[^\s]*f|[^\s]*f[^\s]*r)\s+/(?:\s|$)"
 )
@@ -226,6 +227,10 @@ def _evaluate_redirection(
             match = _REDIRECT_RE.match(token)
             if match is not None:
                 target = match.group("path")
+            else:
+                inline_match = _INLINE_REDIRECT_RE.search(token)
+                if inline_match is not None:
+                    target = inline_match.group("path")
         if target is None:
             continue
         if target and _path_escapes_root(target, cwd=cwd, allowed_root=allowed_root):
