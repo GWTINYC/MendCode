@@ -33,12 +33,27 @@ def test_guided_mode_allows_worktree_patch_but_not_main_workspace_apply():
     assert "worktree" in decision.reason
 
 
+def test_guided_mode_allows_structured_apply_patch_in_worktree() -> None:
+    decision = decide_permission(tool_call("apply_patch"), mode="guided")
+
+    assert decision.status == "allow"
+    assert decision.risk_level == "medium"
+    assert "worktree patching" in decision.reason
+
+
 def test_safe_mode_requires_confirmation_for_run_command():
     decision = decide_permission(tool_call("run_command"), mode="safe")
 
     assert decision.status == "confirm"
     assert decision.risk_level == "medium"
     assert "safe mode requires confirmation" in decision.reason
+
+
+def test_safe_mode_requires_confirmation_for_apply_patch() -> None:
+    decision = decide_permission(tool_call("apply_patch"), mode="safe")
+
+    assert decision.status == "confirm"
+    assert decision.risk_level == "medium"
 
 
 def test_full_mode_allows_known_tools():

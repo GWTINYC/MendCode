@@ -16,7 +16,8 @@ def test_provider_messages_include_repair_contract_and_allowed_tools() -> None:
     )
 
     assert messages[0].role == "system"
-    assert "Return exactly one JSON object and no prose" in messages[0].content
+    assert "Use native tool calls when tools are available" in messages[0].content
+    assert "Return JSON only when no native tool call is needed" in messages[0].content
     assert "patch_proposal" in messages[0].content
     assert "show_diff" in messages[0].content
     assert "list_dir" in messages[0].content
@@ -32,6 +33,21 @@ def test_provider_messages_include_repair_contract_and_allowed_tools() -> None:
     assert messages[1].role == "user"
     assert "fix failing tests" in messages[1].content
     assert "python -m pytest -q" in messages[1].content
+
+
+def test_system_prompt_prefers_native_tools_over_json_actions() -> None:
+    messages = build_provider_messages(
+        AgentProviderStepInput(
+            problem_statement="fix",
+            verification_commands=[],
+            step_index=1,
+            remaining_steps=4,
+            observations=[],
+        )
+    )
+
+    assert "Use native tool calls when tools are available" in messages[0].content
+    assert "Return JSON only when no native tool call is needed" in messages[0].content
 
 
 def test_provider_messages_summarize_failed_run_command() -> None:

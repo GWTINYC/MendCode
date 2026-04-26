@@ -248,8 +248,9 @@ def _native_tool_result_messages(
 
 def _system_prompt() -> str:
     return (
-        "You are MendCode's action planner. Return exactly one JSON object and no prose. "
-        "The object must be a valid MendCodeAction.\n"
+        "You are MendCode's action planner. Use native tool calls when tools are available. "
+        "Return JSON only when no native tool call is needed, such as final_response or "
+        "a patch_proposal fallback. The JSON object must be a valid MendCodeAction.\n"
         "Allowed action types: assistant_message, tool_call, patch_proposal, "
         "user_confirmation_request, final_response.\n"
         "Allowed tool actions: repo_status, detect_project, read_file, list_dir, "
