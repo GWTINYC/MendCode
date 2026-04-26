@@ -461,6 +461,81 @@ def test_agent_loop_executes_multiple_native_tool_invocations_sequentially(
     ]
 
 
+def test_agent_loop_executes_native_transitional_tool_invocation(tmp_path: Path) -> None:
+    (tmp_path / "calculator.py").write_text(
+        "def add(a, b):\n    return a + b\n",
+        encoding="utf-8",
+    )
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_1",
+                    name="search_code",
+                    args={"query": "def add", "glob": "*.py"},
+                    source="openai_tool_call",
+                )
+            ],
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="find add",
+            provider=provider,
+            step_budget=4,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.steps[0].observation.status == "succeeded"
+    assert result.steps[0].observation.payload["total_matches"] == 1
+    assert len(provider.calls) == 2
+    assert provider.calls[1].observations[0].tool_invocation is not None
+    assert provider.calls[1].observations[0].tool_invocation.id == "call_1"
+
+
+def test_agent_loop_fails_when_native_batch_exhausts_step_budget(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("notes\n", encoding="utf-8")
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_1",
+                    name="read_file",
+                    args={"path": "README.md"},
+                    source="openai_tool_call",
+                ),
+                ToolInvocation(
+                    id="call_2",
+                    name="read_file",
+                    args={"path": "notes.txt"},
+                    source="openai_tool_call",
+                ),
+            ]
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="read files",
+            provider=provider,
+            step_budget=1,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.summary == "Agent loop exhausted step budget without final response"
+    assert len(result.steps) == 1
+    assert result.steps[0].observation.status == "succeeded"
+
+
 def test_agent_loop_rejects_unknown_native_tool(tmp_path: Path) -> None:
     provider = NativeToolProvider(
         [

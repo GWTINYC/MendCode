@@ -650,27 +650,6 @@ def _handle_tool_invocation(
     permission_mode: PermissionMode,
     verification_commands: list[str],
 ) -> _HandledAction:
-    registry = default_tool_registry()
-    try:
-        registry.get(invocation.name)
-    except KeyError as exc:
-        observation = _rejected_observation(
-            "Unsupported tool",
-            str(exc.args[0]),
-            payload=invocation.model_dump(mode="json"),
-        )
-        action = FinalResponseAction(
-            type="final_response",
-            status="failed",
-            summary=observation.summary,
-        )
-        return _HandledAction(
-            stop=True,
-            status="failed",
-            summary=observation.summary,
-            step=AgentStep(index=index, action=action, observation=observation),
-        )
-
     action = _tool_call_action_for_invocation(invocation)
     if action is None:
         observation = _rejected_observation(
