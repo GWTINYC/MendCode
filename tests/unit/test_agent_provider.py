@@ -127,7 +127,7 @@ def test_scripted_provider_returns_final_response_after_scripted_steps() -> None
     assert response.action["status"] == "completed"
 
 
-def test_provider_response_rejects_success_without_actions() -> None:
+def test_provider_response_failed_factory_includes_observation() -> None:
     response = ProviderResponse.failed("provider timed out")
 
     assert response.status == "failed"
@@ -135,6 +135,11 @@ def test_provider_response_rejects_success_without_actions() -> None:
     assert response.observation.status == "failed"
     assert response.observation.summary == "Provider failed"
     assert response.observation.error_message == "provider timed out"
+
+
+def test_provider_response_rejects_success_without_actions_or_tool_invocations() -> None:
+    with pytest.raises(ValueError, match="require either actions or tool invocations"):
+        ProviderResponse(status="succeeded")
 
 
 def test_provider_response_rejects_failed_without_observation() -> None:
@@ -264,6 +269,28 @@ def test_provider_response_accepts_native_tool_invocations() -> None:
 
     assert response.tool_invocations[0].name == "read_file"
     assert response.actions == []
+
+
+def test_agent_observation_record_accepts_tool_invocation() -> None:
+    tool_invocation = ToolInvocation(
+        id="call_1",
+        name="read_file",
+        args={"path": "README.md"},
+        source="openai_tool_call",
+    )
+    observation = Observation(
+        status="succeeded",
+        summary="read README.md",
+        payload={"path": "README.md"},
+    )
+
+    record = AgentObservationRecord(
+        tool_invocation=tool_invocation,
+        observation=observation,
+    )
+
+    assert record.tool_invocation == tool_invocation
+    assert record.observation == observation
 
 
 def test_provider_response_rejects_actions_and_tool_invocations_together() -> None:
