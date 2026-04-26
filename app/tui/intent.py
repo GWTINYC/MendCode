@@ -136,6 +136,26 @@ def looks_like_tool_request(message: str) -> bool:
     file_terms = ("文件", "file", "files")
     directory_terms = ("当前文件夹", "当前目录", "current folder", "current directory")
     inspection_terms = ("查看", "看一下", "看下", "列出", "列一下", "有哪些", "list", "show")
+    project_stack_terms = (
+        "技术栈",
+        "tech stack",
+        "technology stack",
+        "项目类型",
+        "project type",
+    )
+    project_question_terms = (
+        "项目",
+        "仓库",
+        "代码库",
+        "project",
+        "repo",
+        "repository",
+        "codebase",
+    )
+    if any(term in normalized for term in project_stack_terms) and any(
+        term in normalized for term in project_question_terms
+    ):
+        return True
     return (
         any(term in normalized for term in file_terms)
         and any(term in normalized for term in directory_terms)

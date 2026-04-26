@@ -313,6 +313,30 @@ def assert_used_tool_path(transcript: ScenarioTranscript) -> None:
         _fail(transcript, "expected an intent route with kind=tool")
 
 
+def assert_used_shell_command(transcript: ScenarioTranscript, command: str) -> None:
+    commands = [call[0] for call in transcript.shell_calls]
+    if command not in commands:
+        _fail(transcript, f"expected shell command {command!r}, got {commands!r}")
+
+
+def assert_used_only_shell_route(transcript: ScenarioTranscript, command: str) -> None:
+    assert_used_shell_command(transcript, command)
+    matching_routes = [
+        event
+        for event in transcript.route_events
+        if event.get("kind") == "shell" and event.get("command") == command
+    ]
+    if not matching_routes:
+        _fail(
+            transcript,
+            f"expected an intent route with kind='shell' and command={command!r}",
+        )
+    if transcript.chat_calls:
+        _fail(transcript, f"expected no chat calls, got {transcript.chat_calls}")
+    if transcript.tool_calls:
+        _fail(transcript, f"expected no tool calls, got {transcript.tool_calls}")
+
+
 def assert_did_not_use_chat(transcript: ScenarioTranscript) -> None:
     if transcript.chat_calls:
         _fail(transcript, f"expected no chat calls, got {transcript.chat_calls}")
@@ -388,7 +412,13 @@ def _has_successful_meaningful_tool_evidence(
         return False
     payload = step.get("payload")
     if isinstance(payload, dict) and payload:
-        return True
+        domain_payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"tool_name", "tool", "action", "status", "summary"}
+        }
+        if domain_payload:
+            return True
     summary = str(step.get("summary", "")).strip()
     return bool(summary) and summary.lower() not in {
         tool_name.lower(),
