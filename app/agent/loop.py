@@ -27,7 +27,9 @@ from app.schemas.agent_action import (
 from app.schemas.trace import TraceEvent
 from app.tools.patch import apply_patch
 from app.tools.read_only import glob_file_search, list_dir, read_file, search_code
+from app.tools.registry import default_tool_registry
 from app.tools.schemas import ToolResult
+from app.tools.structured import ToolExecutionContext, ToolInvocation
 from app.tracing.recorder import TraceRecorder
 from app.workspace.command_policy import CommandPolicy
 from app.workspace.executor import execute_verification_command
@@ -374,6 +376,54 @@ def _apply_patch_tool(args: dict[str, object], workspace_path: Path) -> Observat
     )
 
 
+def _tool_execution_context(
+    *,
+    repo_path: Path,
+    settings: Settings,
+    verification_commands: list[str],
+) -> ToolExecutionContext:
+    return ToolExecutionContext(
+        workspace_path=repo_path,
+        settings=settings,
+        verification_commands=verification_commands,
+    )
+
+
+def _registry_args_for_json_action(action: ToolCallAction) -> dict[str, Any]:
+    args = dict(action.args)
+    if action.action in {"read_file", "list_dir"} and "path" not in args:
+        relative_path = args.pop("relative_path", None)
+        if relative_path is not None:
+            args["path"] = relative_path
+    return args
+
+
+def _execute_tool_invocation(
+    *,
+    invocation: ToolInvocation,
+    repo_path: Path,
+    settings: Settings,
+    verification_commands: list[str],
+) -> Observation:
+    registry = default_tool_registry()
+    try:
+        spec = registry.get(invocation.name)
+    except KeyError as exc:
+        return _rejected_observation(
+            "Unsupported tool",
+            str(exc.args[0]),
+            payload=invocation.model_dump(mode="json"),
+        )
+    return spec.execute(
+        invocation.args,
+        _tool_execution_context(
+            repo_path=repo_path,
+            settings=settings,
+            verification_commands=verification_commands,
+        ),
+    )
+
+
 def _execute_tool_call(
     *,
     action: ToolCallAction,
@@ -381,6 +431,23 @@ def _execute_tool_call(
     settings: Settings,
     verification_commands: list[str],
 ) -> Observation:
+    registry = default_tool_registry()
+    try:
+        registry.get(action.action)
+    except KeyError:
+        pass
+    else:
+        return _execute_tool_invocation(
+            invocation=ToolInvocation(
+                name=action.action,
+                args=_registry_args_for_json_action(action),
+                source="json_action",
+            ),
+            repo_path=repo_path,
+            settings=settings,
+            verification_commands=verification_commands,
+        )
+
     if action.action == "repo_status":
         return _repo_status(repo_path)
     if action.action == "detect_project":
@@ -479,6 +546,160 @@ def _shell_policy_command_for_action(action: ToolCallAction) -> str | None:
     return None
 
 
+def _confirmation_handled_action(
+    *,
+    action: ToolCallAction,
+    decision: PermissionDecision,
+    index: int,
+    payload: dict[str, Any],
+    error_message: str | None,
+) -> _HandledAction:
+    confirmation = build_confirmation_request(action=action, decision=decision)
+    observation = Observation(
+        status="rejected",
+        summary="User confirmation required",
+        payload=payload,
+        error_message=error_message,
+    )
+    return _HandledAction(
+        stop=True,
+        status="needs_user_confirmation",
+        summary=observation.summary,
+        step=AgentStep(index=index, action=confirmation, observation=observation),
+    )
+
+
+def _handle_tool_call_action(
+    *,
+    action: ToolCallAction,
+    index: int,
+    workspace_path: Path,
+    settings: Settings,
+    permission_mode: PermissionMode,
+    verification_commands: list[str],
+) -> _HandledAction:
+    shell_policy_command = _shell_policy_command_for_action(action)
+    if shell_policy_command is not None:
+        shell_decision = ShellPolicy(
+            allowed_root=workspace_path,
+            timeout_seconds=settings.verification_timeout_seconds,
+        ).evaluate(shell_policy_command, workspace_path)
+        if shell_decision.requires_confirmation:
+            return _confirmation_handled_action(
+                action=action,
+                decision=PermissionDecision(
+                    status="confirm",
+                    reason=shell_decision.reason or "shell command requires confirmation",
+                    risk_level=shell_decision.risk_level,
+                ),
+                index=index,
+                payload={"shell_policy_decision": shell_decision.model_dump(mode="json")},
+                error_message=shell_decision.reason,
+            )
+
+    decision = decide_permission(action, permission_mode)
+    observation: Observation
+    if decision.status == "confirm":
+        return _confirmation_handled_action(
+            action=action,
+            decision=decision,
+            index=index,
+            payload={"permission_decision": decision.model_dump(mode="json")},
+            error_message=decision.reason,
+        )
+    if decision.status == "deny":
+        observation = Observation(
+            status="rejected",
+            summary="Tool denied by permission gate",
+            payload={"permission_decision": decision.model_dump(mode="json")},
+            error_message=decision.reason,
+        )
+    else:
+        observation = _execute_tool_call(
+            action=action,
+            repo_path=workspace_path,
+            settings=settings,
+            verification_commands=verification_commands,
+        )
+    return _HandledAction(
+        stop=False,
+        status="failed",
+        summary="Agent loop ended without final response",
+        step=AgentStep(index=index, action=action, observation=observation),
+    )
+
+
+def _tool_call_action_for_invocation(invocation: ToolInvocation) -> ToolCallAction | None:
+    try:
+        return ToolCallAction(
+            type="tool_call",
+            action=invocation.name,  # type: ignore[arg-type]
+            reason=f"provider requested {invocation.name}",
+            args=invocation.args,
+        )
+    except ValidationError:
+        return None
+
+
+def _handle_tool_invocation(
+    *,
+    invocation: ToolInvocation,
+    index: int,
+    workspace_path: Path,
+    settings: Settings,
+    permission_mode: PermissionMode,
+    verification_commands: list[str],
+) -> _HandledAction:
+    registry = default_tool_registry()
+    try:
+        registry.get(invocation.name)
+    except KeyError as exc:
+        observation = _rejected_observation(
+            "Unsupported tool",
+            str(exc.args[0]),
+            payload=invocation.model_dump(mode="json"),
+        )
+        action = FinalResponseAction(
+            type="final_response",
+            status="failed",
+            summary=observation.summary,
+        )
+        return _HandledAction(
+            stop=True,
+            status="failed",
+            summary=observation.summary,
+            step=AgentStep(index=index, action=action, observation=observation),
+        )
+
+    action = _tool_call_action_for_invocation(invocation)
+    if action is None:
+        observation = _rejected_observation(
+            "Unsupported tool",
+            f"unknown tool: {invocation.name}",
+            payload=invocation.model_dump(mode="json"),
+        )
+        action = FinalResponseAction(
+            type="final_response",
+            status="failed",
+            summary=observation.summary,
+        )
+        return _HandledAction(
+            stop=True,
+            status="failed",
+            summary=observation.summary,
+            step=AgentStep(index=index, action=action, observation=observation),
+        )
+
+    return _handle_tool_call_action(
+        action=action,
+        index=index,
+        workspace_path=workspace_path,
+        settings=settings,
+        permission_mode=permission_mode,
+        verification_commands=verification_commands,
+    )
+
+
 def _handle_action_payload(
     *,
     payload: dict[str, object],
@@ -508,68 +729,13 @@ def _handle_action_payload(
         )
 
     if isinstance(action, ToolCallAction):
-        shell_policy_command = _shell_policy_command_for_action(action)
-        if shell_policy_command is not None:
-            shell_decision = ShellPolicy(
-                allowed_root=workspace_path,
-                timeout_seconds=settings.verification_timeout_seconds,
-            ).evaluate(shell_policy_command, workspace_path)
-            if shell_decision.requires_confirmation:
-                confirmation = build_confirmation_request(
-                    action=action,
-                    decision=PermissionDecision(
-                        status="confirm",
-                        reason=shell_decision.reason or "shell command requires confirmation",
-                        risk_level=shell_decision.risk_level,
-                    ),
-                )
-                observation = Observation(
-                    status="rejected",
-                    summary="User confirmation required",
-                    payload={"shell_policy_decision": shell_decision.model_dump(mode="json")},
-                    error_message=shell_decision.reason,
-                )
-                return _HandledAction(
-                    stop=True,
-                    status="needs_user_confirmation",
-                    summary=observation.summary,
-                    step=AgentStep(index=index, action=confirmation, observation=observation),
-                )
-        decision = decide_permission(action, permission_mode)
-        observation: Observation
-        if decision.status == "confirm":
-            confirmation = build_confirmation_request(action=action, decision=decision)
-            observation = Observation(
-                status="rejected",
-                summary="User confirmation required",
-                payload={"permission_decision": decision.model_dump(mode="json")},
-                error_message=decision.reason,
-            )
-            return _HandledAction(
-                stop=True,
-                status="needs_user_confirmation",
-                summary=observation.summary,
-                step=AgentStep(index=index, action=confirmation, observation=observation),
-            )
-        if decision.status == "deny":
-            observation = Observation(
-                status="rejected",
-                summary="Tool denied by permission gate",
-                payload={"permission_decision": decision.model_dump(mode="json")},
-                error_message=decision.reason,
-            )
-        else:
-            observation = _execute_tool_call(
-                action=action,
-                repo_path=workspace_path,
-                settings=settings,
-                verification_commands=verification_commands,
-            )
-        return _HandledAction(
-            stop=False,
-            status="failed",
-            summary="Agent loop ended without final response",
-            step=AgentStep(index=index, action=action, observation=observation),
+        return _handle_tool_call_action(
+            action=action,
+            index=index,
+            workspace_path=workspace_path,
+            settings=settings,
+            permission_mode=permission_mode,
+            verification_commands=verification_commands,
         )
 
     if isinstance(action, PatchProposalAction):
@@ -654,7 +820,10 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
     summary = "Agent loop ended without final response"
     observation_history: list[AgentObservationRecord] = []
 
-    def record_handled_action(handled: _HandledAction) -> None:
+    def record_handled_action(
+        handled: _HandledAction,
+        tool_invocation: ToolInvocation | None = None,
+    ) -> None:
         nonlocal trace_path
         steps.append(handled.step)
         trace_path = _record_step(
@@ -667,6 +836,7 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
         observation_history.append(
             AgentObservationRecord(
                 action=handled.step.action,
+                tool_invocation=tool_invocation,
                 observation=handled.step.observation,
             )
         )
@@ -713,7 +883,10 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
         return handled.status, handled.summary
 
     if loop_input.provider is not None:
-        for index in range(1, loop_input.step_budget + 1):
+        index = 1
+        provider_turn = 0
+        while index <= loop_input.step_budget:
+            provider_turn += 1
             provider_response = loop_input.provider.next_action(
                 AgentProviderStepInput(
                     problem_statement=loop_input.problem_statement,
@@ -744,6 +917,36 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
                 status = "failed"
                 summary = observation.summary
                 break
+
+            if provider_response.tool_invocations:
+                group_id = f"provider-{provider_turn}"
+                stop_after_invocation = False
+                for raw_invocation in provider_response.tool_invocations:
+                    if index > loop_input.step_budget:
+                        status = "failed"
+                        summary = "Agent loop exhausted step budget without final response"
+                        stop_after_invocation = True
+                        break
+                    invocation = raw_invocation.model_copy(update={"group_id": group_id})
+                    handled = _handle_tool_invocation(
+                        invocation=invocation,
+                        index=index,
+                        workspace_path=workspace_path,
+                        settings=settings,
+                        permission_mode=loop_input.permission_mode,
+                        verification_commands=loop_input.verification_commands,
+                    )
+                    record_handled_action(handled, tool_invocation=invocation)
+                    index += 1
+                    if handled.stop:
+                        status = handled.status
+                        summary = handled.summary
+                        stop_after_invocation = True
+                        break
+                if stop_after_invocation:
+                    break
+                continue
+
             if len(provider_response.actions) != 1:
                 payload = {"actions": provider_response.actions}
                 observation = build_invalid_action_observation(
@@ -778,7 +981,8 @@ def run_agent_loop(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopR
             if handled.stop:
                 status, summary = apply_final_response_gate(handled)
                 break
-        else:
+            index += 1
+        if index > loop_input.step_budget and summary == "Agent loop ended without final response":
             status = "failed"
             summary = "Agent loop exhausted step budget without final response"
     else:

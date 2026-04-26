@@ -6,6 +6,7 @@ from pathlib import Path
 from app.agent.loop import AgentLoopInput, run_agent_loop
 from app.agent.provider import AgentProviderStepInput, ProviderResponse
 from app.config.settings import Settings
+from app.tools.structured import ToolInvocation
 
 PYTHON = shlex.quote(sys.executable)
 
@@ -64,6 +65,20 @@ class RecordingProvider:
                 ],
             )
         return ProviderResponse(status="succeeded", actions=[self.actions[index]])
+
+
+class NativeToolProvider:
+    def __init__(self, batches: list[list[ToolInvocation] | dict[str, object]]) -> None:
+        self.batches = batches
+        self.calls: list[AgentProviderStepInput] = []
+
+    def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
+        self.calls.append(step_input)
+        index = len(self.calls) - 1
+        batch = self.batches[index]
+        if isinstance(batch, dict):
+            return ProviderResponse(status="succeeded", actions=[batch])
+        return ProviderResponse(status="succeeded", tool_invocations=batch)
 
 
 class FailingProvider:
@@ -171,7 +186,7 @@ def test_agent_loop_executes_structured_git_status_action(tmp_path: Path) -> Non
                     "type": "tool_call",
                     "action": "git",
                     "reason": "inspect repository state",
-                    "args": {"args": ["status", "--short"]},
+                    "args": {"operation": "status"},
                 },
                 {"type": "final_response", "status": "completed", "summary": "done"},
             ],
@@ -365,6 +380,144 @@ def test_agent_loop_passes_failed_observation_to_provider(tmp_path: Path) -> Non
     assert result.status == "failed"
     assert len(provider.calls) == 2
     assert provider.calls[1].observations[0].observation.status == "failed"
+
+
+def test_agent_loop_executes_native_tool_invocation(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_1",
+                    name="read_file",
+                    args={"path": "README.md"},
+                    source="openai_tool_call",
+                )
+            ],
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="read readme",
+            provider=provider,
+            step_budget=4,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.steps[0].observation.status == "succeeded"
+    assert len(provider.calls) == 2
+    assert provider.calls[1].observations[0].tool_invocation is not None
+    assert provider.calls[1].observations[0].tool_invocation.id == "call_1"
+
+
+def test_agent_loop_executes_multiple_native_tool_invocations_sequentially(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+    (tmp_path / "notes.txt").write_text("notes\n", encoding="utf-8")
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_1",
+                    name="read_file",
+                    args={"path": "README.md"},
+                    source="openai_tool_call",
+                ),
+                ToolInvocation(
+                    id="call_2",
+                    name="read_file",
+                    args={"path": "notes.txt"},
+                    source="openai_tool_call",
+                ),
+            ],
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="read files",
+            provider=provider,
+            step_budget=4,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.steps[0].observation.status == "succeeded"
+    assert result.steps[1].observation.status == "succeeded"
+    assert len(provider.calls) == 2
+    second_call_observations = provider.calls[1].observations
+    assert [record.tool_invocation.group_id for record in second_call_observations] == [
+        "provider-1",
+        "provider-1",
+    ]
+
+
+def test_agent_loop_rejects_unknown_native_tool(tmp_path: Path) -> None:
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_1",
+                    name="delete_repo",
+                    args={},
+                    source="openai_tool_call",
+                )
+            ]
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="bad native tool",
+            provider=provider,
+            step_budget=3,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.steps[0].observation.status == "rejected"
+    assert "unknown tool: delete_repo" in str(result.steps[0].observation.error_message)
+
+
+def test_agent_loop_native_tool_requires_confirmation_in_safe_mode(tmp_path: Path) -> None:
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_1",
+                    name="apply_patch",
+                    args={"patch": ""},
+                    source="openai_tool_call",
+                )
+            ]
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="patch file",
+            provider=provider,
+            permission_mode="safe",
+            step_budget=3,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "needs_user_confirmation"
+    assert result.steps[0].action.type == "user_confirmation_request"
+    assert result.steps[0].observation.status == "rejected"
 
 
 def test_agent_loop_turns_provider_failure_into_failed_result(tmp_path: Path) -> None:
