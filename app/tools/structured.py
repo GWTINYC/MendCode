@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 
 from app.config.settings import Settings
 from app.schemas.agent_action import Observation
+from app.tools.observations import tool_observation
 
 ToolInvocationSource = Literal["openai_tool_call", "json_action"]
 AllowedTools = set[str] | frozenset[str] | list[str] | tuple[str, ...] | None
@@ -87,10 +88,11 @@ class ToolSpec(BaseModel):
         try:
             parsed_args = self.args_model.model_validate(args)
         except ValidationError as exc:
-            return Observation(
+            return tool_observation(
+                tool_name=self.name,
                 status="rejected",
                 summary="Invalid tool arguments",
-                payload={"tool_name": self.name, "args": args},
+                payload={"args": args},
                 error_message=str(exc),
             )
         return self.executor(parsed_args, context)
