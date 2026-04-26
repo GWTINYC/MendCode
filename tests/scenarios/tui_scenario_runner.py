@@ -366,6 +366,19 @@ def assert_no_raw_trace_or_large_json_dump(transcript: ScenarioTranscript) -> No
             _fail(transcript, f"visible transcript contains raw internals: {token}")
 
 
+def assert_no_fabricated_command_claims(transcript: ScenarioTranscript) -> None:
+    bad_phrases = [
+        "正在搜索",
+        "我来查看",
+        "命令 | 结果",
+        "docs/mendcode-dev-plan.md",
+        "MendCode 是一款基于 AI 的代码开发助手",
+    ]
+    for phrase in bad_phrases:
+        if phrase in transcript.visible_text:
+            _fail(transcript, f"visible transcript contains fabricated command claim: {phrase}")
+
+
 def assert_answer_is_concise(
     transcript: ScenarioTranscript,
     *,

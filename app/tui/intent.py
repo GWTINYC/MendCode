@@ -152,6 +152,23 @@ def looks_like_tool_request(message: str) -> bool:
         "repository",
         "codebase",
     )
+    provider_terms = ("provider", "mendcode_provider")
+    provider_config_terms = ("配置", "config", "configuration")
+    provider_location_terms = (
+        "找一下",
+        "查找",
+        "搜索",
+        "在哪",
+        "哪里",
+        "where",
+        "find",
+        "search",
+    )
+    if any(term in normalized for term in provider_terms) and (
+        any(term in normalized for term in provider_config_terms)
+        or any(term in normalized for term in provider_location_terms)
+    ):
+        return True
     if any(term in normalized for term in project_stack_terms) and any(
         term in normalized for term in project_question_terms
     ):
