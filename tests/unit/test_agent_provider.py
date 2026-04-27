@@ -83,14 +83,18 @@ def test_scripted_provider_returns_initial_actions_one_step_at_a_time() -> None:
     )
 
     assert first.status == "succeeded"
-    assert first.action is not None
-    assert first.action["type"] == "tool_call"
-    assert first.action["action"] == "repo_status"
-    assert second.action is not None
-    assert second.action["action"] == "detect_project"
-    assert third.action is not None
-    assert third.action["action"] == "run_command"
-    assert third.action["args"] == {"command": "python -m pytest -q"}
+    assert first.actions == []
+    assert first.tool_invocations[0] == ToolInvocation(
+        id="scripted_1_repo_status",
+        name="repo_status",
+        args={},
+        source="json_action",
+    )
+    assert second.actions == []
+    assert second.tool_invocations[0].name == "detect_project"
+    assert third.actions == []
+    assert third.tool_invocations[0].name == "run_command"
+    assert third.tool_invocations[0].args == {"command": "python -m pytest -q"}
 
 
 def test_scripted_provider_returns_final_response_after_scripted_steps() -> None:
@@ -189,6 +193,8 @@ def test_scripted_provider_can_include_patch_proposal_and_review_actions() -> No
     )
 
     assert response.status == "succeeded"
+    # plan_actions remains a legacy direct-action planning helper for CLI review flows.
+    # Runtime provider-mode uses next_action(), which only returns native tools or final_response.
     actions = response.actions
     assert actions[3] == {
         "type": "patch_proposal",

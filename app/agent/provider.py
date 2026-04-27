@@ -105,7 +105,10 @@ class ScriptedAgentProvider:
                 ],
             )
 
-        return ProviderResponse(status="succeeded", actions=[plan_response.actions[action_index]])
+        return _scripted_provider_response_for_action(
+            plan_response.actions[action_index],
+            index=action_index + 1,
+        )
 
     def plan_actions(self, provider_input: AgentProviderInput) -> ProviderResponse:
         if not provider_input.verification_commands:
@@ -204,3 +207,32 @@ class ScriptedAgentProvider:
                 },
             ],
         )
+
+
+def _scripted_provider_response_for_action(
+    action: dict[str, object],
+    *,
+    index: int,
+) -> ProviderResponse:
+    action_type = action.get("type")
+    if action_type == "final_response":
+        return ProviderResponse(status="succeeded", actions=[action])
+    if action_type == "tool_call":
+        tool_name = str(action.get("action", ""))
+        args = action.get("args", {})
+        if not isinstance(args, dict):
+            return ProviderResponse.failed("scripted provider tool_call args must be an object")
+        return ProviderResponse(
+            status="succeeded",
+            tool_invocations=[
+                ToolInvocation(
+                    id=f"scripted_{index}_{tool_name}",
+                    name=tool_name,
+                    args=args,
+                    source="json_action",
+                )
+            ],
+        )
+    return ProviderResponse.failed(
+        f"scripted provider action is not supported in provider mode: {action_type}"
+    )

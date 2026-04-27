@@ -11,6 +11,7 @@ from app.agent.openai_compatible import (
     OpenAIToolCall,
 )
 from app.agent.provider import AgentProviderStepInput, ProviderResponse
+from app.agent.provider_factory import build_agent_provider
 from app.config.settings import Settings
 from app.tools.structured import ToolInvocation
 
@@ -1050,6 +1051,40 @@ def test_agent_loop_rejects_provider_json_tool_call_action(tmp_path: Path) -> No
     assert "provider returned JSON action instead of schema tool_calls" in (
         result.steps[0].observation.error_message
     )
+
+
+def test_agent_loop_default_scripted_provider_uses_native_tool_invocations(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "pyproject.toml").write_text("[project]\nname = 'demo'\n", encoding="utf-8")
+    command = f"{PYTHON} -c 'raise SystemExit(0)'"
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="run smoke verification",
+            provider=build_agent_provider(settings_for(tmp_path)),
+            verification_commands=[command],
+            step_budget=5,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert [step.action.type for step in result.steps] == [
+        "tool_call",
+        "tool_call",
+        "tool_call",
+        "final_response",
+    ]
+    assert [step.action.action for step in result.steps[:3] if step.action.type == "tool_call"] == [
+        "repo_status",
+        "detect_project",
+        "run_command",
+    ]
+    assert result.summary == "Agent loop completed requested verification commands"
 
 
 def test_provider_driven_loop_stops_for_permission_denial(tmp_path: Path) -> None:
