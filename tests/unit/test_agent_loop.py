@@ -125,6 +125,36 @@ class DirectoryListingProvider:
         )
 
 
+class RepeatingReadProvider:
+    def __init__(self) -> None:
+        self.calls: list[AgentProviderStepInput] = []
+
+    def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
+        self.calls.append(step_input)
+        if len(self.calls) <= 3:
+            return ProviderResponse(
+                status="succeeded",
+                tool_invocations=[
+                    ToolInvocation(
+                        id=f"call_read_{len(self.calls)}",
+                        name="read_file",
+                        args={"path": "README.md"},
+                        source="openai_tool_call",
+                    )
+                ],
+            )
+        return ProviderResponse(
+            status="succeeded",
+            actions=[
+                {
+                    "type": "final_response",
+                    "status": "failed",
+                    "summary": "stopped after repeated call rejection",
+                }
+            ],
+        )
+
+
 class SequentialOpenAIClient:
     def __init__(self) -> None:
         self.calls: list[dict[str, object]] = []
@@ -771,6 +801,29 @@ def test_agent_loop_executes_native_tool_invocation(tmp_path: Path) -> None:
     assert len(provider.calls) == 2
     assert provider.calls[1].observations[0].tool_invocation is not None
     assert provider.calls[1].observations[0].tool_invocation.id == "call_1"
+
+
+def test_agent_loop_returns_repeated_tool_rejection_to_provider(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "README.md").write_text("demo\n", encoding="utf-8")
+    provider = RepeatingReadProvider()
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="read repeatedly",
+            provider=provider,
+            allowed_tools={"read_file"},
+            step_budget=5,
+        ),
+        settings_for(tmp_path),
+    )
+    assert len(provider.calls) == 4
+    assert result.steps[2].observation.status == "rejected"
+    assert result.steps[2].observation.summary == "Repeated equivalent tool call"
+    assert (
+        provider.calls[3].observations[-1].observation.error_message
+        == "equivalent tool call repeated too many times"
+    )
 
 
 def test_agent_loop_session_status_reports_effective_available_tools(

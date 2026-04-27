@@ -16,8 +16,10 @@ from app.agent.loop import (
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
 from app.config.settings import Settings
 from app.runtime.final_response_gate import apply_final_response_gate
-from app.schemas.agent_action import Observation, build_invalid_action_observation
+from app.runtime.tool_repetition import RepetitionTracker
+from app.schemas.agent_action import Observation, ToolCallAction, build_invalid_action_observation
 from app.schemas.trace import TraceEvent
+from app.tools.structured import ToolInvocation
 from app.tracing.recorder import TraceRecorder
 from app.workspace.worktree import prepare_worktree
 
@@ -74,6 +76,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
     status = "failed"
     summary = "Agent loop ended without final response"
     observation_history: list[AgentObservationRecord] = []
+    repetition_tracker = RepetitionTracker()
 
     def recent_step_payloads() -> list[dict[str, object]]:
         return [step.model_dump(mode="json") for step in steps]
@@ -145,19 +148,33 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                         stop_after_invocation = True
                         break
                     invocation = raw_invocation.model_copy(update={"group_id": group_id})
-                    handled = _handle_tool_invocation(
-                        invocation=invocation,
-                        index=index,
-                        workspace_path=workspace_path,
-                        settings=settings,
-                        permission_mode=loop_input.permission_mode,
-                        verification_commands=loop_input.verification_commands,
-                        allowed_tools=loop_input.allowed_tools,
-                        run_id=run_id,
-                        trace_path=str(trace_path),
-                        recent_steps=recent_step_payloads(),
+                    rejection = repetition_tracker.rejection_for(
+                        invocation,
+                        workspace_path,
+                        next_step_index=index,
                     )
+                    if rejection is None:
+                        handled = _handle_tool_invocation(
+                            invocation=invocation,
+                            index=index,
+                            workspace_path=workspace_path,
+                            settings=settings,
+                            permission_mode=loop_input.permission_mode,
+                            verification_commands=loop_input.verification_commands,
+                            allowed_tools=loop_input.allowed_tools,
+                            run_id=run_id,
+                            trace_path=str(trace_path),
+                            recent_steps=recent_step_payloads(),
+                        )
+                    else:
+                        handled = _handled_tool_rejection(index, invocation, rejection)
                     record_handled_action(handled, tool_invocation=invocation)
+                    repetition_tracker.record(
+                        invocation,
+                        workspace_path,
+                        step_index=index,
+                        observation=handled.step.observation,
+                    )
                     index += 1
                     if handled.stop:
                         status = handled.status
@@ -289,4 +306,26 @@ def _handled_response(
         status=status,
         summary=summary,
         step=AgentStep(index=index, action=action, observation=observation),
+    )
+
+
+def _handled_tool_rejection(
+    index: int,
+    invocation: ToolInvocation,
+    observation: Observation,
+) -> _HandledAction:
+    return _HandledAction(
+        stop=False,
+        status="running",
+        summary=observation.summary,
+        step=AgentStep(
+            index=index,
+            action=ToolCallAction(
+                type="tool_call",
+                action=invocation.name,  # type: ignore[arg-type]
+                reason="rejected repeated equivalent tool call",
+                args=invocation.args,
+            ),
+            observation=observation,
+        ),
     )
