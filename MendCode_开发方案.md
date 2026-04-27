@@ -73,6 +73,7 @@ User Message
 - [x] 工具后普通文本包装为 `final_response`
 - [x] final response gate 阻止失败 observation 被标记 completed
 - [x] `allowed_tools` 执行期检查
+- [x] 重复等价只读工具调用检测，第三次重复调用返回结构化 rejected observation
 - [x] deterministic mock provider harness 覆盖 native tool-call 闭环
 - [x] read/list/rg/multi-tool/shell/error/allowed-tools/confirmation stop 场景测试
 
@@ -80,7 +81,6 @@ User Message
 
 - [ ] runtime loop 仍依赖 `app.agent.loop` 中的 action parsing / tool invocation helpers
 - [ ] direct `loop_input.actions` 仍作为 scripted/repair 兼容路径保留
-- [ ] 没有等价只读工具调用去重
 - [ ] Provider request/response 调试摘要不足
 - [ ] `apply_patch_to_worktree` 仍是 legacy/builtin 工具路径
 
@@ -90,7 +90,7 @@ User Message
 - 把 `_execute_tool_call` 中的 legacy 分支逐步收敛到 ToolRegistry。
 - 删除 legacy scripted action compatibility path once CLI repair no longer uses it。
 - 将 `/fix` 兼容路径迁移为纯工具化 repair flow。
-- 给 AgentLoop 增加最近工具调用指纹，处理重复 `list_dir` / `read_file` / `rg`。
+- 扩展重复调用策略到更多语义稳定的只读工具，并把拒绝原因写入更清晰的 TUI 摘要。
 - 把 provider 调试摘要写入 trace，注意不要落 API key。
 
 ### 3.2 Provider
@@ -144,6 +144,7 @@ User Message
 - [x] `tool_search` 可按当前 context 的 `available_tools` 搜索，避免向模型推荐不可用工具
 - [x] 宽泛 `search_code` 默认排除 `.git`、`.worktrees`、`data` 运行产物；显式 `glob='data/**'` 时仍可分析对话记录
 - [x] `read_file` 拒绝二进制文件，`write_file` / `edit_file` 有文本大小上限，`edit_file` 拒绝二进制编辑
+- [x] 工具别名支持递归 group/profile，例如 `fs_read`、`git_read`、`introspection`、`read_only_agent`、`coding_agent`、`full_coding_agent`
 
 当前工具：
 
@@ -164,11 +165,16 @@ User Message
 | `edit_file` | 已完成 | 精确替换 repo-relative 文本文件内容，拒绝二进制文件 |
 | `todo_write` | 已完成 | 返回当前短期结构化 todo 列表 |
 | `tool_search` | 已完成 | 按名称和描述搜索可用工具 |
+| `session_status` | 已完成 | 返回当前权限、可见工具、验证命令、trace 和近期步骤 |
+| `process_start` / `process_poll` / `process_write` / `process_stop` / `process_list` | 已完成 | 管理本轮后台进程和增量日志；`process_start` 走 ShellPolicy，日志写入 `data/processes/` |
+| `lsp` | 已完成 | 返回语言服务诊断、定义、引用、hover、symbols 等结构化结果；不可用时明确 rejected |
 | `apply_patch_to_worktree` | legacy/builtin | 后续删除或迁移为 `apply_patch` 兼容别名 |
 
 下一步工具：
 
-- [ ] `session_status`：返回当前会话、权限、工具集、workspace 状态
+- [ ] `write_file` / `edit_file` 的更细粒度确认和 diff preview
+- [ ] 文件系统元信息工具，例如 `stat` / `tree` 的受限版本
+- [ ] LSP transport 配置和多语言 server 管理
 
 新增工具检查表：
 
@@ -235,6 +241,8 @@ User Message
 - [x] 新增 PTY live TUI e2e 测试入口，启动真实 `python -m app.cli.main` 并模拟用户输入
 - [x] TUI scenario audit 默认覆盖 `tests/scenarios` 和 `tests/e2e`
 - [x] PTY live 场景扩展到多轮目录+Git、明确读文件、代码定位、危险自然语言 shell 不走本地 pending、路径查看、git diff、会话列表
+- [x] TUI 只读工具面加入 `session_status`、`tool_search`、基础 `lsp`，不暴露 `process_*`
+- [x] PTY live 覆盖“现在你能用哪些工具”，并断言 `session_status` / `tool_search` 来自 `openai_tool_call`
 - [x] 新增 `tests/scenarios/tool_parity_scenarios.json`，固定 read/rg/write/multi-tool/bash/permission 的核心工具闭环场景
 - [x] e2e 测试可自动读取项目根目录 `.env` 中的真实 provider 配置
 
@@ -357,7 +365,8 @@ duration_ms
 
 - Mock provider harness 已完成基础版。
 - 已覆盖 read_file、read_file tail_lines、list_dir、rg、多工具、shell stdout、tool error、allowed-tools denial、confirmation stop、OpenAI final_response tool call。
-- 后续继续扩展到 write 工具、permission allow/deny 和重复只读工具调用。
+- 已覆盖重复等价只读工具调用保护。
+- 后续继续扩展到 write 工具和 permission allow/deny。
 
 场景：
 
@@ -372,6 +381,7 @@ duration_ms
 - [x] permission deny / confirmation stop
 - [x] tool error
 - [x] plain final text after tool result
+- [x] repeated equivalent read-only tool rejection
 
 验收：
 

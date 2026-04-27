@@ -21,11 +21,14 @@ MendCode 目前已经支持 schema tool-call 主线：
 - 自然语言请求统一进入 AgentLoop，由模型通过 OpenAI-compatible 原生 `tool_calls` 调用 schema 工具。
 - Slash commands 仍由 TUI 本地处理，例如 `/status`、`/sessions`、`/resume`。
 - 如果 provider 不支持原生 tools，MendCode 会明确报错，不会退回普通聊天编造本地事实。
-- 结构化工具包括 `read_file`、`list_dir`、`glob_file_search`、`rg` / `search_code`、只读 `git`、`run_shell_command`、`run_command`、`apply_patch`、`write_file`、`edit_file`、`todo_write`、`tool_search`、`repo_status`、`detect_project` 和 `show_diff`。
+- 结构化工具包括 `read_file`、`list_dir`、`glob_file_search`、`rg` / `search_code`、只读 `git`、`run_shell_command`、`run_command`、`apply_patch`、`write_file`、`edit_file`、`todo_write`、`tool_search`、`session_status`、`repo_status`、`detect_project`、`show_diff`、后台 `process_*` 和基础 `lsp`。
+- 新增工具池扩展方向包括 `session_status`、后台 `process_start` / `process_poll` / `process_write` / `process_stop` / `process_list`、基础 `lsp` 和重复工具调用保护。
 - 通过 `ToolPool` + `allowed_tools` + permission mode 按场景裁剪暴露给模型的工具，避免只读请求暴露写入工具。
 - Guided 权限模式下，低风险只读动作自动执行，高风险命令需要确认或直接拒绝。
 - 权限策略正在收敛到 `read-only`、`workspace-write`、`danger-full-access` 三档；旧的 safe/guided/full 作为兼容别名保留。
 - `run_command` 只用于验证命令，与普通 shell 执行分离。
+- TUI 只读自然语言对话默认可见 `read_file`、`list_dir`、`glob_file_search`、`rg`、`search_code`、只读 `git`、`lsp`、`session_status` 和 `tool_search`；后台进程工具不在只读聊天默认工具面中。
+- AgentLoop 会识别等价只读工具的重复调用，第三次重复返回结构化 rejected observation，提示模型使用已有结果收尾。
 - `read_file` / `edit_file` 拒绝二进制文本误读，`write_file` / `edit_file` 有文本大小上限。
 - `ShellPolicy` 已覆盖只读 `sed`、`rg` 路径逃逸、重定向写入、危险 Git/安装/网络命令。
 - 对话日志以 Markdown 和 JSONL 写入 `data/conversations/`。
