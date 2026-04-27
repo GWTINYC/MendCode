@@ -270,9 +270,16 @@ def _native_tool_result_messages(
     return messages
 
 
-def _system_prompt(allowed_tools: set[str] | None = None) -> str:
+def _system_prompt(
+    allowed_tools: set[str] | None = None,
+    permission_mode: str = "guided",
+) -> str:
     registry = default_tool_registry()
-    tool_names = registry.names(allowed_tools=allowed_tools)
+    pool = registry.tool_pool(
+        permission_mode=permission_mode,
+        allowed_tools=allowed_tools,
+    )
+    tool_names = pool.names()
     scoped_prompt = allowed_tools is not None
     text = (
         "You are MendCode's action planner. Use native tool calls when tools are available. "
@@ -365,7 +372,10 @@ def build_provider_messages(
         "observations": observations,
     }
     messages = [
-        ChatMessage(role="system", content=_system_prompt(step_input.allowed_tools)),
+        ChatMessage(
+            role="system",
+            content=_system_prompt(step_input.allowed_tools, step_input.permission_mode),
+        ),
         ChatMessage(
             role="user",
             content=json.dumps(user_context, ensure_ascii=False, sort_keys=True),

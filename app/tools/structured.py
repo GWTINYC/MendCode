@@ -70,6 +70,7 @@ class ToolExecutionContext(BaseModel):
     workspace_path: Path
     settings: Settings
     verification_commands: list[str] = Field(default_factory=list)
+    available_tools: set[str] | None = None
 
 
 ToolExecutor = Callable[[BaseModel, ToolExecutionContext], Observation]
@@ -115,6 +116,71 @@ class ToolSpec(BaseModel):
         }
 
 
+_MODE_RANK = {
+    "read-only": 1,
+    "safe": 1,
+    "workspace-write": 2,
+    "guided": 2,
+    "danger-full-access": 3,
+    "full": 3,
+}
+_RISK_REQUIRED_RANK = {
+    ToolRisk.READ_ONLY: 1,
+    ToolRisk.WRITE_WORKTREE: 2,
+    ToolRisk.SHELL_RESTRICTED: 2,
+    ToolRisk.DANGEROUS: 3,
+}
+_SIMPLE_MODE_TOOLS = frozenset(
+    {
+        "repo_status",
+        "detect_project",
+        "show_diff",
+        "glob_file_search",
+        "list_dir",
+        "read_file",
+        "rg",
+        "search_code",
+        "git",
+        "tool_search",
+    }
+)
+
+
+class ToolPool:
+    def __init__(
+        self,
+        *,
+        specs: list[ToolSpec],
+        permission_mode: str,
+        simple_mode: bool,
+        excluded_tools: list[str],
+    ) -> None:
+        self._specs = {spec.name: spec for spec in specs}
+        self.permission_mode = permission_mode
+        self.simple_mode = simple_mode
+        self.excluded_tools = sorted(set(excluded_tools))
+
+    def names(self) -> list[str]:
+        return sorted(self._specs)
+
+    def get(self, name: str) -> ToolSpec:
+        try:
+            return self._specs[name]
+        except KeyError as exc:
+            raise KeyError(f"unknown pooled tool: {name}") from exc
+
+    def openai_tools(self) -> list[dict[str, object]]:
+        return [self._specs[name].to_openai_tool() for name in self.names()]
+
+    def manifest(self) -> dict[str, object]:
+        return {
+            "permission_mode": self.permission_mode,
+            "simple_mode": self.simple_mode,
+            "tools": self.names(),
+            "excluded_tools": self.excluded_tools,
+        }
+
+
 class ToolRegistry:
     def __init__(self, specs: list[ToolSpec] | None = None) -> None:
         self._specs: dict[str, ToolSpec] = {}
@@ -150,6 +216,44 @@ class ToolRegistry:
         if normalized is None:
             return sorted(self._specs)
         return sorted(normalized)
+
+    def tool_pool(
+        self,
+        *,
+        permission_mode: str,
+        allowed_tools: AllowedTools = None,
+        denied_tools: AllowedTools = None,
+        simple_mode: bool = False,
+    ) -> ToolPool:
+        mode_rank = _MODE_RANK.get(permission_mode, 1)
+        allowed_names = self._normalize_allowed_tools(allowed_tools)
+        denied_names = self._normalize_allowed_tools(denied_tools) or set()
+
+        included: list[ToolSpec] = []
+        excluded: list[str] = []
+        for name in sorted(self._specs):
+            spec = self._specs[name]
+            include = True
+            if allowed_names is not None and name not in allowed_names:
+                include = False
+            if name in denied_names:
+                include = False
+            if simple_mode and name not in _SIMPLE_MODE_TOOLS:
+                include = False
+            if _RISK_REQUIRED_RANK[spec.risk_level] > mode_rank:
+                include = False
+
+            if include:
+                included.append(spec)
+            else:
+                excluded.append(name)
+
+        return ToolPool(
+            specs=included,
+            permission_mode=permission_mode,
+            simple_mode=simple_mode,
+            excluded_tools=excluded,
+        )
 
     def openai_tools(self, allowed_tools: AllowedTools = None) -> list[dict[str, object]]:
         return [

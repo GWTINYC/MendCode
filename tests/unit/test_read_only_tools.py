@@ -129,6 +129,17 @@ def test_read_file_truncates_large_content(tmp_path: Path) -> None:
     assert result.payload["truncated"] is True
 
 
+def test_read_file_rejects_binary_content(tmp_path: Path) -> None:
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+    (workspace_path / "image.bin").write_bytes(b"\x00\x01\x02\x03")
+
+    result = read_file(workspace_path=workspace_path, relative_path="image.bin")
+
+    assert result.status == "rejected"
+    assert result.error_message == "binary file cannot be read as text"
+
+
 def test_search_code_falls_back_when_rg_binary_is_unavailable(tmp_path: Path) -> None:
     workspace_path = tmp_path / "workspace"
     workspace_path.mkdir()

@@ -107,6 +107,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                     observations=observation_history,
                     context=loop_input.provider_context,
                     allowed_tools=loop_input.allowed_tools,
+                    permission_mode=loop_input.permission_mode,
                 )
             )
             if provider_response.status != "succeeded":
@@ -190,6 +191,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 settings=settings,
                 permission_mode=loop_input.permission_mode,
                 verification_commands=loop_input.verification_commands,
+                allowed_tools=loop_input.allowed_tools,
             )
             record_handled_action(handled)
             if handled.stop:
@@ -208,6 +210,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 settings=settings,
                 permission_mode=loop_input.permission_mode,
                 verification_commands=loop_input.verification_commands,
+                allowed_tools=loop_input.allowed_tools,
             )
             record_handled_action(handled)
             if handled.stop:

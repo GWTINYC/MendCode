@@ -2,6 +2,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from app.permissions.policy import PermissionMode
 from app.schemas.agent_action import MendCodeAction, Observation
 from app.tools.structured import ToolInvocation
 
@@ -34,6 +35,7 @@ class AgentProviderStepInput(BaseModel):
     observations: list[AgentObservationRecord] = Field(default_factory=list)
     context: str | None = None
     allowed_tools: set[str] | None = None
+    permission_mode: PermissionMode = "guided"
 
 
 class ProviderResponse(BaseModel):

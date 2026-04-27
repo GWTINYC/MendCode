@@ -423,6 +423,33 @@
 - 任何 chat 输出中出现“我来查看/我来搜索/```bash”但没有工具事件，都应视为体验问题。
 - 新增真实用户问法时，要先判断它是“本地事实”还是“解释讨论”；前者必须有 shell/tool 证据。
 
+### 问题 16：Provider 暴露工具面和权限策略容易漂移
+
+状态：已修复基础路径
+
+现象：
+
+ToolRegistry 能输出全部 tools schema，PermissionPolicy 又在执行期判断工具风险。如果 Provider 直接把完整 Registry 暴露给模型，只读或简单任务会看到不必要的写入、shell 或验证工具；如果 Provider 只靠 `allowed_tools` 裁剪，又无法表达当前权限模式、simple mode 和 denied tools。
+
+根因：
+
+- ToolRegistry 是工具定义来源，但不是会话级工具视图。
+- Provider、prompt contract、执行期 allowed-tools gate 各自处理一部分工具过滤逻辑。
+- `tool_search` 如果搜索完整 Registry，会向模型推荐当前轮不可用的工具。
+
+处理：
+
+- 增加 `ToolPool`，按 permission mode、`allowed_tools`、denied tools 和 simple mode 派生模型当前可见工具集。
+- OpenAI-compatible Provider 和 system prompt 改为从 `ToolPool` 获取工具列表。
+- `tool_search` 支持 `ToolExecutionContext.available_tools`，可只搜索当前工具池。
+- 保持 guided/workspace-write 下 `run_shell_command` 可见，由 ShellPolicy 对具体命令做 allow/confirm/deny。
+
+后续约束：
+
+- 面向模型的工具 schema 必须来自 ToolPool，不能直接 dump 完整 Registry。
+- 执行期 allowed-tools gate 仍必须保留，不能只信任 Provider 暴露面。
+- 新增工具时要同时考虑 Registry 定义、ToolPool 过滤、PermissionPolicy 决策和 `tool_search` 可见性。
+
 ## 3. 后续重点风险
 
 ### 风险 A：模型重复调用等价只读工具

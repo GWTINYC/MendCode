@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 ShellRiskLevel = Literal["low", "medium", "high", "critical"]
 
-_LOW_RISK_COMMANDS = {"ls", "pwd", "rg", "cat", "head", "tail", "find", "printf"}
+_LOW_RISK_COMMANDS = {"ls", "pwd", "rg", "cat", "head", "tail", "find", "printf", "sed"}
 _WRITE_COMMANDS = {"rm", "mv", "cp"}
 _NETWORK_COMMANDS = {"curl", "wget"}
 _INSTALL_COMMANDS = {"apt", "apt-get", "brew"}
@@ -188,12 +188,80 @@ def _evaluate_low_risk_command(
 ) -> ShellPolicyDecision:
     if executable == "find" and any(arg in {"-delete", "-exec", "-execdir", "-ok"} for arg in args):
         return _confirm("find with side-effecting actions requires confirmation", risk_level="high")
+    if executable == "sed":
+        return _evaluate_sed(args=args, cwd=cwd, allowed_root=allowed_root)
     if executable == "pwd":
         return _allow()
     if executable in {"cat", "head", "tail", "ls", "find"}:
         if _has_escaping_path(args=args, cwd=cwd, allowed_root=allowed_root):
             return _confirm("read path escapes allowed workspace root", risk_level="medium")
+    if executable == "rg":
+        if _has_escaping_rg_path(args=args, cwd=cwd, allowed_root=allowed_root):
+            return _confirm("read path escapes allowed workspace root", risk_level="medium")
     return _allow()
+
+
+def _evaluate_sed(
+    *,
+    args: list[str],
+    cwd: Path,
+    allowed_root: Path,
+) -> ShellPolicyDecision:
+    if any(arg == "-i" or arg.startswith("-i") for arg in args):
+        return _confirm("sed in-place edit requires confirmation", risk_level="high")
+    if "-n" not in args:
+        return _confirm("sed command requires confirmation", risk_level="medium")
+
+    script_index = _first_sed_script_index(args)
+    if script_index is None:
+        return _confirm("sed command requires a script", risk_level="medium")
+    script = args[script_index]
+    if re.fullmatch(r"(?:\d+|\$)?(?:,(?:\d+|\$))?p", script) is None:
+        return _confirm("sed script is not recognized as read-only", risk_level="medium")
+    if _has_escaping_path(
+        args=args[script_index + 1 :],
+        cwd=cwd,
+        allowed_root=allowed_root,
+    ):
+        return _confirm("read path escapes allowed workspace root", risk_level="medium")
+    return _allow("low-risk sed read command")
+
+
+def _first_sed_script_index(args: list[str]) -> int | None:
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg == "-e":
+            return index + 1 if index + 1 < len(args) else None
+        if arg == "-n":
+            index += 1
+            continue
+        if arg.startswith("-"):
+            index += 1
+            continue
+        return index
+    return None
+
+
+def _has_escaping_rg_path(*, args: list[str], cwd: Path, allowed_root: Path) -> bool:
+    saw_query = False
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        if arg in {"--glob", "-g", "--type", "-t", "--type-not", "-T", "--context", "-C"}:
+            index += 2
+            continue
+        if arg.startswith("-"):
+            index += 1
+            continue
+        if not saw_query:
+            saw_query = True
+            index += 1
+            continue
+        if _path_escapes_root(arg, cwd=cwd, allowed_root=allowed_root):
+            return True
+        index += 1
+    return False
 
 
 def _evaluate_write_paths(

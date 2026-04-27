@@ -22,10 +22,12 @@ MendCode 目前已经支持早期 TUI Agent 工作流：
 - 以 OpenAI-compatible 原生 `tool_calls` 作为主要模型工具调用路径。
 - 对拒绝 tools 参数或不支持工具调用的 provider / endpoint，保留 JSON Action fallback。
 - 结构化工具包括 `read_file`、`list_dir`、`glob_file_search`、`rg` / `search_code`、只读 `git`、`run_shell_command`、`run_command`、`apply_patch`、`write_file`、`edit_file`、`todo_write`、`tool_search`、`repo_status`、`detect_project` 和 `show_diff`。
-- 通过 `allowed_tools` 按场景裁剪暴露给模型的工具，避免只读请求暴露写入工具。
+- 通过 `ToolPool` + `allowed_tools` + permission mode 按场景裁剪暴露给模型的工具，避免只读请求暴露写入工具。
 - Guided 权限模式下，低风险只读动作自动执行，高风险命令需要确认或直接拒绝。
 - 权限策略正在收敛到 `read-only`、`workspace-write`、`danger-full-access` 三档；旧的 safe/guided/full 作为兼容别名保留。
 - `run_command` 只用于验证命令，与普通 shell 执行分离。
+- `read_file` / `edit_file` 拒绝二进制文本误读，`write_file` / `edit_file` 有文本大小上限。
+- `ShellPolicy` 已覆盖只读 `sed`、`rg` 路径逃逸、重定向写入、危险 Git/安装/网络命令。
 - 对话日志以 Markdown 和 JSONL 写入 `data/conversations/`。
 - AgentLoop action 会产生 trace 输出。
 - 支持基于 worktree 的修复路径和审查动作。
@@ -95,6 +97,7 @@ app/
 关键运行时契约：
 
 - `ToolRegistry` 是工具 schema、风险等级和 executor 的来源。
+- `ToolPool` 是面向模型的会话工具视图，会按权限模式、场景 allowed tools 和 simple mode 过滤。
 - `repo_status`、`detect_project`、`show_diff` 等只读内置能力也应通过 `ToolRegistry` 暴露。
 - `write_file`、`edit_file`、`todo_write`、`tool_search` 等写入和工具发现能力也通过同一注册表暴露，并由权限策略裁剪。
 - `AgentRuntime` 是新的运行时边界；当前 `run_agent_loop()` 作为兼容 wrapper 保留，主循环已迁入 `app.runtime.agent_loop`。

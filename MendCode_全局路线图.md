@@ -52,10 +52,10 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 
 下一步重点：
 
-- 抽出完整 PermissionPolicy
+- 继续强化 ToolPool 作为模型可见工具面的唯一出口
 - 将剩余 legacy tool path 收敛进 ToolRegistry
 - 增加 `session_status`
-- 完善写入工具的权限确认、resume 和 mock provider 覆盖
+- 完善写入工具的权限确认、resume、mock provider 和 parity scenario 覆盖
 
 ### Phase C：会话与审计
 

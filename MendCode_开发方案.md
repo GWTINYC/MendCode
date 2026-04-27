@@ -104,6 +104,7 @@ User Message
 - [x] tool 后 `final_response` provider-local tool call
 - [x] API key redaction
 - [x] scoped `allowed_tools`
+- [x] Provider 使用 `ToolPool` 暴露当前权限和场景下可用的 OpenAI tools schema
 - [x] 越权 tool call 拒绝
 - [x] mock tool provider harness 覆盖 tool result 回传后的 final response
 - [x] OpenAI native tool result 不再重复写入 user context，避免 prompt 中 observation 双份膨胀
@@ -127,6 +128,7 @@ User Message
 已完成：
 
 - [x] `ToolSpec`
+- [x] `ToolPool`
 - [x] Pydantic args model
 - [x] OpenAI tools schema
 - [x] `risk_level`
@@ -135,7 +137,10 @@ User Message
 - [x] aliases：`read`、`list`、`glob`、`grep`、`search`、`shell`、`bash`、`patch`、`write`、`edit`、`todo`、`tools`
 - [x] shared tool observation envelope
 - [x] `rg` 和 `search_code` observation 保持各自 tool identity
+- [x] Provider-visible tools 从 `ToolPool` 派生，支持 permission mode、`allowed_tools` 和 simple mode 过滤
+- [x] `tool_search` 可按当前 context 的 `available_tools` 搜索，避免向模型推荐不可用工具
 - [x] 宽泛 `search_code` 默认排除 `.git`、`.worktrees`、`data` 运行产物；显式 `glob='data/**'` 时仍可分析对话记录
+- [x] `read_file` 拒绝二进制文件，`write_file` / `edit_file` 有文本大小上限，`edit_file` 拒绝二进制编辑
 
 当前工具：
 
@@ -153,7 +158,7 @@ User Message
 | `run_command` | 已完成 | 仅允许 declared verification command |
 | `apply_patch` | 已完成 | 应用统一 diff |
 | `write_file` | 已完成 | 写入 repo-relative 文本文件，拒绝路径逃逸 |
-| `edit_file` | 已完成 | 精确替换 repo-relative 文本文件内容 |
+| `edit_file` | 已完成 | 精确替换 repo-relative 文本文件内容，拒绝二进制文件 |
 | `todo_write` | 已完成 | 返回当前短期结构化 todo 列表 |
 | `tool_search` | 已完成 | 按名称和描述搜索可用工具 |
 | `apply_patch_to_worktree` | legacy/builtin | 后续删除或迁移为 `apply_patch` 兼容别名 |
@@ -191,15 +196,19 @@ User Message
 - [x] critical destructive 和 path escape 拒绝
 - [x] TUI pending shell confirmation
 - [x] stdout-only `printf` 低风险允许，重定向仍需确认
+- [x] `sed -n` 只读查看允许，`sed -i` 要求确认
+- [x] `rg` / `sed` 的显式读取路径逃逸会要求确认，写入路径逃逸会拒绝
 
 当前不足：
 
+- [ ] ToolPool 还未贯穿所有 legacy JSON action 调试入口
 - [ ] 工具确认和 TUI pending confirmation 还没有完全统一为 allow once / deny / change mode
 - [ ] allow once / deny / change mode 回写不完整
 - [ ] Custom mode 未配置化
 
 下一步：
 
+- 所有 Provider 和 prompt contract 都必须通过 ToolPool 获取当前可见工具。
 - 把 TUI pending shell confirmation 和通用 tool confirmation 合并。
 - 确认或拒绝结果要形成 observation 并回传模型。
 - 所有写主工作区、安装、网络、commit、push、reset、checkout 都必须有测试覆盖。
@@ -223,6 +232,7 @@ User Message
 - [x] 新增 PTY live TUI e2e 测试入口，启动真实 `python -m app.cli.main` 并模拟用户输入
 - [x] TUI scenario audit 默认覆盖 `tests/scenarios` 和 `tests/e2e`
 - [x] PTY live 场景扩展到多轮目录+Git、明确读文件、代码定位、危险 shell 取消确认、路径查看、git diff、pending status、确认执行、会话列表
+- [x] 新增 `tests/scenarios/tool_parity_scenarios.json`，固定 read/rg/write/multi-tool/bash/permission 的核心工具闭环场景
 - [x] e2e 测试可自动读取项目根目录 `.env` 中的真实 provider 配置
 
 当前不足：
@@ -238,6 +248,7 @@ User Message
 下一步：
 
 - 优先扩展 PTY live TUI 用例，覆盖用户真实会问的目录、Git、文档末句、文件定位、失败恢复等问题。
+- 将 parity manifest 中的核心工具场景逐步接入真实 PTY runner，而不是只停留在清单校验。
 - 每个 live 用例都要断言：没有 `Provider failed`、没有可见 `trace_path`、结果来自 conversation JSONL 中的 tool/shell 证据。
 - 继续把 worker 启动、completion 处理和 review action 迁到 controller 或 runtime-facing service。
 - 工具结果摘要保留在聊天流；conversation log 只保留摘要、样本和 trace/workspace 指针，完整 payload 通过 trace 或后续 viewer 查看。

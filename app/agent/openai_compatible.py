@@ -195,12 +195,12 @@ class OpenAICompatibleAgentProvider:
     def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
         messages = build_provider_messages(step_input, secret_values=[self._api_key])
         try:
-            openai_tools = self._tool_registry.openai_tools(
+            tool_pool = self._tool_registry.tool_pool(
+                permission_mode=step_input.permission_mode,
                 allowed_tools=step_input.allowed_tools,
             )
-            allowed_tool_names = set(
-                self._tool_registry.names(allowed_tools=step_input.allowed_tools)
-            )
+            openai_tools = tool_pool.openai_tools()
+            allowed_tool_names = set(tool_pool.names())
             if step_input.observations:
                 openai_tools = [*openai_tools, _FINAL_RESPONSE_TOOL]
         except KeyError as exc:

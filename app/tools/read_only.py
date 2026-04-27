@@ -6,6 +6,7 @@ from app.tools.guard import resolve_workspace_file, resolve_workspace_path
 from app.tools.schemas import ToolResult
 
 _DEFAULT_SEARCH_EXCLUDED_DIRS = frozenset({".git", ".worktrees", "data"})
+_BINARY_CHECK_BYTES = 8192
 
 
 def _relative_posix(workspace_path: Path, path: Path) -> str:
@@ -54,6 +55,15 @@ def _join_lines_with_limit(
     return "".join(content_parts), truncated
 
 
+def _is_binary_file(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            sample = handle.read(_BINARY_CHECK_BYTES)
+    except OSError:
+        return False
+    return b"\x00" in sample
+
+
 def read_file(
     workspace_path: Path,
     relative_path: str,
@@ -91,6 +101,12 @@ def read_file(
         target = resolve_workspace_file(workspace_path, relative_path)
     except ValueError as exc:
         return _reject_read_file(relative_path, workspace_path, str(exc))
+    if _is_binary_file(target):
+        return _reject_read_file(
+            relative_path,
+            workspace_path,
+            "binary file cannot be read as text",
+        )
 
     if tail_lines is not None:
         tail: deque[str] = deque(maxlen=tail_lines)

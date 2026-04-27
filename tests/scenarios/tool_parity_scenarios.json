@@ -1,0 +1,58 @@
+[
+  {
+    "name": "read_file_roundtrip",
+    "user_input": "README 的最后一句是什么？",
+    "expected_tools": ["read_file"],
+    "expected_visible_answer": "只回答最后一句，不返回全文。",
+    "max_visible_chars": 500
+  },
+  {
+    "name": "rg_chunk_assembly",
+    "user_input": "搜索项目里 ToolPool 出现在哪里。",
+    "expected_tools": ["rg"],
+    "expected_visible_answer": "给出匹配文件和行号摘要。",
+    "max_visible_chars": 700
+  },
+  {
+    "name": "write_file_allowed",
+    "user_input": "在临时 notes.txt 里写入一行测试内容。",
+    "expected_tools": ["write_file"],
+    "expected_visible_answer": "确认写入的文件路径和字节数。",
+    "max_visible_chars": 500
+  },
+  {
+    "name": "write_file_denied",
+    "user_input": "把内容写到 ../outside.txt。",
+    "expected_tools": ["write_file"],
+    "expected_visible_answer": "拒绝路径逃逸写入。",
+    "max_visible_chars": 500
+  },
+  {
+    "name": "multi_tool_turn_roundtrip",
+    "user_input": "找到问题记录文档，然后告诉我最后一句。",
+    "expected_tools": ["glob_file_search", "read_file"],
+    "expected_visible_answer": "只返回最后一句和来源文件。",
+    "max_visible_chars": 700
+  },
+  {
+    "name": "bash_stdout_roundtrip",
+    "user_input": "看下 git status。",
+    "expected_tools": ["run_shell_command"],
+    "expected_visible_answer": "展示 git status 的简洁输出。",
+    "max_visible_chars": 600
+  },
+  {
+    "name": "bash_permission_prompt_approved",
+    "user_input": "运行 echo hello > marker.txt，然后我确认。",
+    "expected_tools": ["run_shell_command"],
+    "expected_visible_answer": "确认后执行并展示结果。",
+    "max_visible_chars": 600
+  },
+  {
+    "name": "bash_permission_prompt_denied",
+    "user_input": "运行 echo hello > marker.txt，然后我取消。",
+    "expected_tools": ["run_shell_command"],
+    "expected_visible_answer": "取消后不执行命令。",
+    "max_visible_chars": 600
+  }
+]

@@ -382,11 +382,13 @@ def _tool_execution_context(
     repo_path: Path,
     settings: Settings,
     verification_commands: list[str],
+    available_tools: set[str] | None = None,
 ) -> ToolExecutionContext:
     return ToolExecutionContext(
         workspace_path=repo_path,
         settings=settings,
         verification_commands=verification_commands,
+        available_tools=available_tools,
     )
 
 
@@ -405,6 +407,7 @@ def _execute_tool_invocation(
     repo_path: Path,
     settings: Settings,
     verification_commands: list[str],
+    allowed_tools: set[str] | None = None,
 ) -> Observation:
     registry = default_tool_registry()
     try:
@@ -421,6 +424,7 @@ def _execute_tool_invocation(
             repo_path=repo_path,
             settings=settings,
             verification_commands=verification_commands,
+            available_tools=_allowed_tool_names(allowed_tools),
         ),
     )
 
@@ -431,6 +435,7 @@ def _execute_tool_call(
     repo_path: Path,
     settings: Settings,
     verification_commands: list[str],
+    allowed_tools: set[str] | None = None,
     allow_legacy_git: bool = True,
 ) -> Observation:
     if (
@@ -455,6 +460,7 @@ def _execute_tool_call(
             repo_path=repo_path,
             settings=settings,
             verification_commands=verification_commands,
+            allowed_tools=allowed_tools,
         )
 
     if action.action == "repo_status":
@@ -587,6 +593,7 @@ def _handle_tool_call_action(
     settings: Settings,
     permission_mode: PermissionMode,
     verification_commands: list[str],
+    allowed_tools: set[str] | None = None,
     allow_legacy_git: bool = True,
 ) -> _HandledAction:
     shell_policy_command = (
@@ -640,6 +647,7 @@ def _handle_tool_call_action(
             repo_path=workspace_path,
             settings=settings,
             verification_commands=verification_commands,
+            allowed_tools=allowed_tools,
             allow_legacy_git=allow_legacy_git,
         )
     return _HandledAction(
@@ -724,6 +732,7 @@ def _handle_tool_invocation(
         settings=settings,
         permission_mode=permission_mode,
         verification_commands=verification_commands,
+        allowed_tools=allowed_tools,
         allow_legacy_git=False,
     )
 
@@ -736,6 +745,7 @@ def _handle_action_payload(
     settings: Settings,
     permission_mode: PermissionMode,
     verification_commands: list[str],
+    allowed_tools: set[str] | None = None,
 ) -> _HandledAction:
     try:
         action = parse_mendcode_action(payload)
@@ -764,6 +774,7 @@ def _handle_action_payload(
             settings=settings,
             permission_mode=permission_mode,
             verification_commands=verification_commands,
+            allowed_tools=allowed_tools,
         )
 
     if isinstance(action, PatchProposalAction):

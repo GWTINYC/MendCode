@@ -22,6 +22,7 @@ def make_policy(root: Path) -> ShellPolicy:
         "tail README.md",
         "find . -maxdepth 1 -type f",
         "printf hello",
+        "sed -n '1,5p' README.md",
     ],
 )
 def test_shell_policy_auto_allows_low_risk_read_only_commands(
@@ -47,6 +48,7 @@ def test_shell_policy_auto_allows_low_risk_read_only_commands(
         "printf hello > marker.txt",
         "printf hello>marker.txt",
         "cat README.md>copy.txt",
+        "sed -i 's/old/new/' README.md",
     ],
 )
 def test_shell_policy_requires_confirmation_for_risky_commands(
@@ -58,6 +60,22 @@ def test_shell_policy_requires_confirmation_for_risky_commands(
     assert decision.allowed is False
     assert decision.requires_confirmation is True
     assert decision.risk_level in {"medium", "high"}
+
+
+@pytest.mark.parametrize("command", ["rg TODO ../outside", "sed -n '1,5p' ../outside.txt"])
+def test_shell_policy_requires_confirmation_when_read_path_escapes_root(
+    tmp_path: Path,
+    command: str,
+) -> None:
+    repo_path = tmp_path / "repo"
+    repo_path.mkdir()
+
+    decision = make_policy(repo_path).evaluate(command, repo_path)
+
+    assert decision.allowed is False
+    assert decision.requires_confirmation is True
+    assert decision.risk_level == "medium"
+    assert decision.reason == "read path escapes allowed workspace root"
 
 
 @pytest.mark.parametrize("command", ["printf hello>../outside.txt", "cat README.md>../copy.txt"])

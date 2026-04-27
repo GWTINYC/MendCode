@@ -13,6 +13,7 @@ from app.tools.schemas import ToolResult
 from app.tools.structured import (
     ToolExecutionContext,
     ToolInvocation,
+    ToolPool,
     ToolRegistry,
     ToolRisk,
     ToolSpec,
@@ -229,6 +230,61 @@ def test_registry_filters_openai_schemas_to_allowed_tools() -> None:
         "search_code",
         "show_diff",
     ]
+
+
+def test_registry_builds_permission_scoped_tool_pool() -> None:
+    registry = default_tool_registry()
+
+    pool = registry.tool_pool(permission_mode="read-only")
+
+    assert isinstance(pool, ToolPool)
+    assert "read_file" in pool.names()
+    assert "list_dir" in pool.names()
+    assert "tool_search" in pool.names()
+    assert "write_file" not in pool.names()
+    assert "apply_patch" not in pool.names()
+    assert "run_shell_command" not in pool.names()
+    manifest = pool.manifest()
+    assert manifest["permission_mode"] == "read-only"
+    assert "read_file" in manifest["tools"]
+    assert "write_file" in manifest["excluded_tools"]
+
+
+def test_simple_tool_pool_keeps_core_inspection_tools_only() -> None:
+    registry = default_tool_registry()
+
+    pool = registry.tool_pool(
+        permission_mode="danger-full-access",
+        simple_mode=True,
+        allowed_tools={"read", "glob", "grep", "shell", "write", "tools"},
+    )
+
+    assert pool.names() == [
+        "glob_file_search",
+        "read_file",
+        "rg",
+        "search_code",
+        "tool_search",
+    ]
+
+
+def test_tool_search_respects_context_available_tool_pool(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+        available_tools={"read_file", "tool_search"},
+    )
+
+    observation = registry.get("tool_search").execute(
+        {"query": "write", "max_results": 10},
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    assert observation.payload["matches"] == []
+    assert observation.payload["total_matches"] == 0
 
 
 def test_registry_rejects_unknown_allowed_tool_name() -> None:
@@ -534,6 +590,24 @@ def test_write_file_rejects_repo_escaping_path(tmp_path: Path) -> None:
     assert not (tmp_path.parent / "outside.txt").exists()
 
 
+def test_write_file_rejects_content_over_size_limit(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("write_file").execute(
+        {"path": "large.txt", "content": "x" * (1024 * 1024 + 1)},
+        context,
+    )
+
+    assert observation.status == "rejected"
+    assert "content exceeds write_file size limit" in str(observation.error_message)
+    assert not (tmp_path / "large.txt").exists()
+
+
 def test_edit_file_replaces_exact_text(tmp_path: Path) -> None:
     target = tmp_path / "README.md"
     target.write_text("alpha\nbeta\n", encoding="utf-8")
@@ -581,6 +655,30 @@ def test_edit_file_rejects_missing_old_text(tmp_path: Path) -> None:
     assert observation.status == "failed"
     assert "old_string not found" in str(observation.error_message)
     assert target.read_text(encoding="utf-8") == "alpha\n"
+
+
+def test_edit_file_rejects_binary_content(tmp_path: Path) -> None:
+    target = tmp_path / "image.bin"
+    target.write_bytes(b"\x00old\x00")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("edit_file").execute(
+        {
+            "path": "image.bin",
+            "old_string": "old",
+            "new_string": "new",
+        },
+        context,
+    )
+
+    assert observation.status == "rejected"
+    assert "binary file cannot be edited as text" in str(observation.error_message)
+    assert target.read_bytes() == b"\x00old\x00"
 
 
 def test_todo_write_returns_structured_todos(tmp_path: Path) -> None:

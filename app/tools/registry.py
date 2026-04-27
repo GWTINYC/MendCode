@@ -35,6 +35,8 @@ from app.workspace.shell_executor import ShellCommandResult, execute_shell_comma
 from app.workspace.shell_policy import ShellPolicy
 
 _OUTPUT_EXCERPT_LIMIT = 2000
+_TEXT_TOOL_MAX_BYTES = 1024 * 1024
+_BINARY_CHECK_BYTES = 8192
 
 
 def _trim_output(value: str | bytes | None) -> str:
@@ -494,6 +496,15 @@ def _resolve_workspace_file(
     return resolved, None
 
 
+def _is_binary_file(path: Path) -> bool:
+    try:
+        with path.open("rb") as handle:
+            sample = handle.read(_BINARY_CHECK_BYTES)
+    except OSError:
+        return False
+    return b"\x00" in sample
+
+
 def _write_file(args: WriteFileArgs, context: ToolExecutionContext) -> Observation:
     target, rejected = _resolve_workspace_file(
         tool_name="write_file",
@@ -510,6 +521,14 @@ def _write_file(args: WriteFileArgs, context: ToolExecutionContext) -> Observati
             "path points to a directory",
             payload={"path": args.path},
         )
+    content_bytes = args.content.encode("utf-8")
+    if len(content_bytes) > _TEXT_TOOL_MAX_BYTES:
+        return _rejected(
+            "write_file",
+            "Unable to write file",
+            f"content exceeds write_file size limit of {_TEXT_TOOL_MAX_BYTES} bytes",
+            payload={"path": args.path, "size_bytes": len(content_bytes)},
+        )
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(args.content, encoding="utf-8")
@@ -517,7 +536,7 @@ def _write_file(args: WriteFileArgs, context: ToolExecutionContext) -> Observati
         return _failed("write_file", "Unable to write file", str(exc), payload={"path": args.path})
     payload = {
         "relative_path": str(target.relative_to(context.workspace_path.resolve())),
-        "bytes_written": len(args.content.encode("utf-8")),
+        "bytes_written": len(content_bytes),
     }
     return tool_observation(
         tool_name="write_file",
@@ -536,8 +555,22 @@ def _edit_file(args: EditFileArgs, context: ToolExecutionContext) -> Observation
     if rejected is not None:
         return rejected
     assert target is not None
+    if _is_binary_file(target):
+        return _rejected(
+            "edit_file",
+            "Unable to edit file",
+            "binary file cannot be edited as text",
+            payload={"path": args.path},
+        )
     try:
         original = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        return _rejected(
+            "edit_file",
+            "Unable to edit file",
+            "binary file cannot be edited as text",
+            payload={"path": args.path, "decode_error": str(exc)},
+        )
     except OSError as exc:
         return _failed("edit_file", "Unable to read file", str(exc), payload={"path": args.path})
     count = original.count(args.old_string)
@@ -550,6 +583,14 @@ def _edit_file(args: EditFileArgs, context: ToolExecutionContext) -> Observation
         )
     replacements = count if args.replace_all else 1
     updated = original.replace(args.old_string, args.new_string, replacements)
+    updated_bytes = updated.encode("utf-8")
+    if len(updated_bytes) > _TEXT_TOOL_MAX_BYTES:
+        return _rejected(
+            "edit_file",
+            "Unable to edit file",
+            f"updated content exceeds edit_file size limit of {_TEXT_TOOL_MAX_BYTES} bytes",
+            payload={"path": args.path, "size_bytes": len(updated_bytes)},
+        )
     try:
         target.write_text(updated, encoding="utf-8")
     except OSError as exc:
@@ -582,8 +623,15 @@ def _todo_write(args: TodoWriteArgs, context: ToolExecutionContext) -> Observati
 def _tool_search(args: ToolSearchArgs, context: ToolExecutionContext) -> Observation:
     registry = default_tool_registry()
     query = args.query.strip().lower()
+    available_names = (
+        set(registry.names(allowed_tools=context.available_tools))
+        if context.available_tools is not None
+        else set(registry.names())
+    )
     all_matches: list[dict[str, object]] = []
     for name in registry.names():
+        if name not in available_names:
+            continue
         spec = registry.get(name)
         haystack = f"{spec.name} {spec.description}".lower()
         if query not in haystack:

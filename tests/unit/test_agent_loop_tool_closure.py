@@ -298,6 +298,39 @@ def test_allowed_tools_denial_stops_before_execution(tmp_path: Path) -> None:
     assert not marker.exists()
 
 
+def test_tool_search_uses_allowed_tools_as_available_pool(tmp_path: Path) -> None:
+    provider = MockToolProvider(
+        [
+            tool_call_step(
+                native_tool("tool_search", {"query": "write", "max_results": 10}),
+                expected_allowed_tools={"tool_search", "read_file"},
+            ),
+            final_response_step(
+                "当前工具池没有写入工具。",
+                expected_observation_count=1,
+                assertions=(assert_last_observation(tool_name="tool_search"),),
+            ),
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="当前能不能写文件",
+            provider=provider,
+            verification_commands=[],
+            allowed_tools={"tool_search", "read_file"},
+            step_budget=4,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.steps[0].observation.payload["matches"] == []
+    assert result.steps[0].observation.payload["total_matches"] == 0
+
+
 def test_permission_confirmation_stop_does_not_run_restricted_shell(tmp_path: Path) -> None:
     marker = tmp_path / "marker.txt"
     provider = MockToolProvider(
