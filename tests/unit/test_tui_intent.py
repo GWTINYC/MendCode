@@ -71,6 +71,18 @@ def test_rule_based_intent_router_maps_natural_language_shell_requests(
     assert decision.command == "ls"
 
 
+def test_rule_based_intent_router_maps_colloquial_directory_requests(
+    tmp_path: Path,
+) -> None:
+    decision = RuleBasedIntentRouter().route(
+        "先帮我看看当前目录里有什么",
+        IntentContext(repo_path=tmp_path),
+    )
+
+    assert decision.kind == "shell"
+    assert decision.command == "ls"
+
+
 def test_rule_based_intent_router_maps_file_listing_to_tool_request(
     tmp_path: Path,
 ) -> None:
@@ -87,6 +99,17 @@ def test_rule_based_intent_router_maps_document_content_questions_to_tool_reques
 ) -> None:
     decision = RuleBasedIntentRouter().route(
         "mendcode开发方案的第一句话是什么",
+        IntentContext(repo_path=tmp_path),
+    )
+
+    assert decision.kind == "tool"
+
+
+def test_rule_based_intent_router_maps_code_location_questions_to_tool_request(
+    tmp_path: Path,
+) -> None:
+    decision = RuleBasedIntentRouter().route(
+        "帮我找一下 print('hello') 在哪个文件",
         IntentContext(repo_path=tmp_path),
     )
 

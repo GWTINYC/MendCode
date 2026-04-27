@@ -285,6 +285,55 @@ def test_openai_compatible_provider_exposes_final_response_tool_after_observatio
     }
 
 
+def test_openai_compatible_provider_strips_think_blocks_from_final_response_tool() -> None:
+    action = ToolCallAction(
+        type="tool_call",
+        action="read_file",
+        reason="read document",
+        args={"path": "README.md"},
+    )
+    observation = Observation(
+        status="succeeded",
+        summary="Read README.md",
+        payload={"relative_path": "README.md", "content": "# Demo\n\nHello MendCode.\n"},
+    )
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=FakeClient(
+            OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(
+                        id="call-final",
+                        name="final_response",
+                        arguments=(
+                            '{"summary":"<think>Need to explain briefly.</think>\\n\\n'
+                            'README.md 写了：Hello MendCode."}'
+                        ),
+                    )
+                ]
+            )
+        ),
+    )
+
+    response = provider.next_action(
+        AgentProviderStepInput(
+            problem_statement="帮我读取 README.md，告诉我里面写了什么",
+            verification_commands=[],
+            step_index=2,
+            remaining_steps=10,
+            observations=[AgentObservationRecord(action=action, observation=observation)],
+            allowed_tools={"read_file"},
+        )
+    )
+
+    assert response.status == "succeeded"
+    assert response.action is not None
+    assert response.action["summary"] == "README.md 写了：Hello MendCode."
+
+
 def test_openai_compatible_provider_rejects_mixed_final_response_and_tool_call() -> None:
     provider = OpenAICompatibleAgentProvider(
         model="test-model",
@@ -630,6 +679,41 @@ def test_openai_compatible_provider_wraps_text_after_tool_observation() -> None:
         "summary": "第一句话是：本文档是当前开发执行方案。",
         "recommended_actions": [],
     }
+
+
+def test_openai_compatible_provider_strips_think_blocks_from_wrapped_text() -> None:
+    action = ToolCallAction(
+        type="tool_call",
+        action="read_file",
+        reason="read document",
+        args={"path": "README.md"},
+    )
+    observation = Observation(
+        status="succeeded",
+        summary="Read README.md",
+        payload={"relative_path": "README.md", "content": "# Demo\n\nHello MendCode.\n"},
+    )
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=FakeClient("<think>Need to answer.</think>\n\nREADME.md 写了：Hello MendCode."),
+    )
+
+    response = provider.next_action(
+        AgentProviderStepInput(
+            problem_statement="帮我读取 README.md，告诉我里面写了什么",
+            verification_commands=[],
+            step_index=2,
+            remaining_steps=4,
+            observations=[AgentObservationRecord(action=action, observation=observation)],
+        )
+    )
+
+    assert response.status == "succeeded"
+    assert response.action is not None
+    assert response.action["summary"] == "README.md 写了：Hello MendCode."
 
 
 def test_openai_compatible_provider_rejects_invalid_action_schema() -> None:

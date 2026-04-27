@@ -133,6 +133,7 @@ class OpenAIChatCompletionsClient:
 
 
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*(?P<body>.*?)\s*```$", re.DOTALL)
+_THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
 def redact_secret(message: str, secret: str | None) -> str:
@@ -283,6 +284,8 @@ def _response_from_final_response_tool_call(
 ) -> ProviderResponse:
     payload = dict(args)
     payload["type"] = "final_response"
+    if isinstance(payload.get("summary"), str):
+        payload["summary"] = _strip_think_blocks(str(payload["summary"]))
     if payload.get("status") is None:
         payload["status"] = text_final_status or "completed"
     if payload.get("recommended_actions") is None:
@@ -361,14 +364,20 @@ def _response_from_action_text(
                     {
                         "type": "final_response",
                         "status": text_final_status,
-                        "summary": content.strip(),
+                        "summary": _strip_think_blocks(content),
                         "recommended_actions": [],
                     }
                 ],
             )
         return ProviderResponse.failed("Provider returned invalid JSON action")
+    if payload.get("type") == "final_response" and isinstance(payload.get("summary"), str):
+        payload["summary"] = _strip_think_blocks(str(payload["summary"]))
     try:
         parse_mendcode_action(payload)
     except ValidationError:
         return ProviderResponse.failed("Provider returned invalid MendCode action")
     return ProviderResponse(status="succeeded", actions=[payload])
+
+
+def _strip_think_blocks(text: str) -> str:
+    return _THINK_BLOCK.sub("", text).strip()

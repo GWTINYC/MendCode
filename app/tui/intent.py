@@ -79,7 +79,11 @@ class RuleBasedIntentRouter:
     def route(self, message: str, context: IntentContext) -> IntentDecision:
         if looks_like_fix_request(message):
             return IntentDecision(kind="fix", source="rule")
-        if looks_like_tool_request(message) or looks_like_file_content_request(message):
+        if (
+            looks_like_tool_request(message)
+            or looks_like_file_content_request(message)
+            or looks_like_code_location_request(message)
+        ):
             return IntentDecision(kind="tool", source="rule")
         shell_command = plan_rule_based_shell_command(message)
         if shell_command is not None:
@@ -209,13 +213,51 @@ def looks_like_file_content_request(message: str) -> bool:
     )
 
 
+def looks_like_code_location_request(message: str) -> bool:
+    normalized = message.strip().lower()
+    search_terms = (
+        "找一下",
+        "查找",
+        "搜索",
+        "在哪",
+        "哪里",
+        "哪个文件",
+        "where",
+        "find",
+        "search",
+    )
+    code_markers = (
+        "(",
+        ")",
+        "'",
+        '"',
+        "::",
+        ".py",
+        ".ts",
+        ".tsx",
+        ".js",
+        ".jsx",
+        ".go",
+        ".rs",
+        ".java",
+        "def ",
+        "class ",
+        "function ",
+        "print",
+        "console.",
+    )
+    return any(term in normalized for term in search_terms) and any(
+        marker in normalized for marker in code_markers
+    )
+
+
 def plan_rule_based_shell_command(message: str) -> str | None:
     stripped = message.strip()
     normalized = stripped.lower()
     if not stripped:
         return None
 
-    if any(term in normalized for term in ["列一下当前目录", "列出当前目录", "当前目录有哪些"]):
+    if _looks_like_directory_listing_request(normalized):
         return "ls"
     if any(term in normalized for term in ["看下当前路径", "当前路径", "当前目录是哪里"]):
         return "pwd"
@@ -244,6 +286,25 @@ def _looks_like_git_status_request(normalized: str) -> bool:
         or "当前git状态" in compact
         or "查看git状态" in compact
         or "仓库状态" in normalized
+    )
+
+
+def _looks_like_directory_listing_request(normalized: str) -> bool:
+    compact = normalized.replace(" ", "")
+    directory_terms = ("当前目录", "当前文件夹", "当前路径", "currentdirectory", "currentfolder")
+    listing_terms = (
+        "列一下",
+        "列出",
+        "有哪些",
+        "有什么",
+        "看看",
+        "看下",
+        "查看",
+        "list",
+        "show",
+    )
+    return any(term in compact for term in directory_terms) and any(
+        term in compact for term in listing_terms
     )
 
 
