@@ -6,6 +6,7 @@ from pathlib import Path
 from app.agent.loop import AgentLoopInput, run_agent_loop
 from app.agent.provider import AgentProviderStepInput, ProviderResponse
 from app.config.settings import Settings
+from app.tools.structured import ToolInvocation
 
 PYTHON = shlex.quote(sys.executable)
 
@@ -57,25 +58,25 @@ class RepairChainProvider:
         if index == 1:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "tool_call",
-                        "action": "run_command",
-                        "reason": "reproduce failing verification",
-                        "args": {"command": self.command},
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_reproduce",
+                        name="run_command",
+                        args={"command": self.command},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         if index == 2:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "patch_proposal",
-                        "reason": "add should add operands",
-                        "files_to_modify": ["calculator.py"],
-                        "patch": self.patch,
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_patch",
+                        name="apply_patch",
+                        args={"files_to_modify": ["calculator.py"], "patch": self.patch},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         if index == 3:
@@ -84,25 +85,25 @@ class RepairChainProvider:
                 command = f"{PYTHON} -c \"raise SystemExit(1)\""
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "tool_call",
-                        "action": "run_command",
-                        "reason": "verify patch",
-                        "args": {"command": command},
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_verify_patch",
+                        name="run_command",
+                        args={"command": command},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         if index == 4:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "tool_call",
-                        "action": "show_diff",
-                        "reason": "summarize changed files",
-                        "args": {},
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_show_diff",
+                        name="show_diff",
+                        args={},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         return ProviderResponse(
@@ -159,6 +160,9 @@ def test_fake_provider_repair_chain_applies_patch_in_worktree_and_completes(
     assert (workspace_path / "calculator.py").read_text(encoding="utf-8") == (
         "def add(a, b):\n    return a + b\n"
     )
+    assert result.steps[1].action.type == "tool_call"
+    assert result.steps[1].action.action == "apply_patch"
+    assert "calculator.py" in result.steps[1].observation.payload["paths"]
     assert "calculator.py" in result.steps[3].observation.payload["diff_stat"]
     assert len(provider.calls) == 5
 
@@ -196,3 +200,9 @@ def test_fake_provider_repair_chain_cannot_complete_after_failed_patch_verificat
 
     assert result.status == "failed"
     assert result.summary == "Agent loop ended with failed observations"
+    assert result.steps[1].action.type == "tool_call"
+    assert result.steps[1].action.action == "apply_patch"
+    assert result.steps[1].observation.status == "succeeded"
+    assert result.steps[2].action.type == "tool_call"
+    assert result.steps[2].action.action == "run_command"
+    assert result.steps[2].observation.status == "failed"
