@@ -197,9 +197,7 @@ class OpenAICompatibleAgentProvider:
                 allowed_tool_names=allowed_tool_names,
                 text_final_status=_text_final_status(step_input),
             )
-        return ProviderResponse.failed(
-            "Provider returned message content instead of a schema tool call"
-        )
+        return ProviderResponse.failed("Provider did not return a schema tool call")
 
 
 def _looks_like_unsupported_tools_error(exc: Exception) -> bool:

@@ -573,7 +573,7 @@ def test_openai_compatible_provider_rejects_plain_text_without_tool_call() -> No
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned message content instead of a schema tool call"
+        == "Provider did not return a schema tool call"
     )
 
 
@@ -592,7 +592,7 @@ def test_openai_compatible_provider_rejects_empty_response_without_tool_call() -
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned message content instead of a schema tool call"
+        == "Provider did not return a schema tool call"
     )
 
 
@@ -630,7 +630,7 @@ def test_openai_compatible_provider_rejects_text_after_tool_observation() -> Non
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned message content instead of a schema tool call"
+        == "Provider did not return a schema tool call"
     )
 
 
@@ -668,7 +668,7 @@ def test_openai_compatible_provider_rejects_think_block_text_after_tool_observat
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned message content instead of a schema tool call"
+        == "Provider did not return a schema tool call"
     )
 
 
@@ -687,7 +687,7 @@ def test_openai_compatible_provider_rejects_json_action_without_tool_call() -> N
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned message content instead of a schema tool call"
+        == "Provider did not return a schema tool call"
     )
 
 
