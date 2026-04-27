@@ -175,6 +175,82 @@ def test_live_tui_requires_confirmation_and_cancels_dangerous_shell(live_repo: P
     assert '"event_type": "shell_result"' not in result.conversation_jsonl
 
 
+def test_live_tui_reports_current_path(live_repo: Path) -> None:
+    result = run_live_tui_question(
+        live_repo,
+        "当前路径在哪里",
+        expected_text="live-repo",
+        timeout_seconds=60,
+    )
+
+    assert "Provider failed" not in result.visible_text
+    assert str(live_repo) in result.visible_text
+    assert "shell_result" in result.conversation_jsonl
+    assert "pwd" in result.conversation_jsonl
+
+
+def test_live_tui_shows_git_diff_for_tracked_change(live_repo: Path) -> None:
+    (live_repo / "README.md").write_text(
+        "# Demo\n\nHello MendCode changed.\n",
+        encoding="utf-8",
+    )
+
+    result = run_live_tui_question(
+        live_repo,
+        "看下 git diff",
+        expected_text="Hello MendCode changed",
+        timeout_seconds=60,
+    )
+
+    assert "Provider failed" not in result.visible_text
+    assert "Shell Result" in result.visible_text
+    assert "git diff" in result.conversation_jsonl
+    assert "Hello MendCode changed" in result.conversation_jsonl
+
+
+def test_live_tui_status_shows_pending_shell_confirmation(live_repo: Path) -> None:
+    result = run_live_tui_dialog(
+        live_repo,
+        [
+            LiveTuiStep("rm README.md", "Shell 命令需要确认后执行。"),
+            LiveTuiStep("/status", "pending_shell: rm README.md", timeout_seconds=30),
+            LiveTuiStep("取消", "已取消待确认的 shell 命令。", timeout_seconds=30),
+        ],
+    )
+
+    assert (live_repo / "README.md").exists()
+    assert "pending_shell: rm README.md" in result.visible_text
+    assert '"event_type": "shell_result"' not in result.conversation_jsonl
+
+
+def test_live_tui_confirms_shell_command_that_requires_confirmation(live_repo: Path) -> None:
+    result = run_live_tui_dialog(
+        live_repo,
+        [
+            LiveTuiStep("cp README.md COPY.md", "Shell 命令需要确认后执行。"),
+            LiveTuiStep("确认", "Shell Result", timeout_seconds=60),
+        ],
+    )
+
+    assert (live_repo / "COPY.md").read_text(encoding="utf-8") == "# Demo\n\nHello MendCode.\n"
+    assert "cp README.md COPY.md" in result.conversation_jsonl
+    assert '"event_type": "shell_result"' in result.conversation_jsonl
+
+
+def test_live_tui_lists_saved_sessions_after_a_question(live_repo: Path) -> None:
+    result = run_live_tui_dialog(
+        live_repo,
+        [
+            LiveTuiStep("ls", "README.md", timeout_seconds=60),
+            LiveTuiStep("/sessions", "Session List", timeout_seconds=30),
+        ],
+    )
+
+    assert "Session List" in result.visible_text
+    assert "events=" in result.visible_text
+    assert '"message": "/sessions"' in result.conversation_jsonl
+
+
 def run_live_tui_question(
     repo_path: Path,
     question: str,

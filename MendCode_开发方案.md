@@ -222,7 +222,7 @@ User Message
 - [x] 第一批 TUI experience scenario tests 覆盖目录查看、文件问题、失败场景和 resume
 - [x] 新增 PTY live TUI e2e 测试入口，启动真实 `python -m app.cli.main` 并模拟用户输入
 - [x] TUI scenario audit 默认覆盖 `tests/scenarios` 和 `tests/e2e`
-- [x] PTY live 场景扩展到多轮目录+Git、明确读文件、代码定位、危险 shell 取消确认
+- [x] PTY live 场景扩展到多轮目录+Git、明确读文件、代码定位、危险 shell 取消确认、路径查看、git diff、pending status、确认执行、会话列表
 - [x] e2e 测试可自动读取项目根目录 `.env` 中的真实 provider 配置
 
 当前不足：
@@ -376,7 +376,7 @@ duration_ms
 - [x] 使用 `pexpect` 启动 `python -m app.cli.main`
 - [x] 每个用例在临时 Git 仓库中构造真实文件和脏工作区
 - [x] 默认要求真实 OpenAI-compatible provider 环境变量，不静默 skip
-- [x] 覆盖文档最后一句、当前目录查看、中文 Git 状态、多轮对话、明确读文件、代码定位、危险命令取消确认
+- [x] 覆盖文档最后一句、当前目录查看、中文 Git 状态、多轮对话、明确读文件、代码定位、路径查看、git diff、危险命令取消/确认、会话列表
 
 环境要求：
 

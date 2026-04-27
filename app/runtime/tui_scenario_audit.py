@@ -94,7 +94,7 @@ def write_tui_scenario_audit_report(
         ),
         (
             "- 覆盖目录查看、中文 Git 状态、技术栈识别、文件读取、文档末句提问、"
-            "搜索、失败提示、危险命令确认、会话恢复。"
+            "搜索、路径查看、git diff、失败提示、危险命令确认、会话列表和恢复。"
         ),
         (
             "- 断言 route、tool evidence、可见输出简洁性、no-fabrication、"
