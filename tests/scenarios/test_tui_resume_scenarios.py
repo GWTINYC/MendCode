@@ -1,10 +1,13 @@
 import pytest
 
 from tests.scenarios.tui_scenario_runner import (
+    ScenarioToolStep,
     TuiScenario,
     TuiScenarioRunner,
     assert_answer_is_concise,
+    assert_did_not_use_chat,
     assert_no_raw_trace_or_large_json_dump,
+    assert_used_tool_path,
     assert_visible_answer_contains,
     message_record,
     write_saved_conversation,
@@ -58,10 +61,25 @@ async def test_resume_restores_compact_context_for_followup(tmp_path):
             name="resume followup",
             repo_files={"README.md": "MendCode\n"},
             user_inputs=["/resume oldrun", "请根据刚才恢复的上下文回答我的追问"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="read_file",
+                    status="succeeded",
+                    summary="Read README.md",
+                    payload={
+                        "relative_path": "README.md",
+                        "content_excerpt": "MendCode\n",
+                        "content_length": 9,
+                    },
+                    args={"path": "README.md"},
+                )
+            ],
+            final_summary="README 第一行是 MendCode。",
         )
     )
 
-    assert transcript.chat_calls == ["请根据刚才恢复的上下文回答我的追问"], transcript.debug_text()
+    assert_did_not_use_chat(transcript)
+    assert_used_tool_path(transcript)
     assert_visible_answer_contains(transcript, "session_id: oldrun")
     assert_visible_answer_contains(transcript, "README 第一行是 MendCode")
     assert_visible_answer_contains(transcript, "content_length=")
@@ -78,12 +96,6 @@ async def test_resume_restores_compact_context_for_followup(tmp_path):
     if "session_id: oldrun" not in transcript.chat_history_text:
         pytest.fail(transcript.debug_text())
     if "README 第一行是 MendCode" not in transcript.chat_history_text:
-        pytest.fail(transcript.debug_text())
-    if not transcript.chat_context_texts:
-        pytest.fail(transcript.debug_text())
-    if "session_id: oldrun" not in transcript.chat_context_texts[-1]:
-        pytest.fail(transcript.debug_text())
-    if "README 第一行是 MendCode" not in transcript.chat_context_texts[-1]:
         pytest.fail(transcript.debug_text())
     resume_message = next(
         message

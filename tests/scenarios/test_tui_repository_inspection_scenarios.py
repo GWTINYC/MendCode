@@ -7,9 +7,9 @@ from tests.scenarios.tui_scenario_runner import (
     TuiScenarioRunner,
     assert_answer_is_concise,
     assert_did_not_use_chat,
+    assert_has_evidence_from_any_observation,
     assert_has_evidence_from_observation,
     assert_no_raw_trace_or_large_json_dump,
-    assert_used_only_shell_route,
     assert_used_tool_path,
     assert_visible_answer_contains,
 )
@@ -146,11 +146,26 @@ async def test_git_status_request_uses_safe_shell_and_stays_compact(tmp_path):
             name="git status",
             repo_files={"README.md": "MendCode\n"},
             user_inputs=["看下 git status"],
-            shell_stdout=" M README.md\n",
+            tool_steps=[
+                ScenarioToolStep(
+                    action="git",
+                    status="succeeded",
+                    summary="Ran git: git status --short",
+                    payload={
+                        "command": "git status --short",
+                        "exit_code": 0,
+                        "stdout_excerpt": " M README.md\n",
+                    },
+                    args={"operation": "status"},
+                )
+            ],
+            final_summary="git status 显示 README.md 有修改。",
         )
     )
 
-    assert_used_only_shell_route(transcript, "git status")
+    assert_used_tool_path(transcript)
+    assert_did_not_use_chat(transcript)
+    assert_has_evidence_from_any_observation(transcript, ("git", "run_shell_command"))
     assert_visible_answer_contains(transcript, "git status")
     assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
     assert_no_raw_trace_or_large_json_dump(transcript)
@@ -162,12 +177,26 @@ async def test_chinese_git_state_request_uses_safe_shell_not_chat(tmp_path):
             name="chinese git state",
             repo_files={"README.md": "MendCode\n"},
             user_inputs=["查看当前git状态"],
-            shell_stdout=" M README.md\n",
+            tool_steps=[
+                ScenarioToolStep(
+                    action="run_shell_command",
+                    status="succeeded",
+                    summary="Shell command completed",
+                    payload={
+                        "command": "git status --short",
+                        "exit_code": 0,
+                        "stdout_excerpt": " M README.md\n",
+                    },
+                    args={"command": "git status --short"},
+                )
+            ],
+            final_summary="git status 显示 M README.md。",
         )
     )
 
-    assert_used_only_shell_route(transcript, "git status")
+    assert_used_tool_path(transcript)
     assert_did_not_use_chat(transcript)
+    assert_has_evidence_from_any_observation(transcript, ("git", "run_shell_command"))
     assert_visible_answer_contains(transcript, "git status")
     assert_visible_answer_contains(transcript, "M README.md")
     assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
@@ -203,3 +232,36 @@ async def test_project_stack_question_is_tool_backed(tmp_path):
     assert_has_evidence_from_observation(transcript, "detect_project")
     assert_visible_answer_contains(transcript, "Python")
     assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
+
+
+async def test_local_fact_question_never_uses_chat_path(tmp_path):
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="local fact tool only",
+            repo_files={"README.md": "MendCode\n"},
+            user_inputs=["当前目录里有什么"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="list_dir",
+                    status="succeeded",
+                    summary="Listed .",
+                    payload={
+                        "relative_path": ".",
+                        "total_entries": 1,
+                        "entries": [
+                            {
+                                "relative_path": "README.md",
+                                "name": "README.md",
+                                "type": "file",
+                            }
+                        ],
+                    },
+                )
+            ],
+            final_summary="当前目录包含 README.md。",
+        )
+    )
+
+    assert_did_not_use_chat(transcript)
+    assert_used_tool_path(transcript)
+    assert_has_evidence_from_observation(transcript, "list_dir")

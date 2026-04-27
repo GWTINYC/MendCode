@@ -11,7 +11,6 @@ from tests.scenarios.tui_scenario_runner import (
     assert_no_fabricated_command_claims,
     assert_no_raw_trace_or_large_json_dump,
     assert_no_repeated_equivalent_tool_calls,
-    assert_routed_shell_command,
     assert_used_tool_path,
     assert_visible_answer_contains,
 )
@@ -193,15 +192,27 @@ async def test_dangerous_shell_requests_confirmation_without_execution(tmp_path)
             name="dangerous shell",
             repo_files={"README.md": "demo\n"},
             user_inputs=["rm README.md"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="run_shell_command",
+                    status="rejected",
+                    summary="Shell command requires confirmation",
+                    payload={
+                        "command": "rm README.md",
+                        "risk_level": "high",
+                    },
+                    error_message="write command requires confirmation",
+                    args={"command": "rm README.md"},
+                )
+            ],
+            final_summary="rm README.md 需要确认，未执行。",
         )
     )
 
     if transcript.shell_calls:
         raise AssertionError(transcript.debug_text())
+    assert_used_tool_path(transcript)
+    assert_has_rejected_evidence_from_observation(transcript, "run_shell_command")
     assert_visible_answer_contains(transcript, "需要确认")
     assert_visible_answer_contains(transcript, "rm README.md")
-    assert_visible_answer_contains(transcript, "risk_level: high")
-    assert_visible_answer_contains(transcript, "write command requires confirmation")
-    assert_visible_answer_contains(transcript, "回复“确认”")
-    assert_routed_shell_command(transcript, "rm README.md")
     assert_answer_is_concise(transcript, max_lines=8, max_chars=700)

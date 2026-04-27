@@ -383,8 +383,12 @@ def _fail(transcript: ScenarioTranscript, message: str) -> None:
 def assert_used_tool_path(transcript: ScenarioTranscript) -> None:
     if not transcript.tool_calls:
         _fail(transcript, "expected scenario to call the tool agent")
-    if not any(event.get("kind") == "tool" for event in transcript.route_events):
-        _fail(transcript, "expected an intent route with kind=tool")
+    if not any(
+        event.get("kind") in {"agent", "tool"}
+        and event.get("source") == "schema_tool_call"
+        for event in transcript.route_events
+    ):
+        _fail(transcript, "expected a schema tool-call intent route")
 
 
 def assert_used_shell_command(transcript: ScenarioTranscript, command: str) -> None:
@@ -512,6 +516,23 @@ def assert_has_evidence_from_observation(
             f"expected successful meaningful compact tool_result evidence for {tool_name}",
         )
     _fail(transcript, f"expected compact tool_result evidence for {tool_name}")
+
+
+def assert_has_evidence_from_any_observation(
+    transcript: ScenarioTranscript,
+    tool_names: tuple[str, ...],
+) -> None:
+    failures: list[str] = []
+    for tool_name in tool_names:
+        try:
+            assert_has_evidence_from_observation(transcript, tool_name)
+            return
+        except AssertionError as exc:
+            failures.append(str(exc))
+    _fail(
+        transcript,
+        f"expected compact tool_result evidence for one of {tool_names}: {failures}",
+    )
 
 
 def assert_has_rejected_evidence_from_observation(
