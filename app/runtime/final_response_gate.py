@@ -3,9 +3,6 @@ import re
 from app.agent.loop import AgentLoopStatus, AgentStep, FinalResponseAction, _HandledAction
 
 _LOCAL_FACT_MARKERS = (
-    "readme",
-    ".md",
-    ".py",
     "当前项目",
     "这个项目",
     "本项目",
@@ -15,12 +12,34 @@ _LOCAL_FACT_MARKERS = (
     "当前目录",
     "当前文件夹",
 )
+_INFORMATION_BEARING_TOOL_ACTIONS = {
+    "repo_status",
+    "detect_project",
+    "show_diff",
+    "read_file",
+    "list_dir",
+    "glob_file_search",
+    "rg",
+    "search_code",
+    "git",
+    "run_shell_command",
+    "run_command",
+}
 _LOCAL_FACT_PATTERNS = (
     re.compile(r"\bgit\s+(status|diff|log|branch|show)\b", re.IGNORECASE),
     re.compile(r"git\s*(状态|分支|提交|差异|日志)", re.IGNORECASE),
     re.compile(r"(当前|这个|本)(项目|仓库|目录|文件夹)"),
     re.compile(r"代码.{0,4}(中|里|路径|文件)"),
-    re.compile(r"(?:^|[\s`'\"])(?:\.{1,2}/|[/\w.-]+/)[\w.-]+"),
+    re.compile(
+        r"(?:^|[\s`'\"])(?:\.{1,2}/|[/\w.-]+/|[\w.-]+\.(?:py|md|toml|json|ya?ml|txt))"
+        r"[\w./-]*\s*的",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:^|[\s`'\"])(?:\.{1,2}/|[/\w.-]+/|[\w.-]+\.(?:py|md|toml|json|ya?ml|txt))"
+        r"[\w./-]*\s*(?:is|uses?|contains?|ends?\s+with|starts?\s+with|has)\b",
+        re.IGNORECASE,
+    ),
 )
 
 
@@ -88,7 +107,9 @@ def _is_successful_patch_boundary(step: AgentStep) -> bool:
 
 def _has_successful_tool_observation(steps: list[AgentStep]) -> bool:
     return any(
-        step.action.type == "tool_call" and step.observation.status == "succeeded"
+        step.action.type == "tool_call"
+        and getattr(step.action, "action", None) in _INFORMATION_BEARING_TOOL_ACTIONS
+        and step.observation.status == "succeeded"
         for step in steps
     )
 
