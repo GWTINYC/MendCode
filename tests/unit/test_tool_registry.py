@@ -250,6 +250,31 @@ def test_registry_builds_permission_scoped_tool_pool() -> None:
     assert "write_file" in manifest["excluded_tools"]
 
 
+def test_registry_expands_tool_groups() -> None:
+    registry = default_tool_registry()
+    names = set(registry.names(allowed_tools={"fs_read", "introspection"}))
+    assert {"read_file", "list_dir", "glob_file_search", "rg", "search_code"} <= names
+    assert {"tool_search", "session_status"} <= names
+    assert "write_file" not in names
+
+
+def test_registry_expands_tool_profiles_then_applies_permission() -> None:
+    registry = default_tool_registry()
+    pool = registry.tool_pool(permission_mode="read-only", allowed_tools={"coding_agent"})
+    names = set(pool.names())
+    assert "read_file" in names
+    assert "session_status" in names
+    assert "lsp" in names
+    assert "write_file" not in names
+    assert "run_shell_command" not in names
+
+
+def test_registry_rejects_unknown_tool_group() -> None:
+    registry = default_tool_registry()
+    with pytest.raises(KeyError, match="unknown allowed tool: unknown_group"):
+        registry.names(allowed_tools={"unknown_group"})
+
+
 def test_simple_tool_pool_keeps_core_inspection_tools_only() -> None:
     registry = default_tool_registry()
 
@@ -285,6 +310,41 @@ def test_tool_search_respects_context_available_tool_pool(tmp_path: Path) -> Non
     assert observation.status == "succeeded"
     assert observation.payload["matches"] == []
     assert observation.payload["total_matches"] == 0
+
+
+def test_session_status_reports_effective_context(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    recent_steps = [{"index": index} for index in range(12)]
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=["pytest -q"],
+        available_tools={"read_file", "session_status"},
+        permission_mode="read-only",
+        allowed_tools={"read_file", "session_status", "write_file"},
+        denied_tools={"write_file"},
+        run_id="run-123",
+        trace_path=str(tmp_path / "trace.json"),
+        recent_steps=recent_steps,
+        pending_confirmation={"tool": "run_shell_command"},
+    )
+
+    observation = registry.get("session_status").execute({}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.payload["permission_mode"] == "read-only"
+    assert observation.payload["verification_commands"] == ["pytest -q"]
+    assert observation.payload["pending_confirmation"] == {"tool": "run_shell_command"}
+    assert observation.payload["trace_path"] == str(tmp_path / "trace.json")
+    assert observation.payload["run_id"] == "run-123"
+    assert observation.payload["available_tools"] == ["read_file", "session_status"]
+    assert observation.payload["allowed_tools"] == [
+        "read_file",
+        "session_status",
+        "write_file",
+    ]
+    assert observation.payload["denied_tools"] == ["write_file"]
+    assert observation.payload["recent_steps"] == recent_steps[-10:]
 
 
 def test_registry_rejects_unknown_allowed_tool_name() -> None:

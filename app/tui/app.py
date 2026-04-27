@@ -38,6 +38,8 @@ READ_ONLY_TOOL_AGENT_TOOLS = {
     "read_file",
     "rg",
     "search_code",
+    "session_status",
+    "tool_search",
 }
 
 ReviewActionExecutor = Callable[[str, AgentSessionTurn], ReviewActionResult]

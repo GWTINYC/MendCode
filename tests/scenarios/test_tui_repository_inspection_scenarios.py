@@ -234,6 +234,40 @@ async def test_project_stack_question_is_tool_backed(tmp_path):
     assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
 
 
+async def test_tool_availability_question_uses_session_status(tmp_path):
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="tool availability",
+            repo_files={"README.md": "MendCode\n"},
+            user_inputs=["现在你能用哪些工具"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="session_status",
+                    status="succeeded",
+                    summary="Read session status",
+                    payload={
+                        "repo_path": str(tmp_path),
+                        "workspace_path": str(tmp_path),
+                        "permission_mode": "guided",
+                        "allowed_tools": ["read_file", "session_status", "tool_search"],
+                        "available_tools": ["read_file", "session_status", "tool_search"],
+                        "denied_tools": [],
+                    },
+                )
+            ],
+            final_summary="当前可用工具包括 read_file、tool_search 和 session_status。",
+        )
+    )
+
+    assert_used_tool_path(transcript)
+    assert_did_not_use_chat(transcript)
+    assert_has_evidence_from_observation(transcript, "session_status")
+    assert_visible_answer_contains(transcript, "session_status")
+    assert_visible_answer_contains(transcript, "tool_search")
+    assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
+    assert_no_raw_trace_or_large_json_dump(transcript)
+
+
 async def test_local_fact_question_never_uses_chat_path(tmp_path):
     transcript = await TuiScenarioRunner(tmp_path).run(
         TuiScenario(

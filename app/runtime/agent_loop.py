@@ -75,6 +75,9 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
     summary = "Agent loop ended without final response"
     observation_history: list[AgentObservationRecord] = []
 
+    def recent_step_payloads() -> list[dict[str, object]]:
+        return [step.model_dump(mode="json") for step in steps]
+
     def record_handled_action(handled, tool_invocation=None) -> None:
         nonlocal trace_path
         steps.append(handled.step)
@@ -150,6 +153,9 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                         permission_mode=loop_input.permission_mode,
                         verification_commands=loop_input.verification_commands,
                         allowed_tools=loop_input.allowed_tools,
+                        run_id=run_id,
+                        trace_path=str(trace_path),
+                        recent_steps=recent_step_payloads(),
                     )
                     record_handled_action(handled, tool_invocation=invocation)
                     index += 1
@@ -220,6 +226,9 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 permission_mode=loop_input.permission_mode,
                 verification_commands=loop_input.verification_commands,
                 allowed_tools=loop_input.allowed_tools,
+                run_id=run_id,
+                trace_path=str(trace_path),
+                recent_steps=recent_step_payloads(),
             )
             record_handled_action(handled)
             if handled.stop:
@@ -240,6 +249,9 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 permission_mode=loop_input.permission_mode,
                 verification_commands=loop_input.verification_commands,
                 allowed_tools=loop_input.allowed_tools,
+                run_id=run_id,
+                trace_path=str(trace_path),
+                recent_steps=recent_step_payloads(),
             )
             record_handled_action(handled)
             if handled.stop:

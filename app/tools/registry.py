@@ -15,6 +15,7 @@ from app.tools.arguments import (
     RgArgs,
     RunCommandArgs,
     RunShellCommandArgs,
+    SessionStatusArgs,
     TodoWriteArgs,
     ToolSearchArgs,
     WriteFileArgs,
@@ -27,6 +28,7 @@ from app.tools.read_only import (
     search_code,
 )
 from app.tools.schemas import ToolResult
+from app.tools.session_status import session_status
 from app.tools.structured import ToolExecutionContext, ToolRegistry, ToolRisk, ToolSpec
 from app.workspace.command_policy import CommandPolicy
 from app.workspace.executor import execute_verification_command
@@ -620,6 +622,17 @@ def _todo_write(args: TodoWriteArgs, context: ToolExecutionContext) -> Observati
     )
 
 
+def _unavailable_tool(tool_name: str):
+    def execute(args: EmptyToolArgs, context: ToolExecutionContext) -> Observation:
+        return _rejected(
+            tool_name,
+            f"{tool_name} is not available",
+            "tool is not implemented in this runtime",
+        )
+
+    return execute
+
+
 def _tool_search(args: ToolSearchArgs, context: ToolExecutionContext) -> Observation:
     registry = default_tool_registry()
     query = args.query.strip().lower()
@@ -768,11 +781,62 @@ def default_tool_registry() -> ToolRegistry:
                 executor=_todo_write,
             ),
             ToolSpec(
+                name="session_status",
+                description="Read current session status, available tools, and recent steps.",
+                args_model=SessionStatusArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=session_status,
+            ),
+            ToolSpec(
                 name="tool_search",
                 description="Search available tools by name or description.",
                 args_model=ToolSearchArgs,
                 risk_level=ToolRisk.READ_ONLY,
                 executor=_tool_search,
+            ),
+            ToolSpec(
+                name="process_start",
+                description="Start a long-running process when process tools are available.",
+                args_model=EmptyToolArgs,
+                risk_level=ToolRisk.SHELL_RESTRICTED,
+                executor=_unavailable_tool("process_start"),
+            ),
+            ToolSpec(
+                name="process_poll",
+                description="Poll a long-running process when process tools are available.",
+                args_model=EmptyToolArgs,
+                risk_level=ToolRisk.SHELL_RESTRICTED,
+                executor=_unavailable_tool("process_poll"),
+            ),
+            ToolSpec(
+                name="process_write",
+                description=(
+                    "Write stdin to a long-running process when process tools are available."
+                ),
+                args_model=EmptyToolArgs,
+                risk_level=ToolRisk.SHELL_RESTRICTED,
+                executor=_unavailable_tool("process_write"),
+            ),
+            ToolSpec(
+                name="process_stop",
+                description="Stop a long-running process when process tools are available.",
+                args_model=EmptyToolArgs,
+                risk_level=ToolRisk.SHELL_RESTRICTED,
+                executor=_unavailable_tool("process_stop"),
+            ),
+            ToolSpec(
+                name="process_list",
+                description="List long-running processes when process tools are available.",
+                args_model=EmptyToolArgs,
+                risk_level=ToolRisk.SHELL_RESTRICTED,
+                executor=_unavailable_tool("process_list"),
+            ),
+            ToolSpec(
+                name="lsp",
+                description="Use language-server assistance when available.",
+                args_model=EmptyToolArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=_unavailable_tool("lsp"),
             ),
         ]
     )

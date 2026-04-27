@@ -110,6 +110,13 @@ class ToolSearchArgs(BaseModel):
     max_results: int = Field(default=10, ge=1, le=50)
 
 
+class SessionStatusArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    include_tools: bool = True
+    include_recent_steps: bool = True
+
+
 class RunShellCommandArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

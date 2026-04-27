@@ -383,12 +383,24 @@ def _tool_execution_context(
     settings: Settings,
     verification_commands: list[str],
     available_tools: set[str] | None = None,
+    permission_mode: PermissionMode | None = None,
+    allowed_tools: set[str] | None = None,
+    denied_tools: set[str] | None = None,
+    run_id: str | None = None,
+    trace_path: str | None = None,
+    recent_steps: list[dict[str, object]] | None = None,
 ) -> ToolExecutionContext:
     return ToolExecutionContext(
         workspace_path=repo_path,
         settings=settings,
         verification_commands=verification_commands,
         available_tools=available_tools,
+        permission_mode=permission_mode,
+        allowed_tools=allowed_tools,
+        denied_tools=denied_tools or set(),
+        run_id=run_id,
+        trace_path=trace_path,
+        recent_steps=recent_steps or [],
     )
 
 
@@ -408,6 +420,10 @@ def _execute_tool_invocation(
     settings: Settings,
     verification_commands: list[str],
     allowed_tools: set[str] | None = None,
+    permission_mode: PermissionMode | None = None,
+    run_id: str | None = None,
+    trace_path: str | None = None,
+    recent_steps: list[dict[str, object]] | None = None,
 ) -> Observation:
     registry = default_tool_registry()
     try:
@@ -418,13 +434,26 @@ def _execute_tool_invocation(
             str(exc.args[0]),
             payload=invocation.model_dump(mode="json"),
         )
+    allowed_tool_names = _allowed_tool_names(allowed_tools)
+    available_tool_names = _effective_available_tool_names(allowed_tools, permission_mode)
+    denied_tool_names = (
+        allowed_tool_names - available_tool_names
+        if allowed_tool_names is not None and available_tool_names is not None
+        else set()
+    )
     return spec.execute(
         invocation.args,
         _tool_execution_context(
             repo_path=repo_path,
             settings=settings,
             verification_commands=verification_commands,
-            available_tools=_allowed_tool_names(allowed_tools),
+            available_tools=available_tool_names,
+            permission_mode=permission_mode,
+            allowed_tools=allowed_tool_names,
+            denied_tools=denied_tool_names,
+            run_id=run_id,
+            trace_path=trace_path,
+            recent_steps=recent_steps,
         ),
     )
 
@@ -436,6 +465,10 @@ def _execute_tool_call(
     settings: Settings,
     verification_commands: list[str],
     allowed_tools: set[str] | None = None,
+    permission_mode: PermissionMode | None = None,
+    run_id: str | None = None,
+    trace_path: str | None = None,
+    recent_steps: list[dict[str, object]] | None = None,
     allow_legacy_git: bool = True,
 ) -> Observation:
     if (
@@ -461,6 +494,10 @@ def _execute_tool_call(
             settings=settings,
             verification_commands=verification_commands,
             allowed_tools=allowed_tools,
+            permission_mode=permission_mode,
+            run_id=run_id,
+            trace_path=trace_path,
+            recent_steps=recent_steps,
         )
 
     if action.action == "repo_status":
@@ -594,6 +631,9 @@ def _handle_tool_call_action(
     permission_mode: PermissionMode,
     verification_commands: list[str],
     allowed_tools: set[str] | None = None,
+    run_id: str | None = None,
+    trace_path: str | None = None,
+    recent_steps: list[dict[str, object]] | None = None,
     allow_legacy_git: bool = True,
 ) -> _HandledAction:
     shell_policy_command = (
@@ -648,6 +688,10 @@ def _handle_tool_call_action(
             settings=settings,
             verification_commands=verification_commands,
             allowed_tools=allowed_tools,
+            permission_mode=permission_mode,
+            run_id=run_id,
+            trace_path=trace_path,
+            recent_steps=recent_steps,
             allow_legacy_git=allow_legacy_git,
         )
     return _HandledAction(
@@ -679,6 +723,23 @@ def _allowed_tool_names(allowed_tools: set[str] | None) -> set[str] | None:
     return set(registry_tools).union(allowed_tools.intersection(_BUILTIN_TOOL_NAMES))
 
 
+def _effective_available_tool_names(
+    allowed_tools: set[str] | None,
+    permission_mode: PermissionMode | None,
+) -> set[str] | None:
+    if allowed_tools is None:
+        return None
+    registry_tools = set(
+        default_tool_registry()
+        .tool_pool(
+            permission_mode=permission_mode or "guided",
+            allowed_tools={name for name in allowed_tools if name not in _BUILTIN_TOOL_NAMES},
+        )
+        .names()
+    )
+    return registry_tools.union(allowed_tools.intersection(_BUILTIN_TOOL_NAMES))
+
+
 def _handle_tool_invocation(
     *,
     invocation: ToolInvocation,
@@ -688,6 +749,9 @@ def _handle_tool_invocation(
     permission_mode: PermissionMode,
     verification_commands: list[str],
     allowed_tools: set[str] | None = None,
+    run_id: str | None = None,
+    trace_path: str | None = None,
+    recent_steps: list[dict[str, object]] | None = None,
 ) -> _HandledAction:
     action = _tool_call_action_for_invocation(invocation)
     if action is None:
@@ -733,6 +797,9 @@ def _handle_tool_invocation(
         permission_mode=permission_mode,
         verification_commands=verification_commands,
         allowed_tools=allowed_tools,
+        run_id=run_id,
+        trace_path=trace_path,
+        recent_steps=recent_steps,
         allow_legacy_git=False,
     )
 
@@ -746,6 +813,9 @@ def _handle_action_payload(
     permission_mode: PermissionMode,
     verification_commands: list[str],
     allowed_tools: set[str] | None = None,
+    run_id: str | None = None,
+    trace_path: str | None = None,
+    recent_steps: list[dict[str, object]] | None = None,
 ) -> _HandledAction:
     try:
         action = parse_mendcode_action(payload)
@@ -775,6 +845,9 @@ def _handle_action_payload(
             permission_mode=permission_mode,
             verification_commands=verification_commands,
             allowed_tools=allowed_tools,
+            run_id=run_id,
+            trace_path=trace_path,
+            recent_steps=recent_steps,
         )
 
     if isinstance(action, PatchProposalAction):

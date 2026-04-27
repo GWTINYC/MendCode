@@ -48,6 +48,7 @@ def test_parse_tool_call_action_accepts_structured_terminal_tools():
         ("rg", {"query": "ToolCallAction", "glob": "*.py"}),
         ("git", {"args": ["status", "--short"]}),
         ("apply_patch", {"patch": "diff --git a/a.txt b/a.txt\n"}),
+        ("session_status", {"include_tools": True}),
     ]:
         action = parse_mendcode_action(
             {

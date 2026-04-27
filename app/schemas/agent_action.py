@@ -25,8 +25,15 @@ ToolName = Literal[
     "write_file",
     "edit_file",
     "todo_write",
+    "session_status",
     "tool_search",
     "show_diff",
+    "process_start",
+    "process_poll",
+    "process_write",
+    "process_stop",
+    "process_list",
+    "lsp",
 ]
 ObservationStatus = Literal["succeeded", "failed", "rejected"]
 RiskLevel = Literal["low", "medium", "high", "critical"]

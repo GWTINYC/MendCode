@@ -773,6 +773,47 @@ def test_agent_loop_executes_native_tool_invocation(tmp_path: Path) -> None:
     assert provider.calls[1].observations[0].tool_invocation.id == "call_1"
 
 
+def test_agent_loop_session_status_reports_effective_available_tools(
+    tmp_path: Path,
+) -> None:
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_status",
+                    name="session_status",
+                    args={},
+                    source="openai_tool_call",
+                )
+            ],
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="what tools are available",
+            provider=provider,
+            allowed_tools={"coding_agent"},
+            permission_mode="read-only",
+            step_budget=4,
+        ),
+        settings_for(tmp_path),
+    )
+
+    payload = result.steps[0].observation.payload
+    assert result.status == "completed"
+    assert "session_status" in payload["available_tools"]
+    assert "lsp" in payload["available_tools"]
+    assert "write_file" not in payload["available_tools"]
+    assert "run_shell_command" not in payload["available_tools"]
+    assert "process_poll" not in payload["available_tools"]
+    assert "write_file" in payload["allowed_tools"]
+    assert "run_shell_command" in payload["denied_tools"]
+    assert "write_file" in payload["denied_tools"]
+
+
 def test_agent_loop_executes_multiple_native_tool_invocations_sequentially(
     tmp_path: Path,
 ) -> None:

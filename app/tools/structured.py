@@ -30,6 +30,42 @@ _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
     "edit": ("edit_file",),
     "todo": ("todo_write",),
     "tools": ("tool_search",),
+    "fs_read": ("read_file", "list_dir", "glob_file_search", "rg", "search_code"),
+    "fs_write": ("apply_patch", "write_file", "edit_file"),
+    "git_read": ("repo_status", "git", "show_diff"),
+    "runtime": ("run_shell_command", "run_command"),
+    "planning": ("todo_write",),
+    "introspection": ("tool_search", "session_status"),
+    "process": (
+        "process_start",
+        "process_poll",
+        "process_write",
+        "process_stop",
+        "process_list",
+    ),
+    "lsp_tools": ("lsp",),
+    "read_only_agent": (
+        "fs_read",
+        "git_read",
+        "introspection",
+        "lsp_tools",
+    ),
+    "coding_agent": (
+        "fs_read",
+        "fs_write",
+        "git_read",
+        "runtime",
+        "planning",
+        "introspection",
+        "process",
+        "lsp_tools",
+    ),
+    "repair_agent": ("coding_agent",),
+    "simple_chat_tool_agent": (
+        "fs_read",
+        "git_read",
+        "introspection",
+    ),
 }
 
 
@@ -71,6 +107,13 @@ class ToolExecutionContext(BaseModel):
     settings: Settings
     verification_commands: list[str] = Field(default_factory=list)
     available_tools: set[str] | None = None
+    permission_mode: str | None = None
+    allowed_tools: set[str] | None = None
+    denied_tools: set[str] = Field(default_factory=set)
+    run_id: str | None = None
+    trace_path: str | None = None
+    recent_steps: list[dict[str, object]] = Field(default_factory=list)
+    pending_confirmation: dict[str, object] | None = None
 
 
 ToolExecutor = Callable[[BaseModel, ToolExecutionContext], Observation]
@@ -142,6 +185,7 @@ _SIMPLE_MODE_TOOLS = frozenset(
         "search_code",
         "git",
         "tool_search",
+        "session_status",
     }
 )
 
@@ -202,13 +246,23 @@ class ToolRegistry:
         if allowed_tools is None:
             return None
         normalized: set[str] = set()
-        for raw_name in allowed_tools:
+
+        def expand_tool_name(raw_name: str, seen: set[str]) -> None:
             validate_tool_name(raw_name)
-            expanded_names = _TOOL_ALIASES.get(raw_name, (raw_name,))
-            for name in expanded_names:
-                if name not in self._specs:
-                    raise KeyError(f"unknown allowed tool: {raw_name}")
-                normalized.add(name)
+            if raw_name in seen:
+                return
+            seen.add(raw_name)
+            expanded_names = _TOOL_ALIASES.get(raw_name)
+            if expanded_names is not None:
+                for expanded_name in expanded_names:
+                    expand_tool_name(expanded_name, seen)
+                return
+            if raw_name not in self._specs:
+                raise KeyError(f"unknown allowed tool: {raw_name}")
+            normalized.add(raw_name)
+
+        for raw_name in allowed_tools:
+            expand_tool_name(raw_name, set())
         return normalized
 
     def names(self, allowed_tools: AllowedTools = None) -> list[str]:
