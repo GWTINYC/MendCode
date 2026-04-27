@@ -16,7 +16,7 @@ from app.agent.loop import (
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
 from app.config.settings import Settings
 from app.runtime.final_response_gate import apply_final_response_gate
-from app.schemas.agent_action import build_invalid_action_observation
+from app.schemas.agent_action import Observation, build_invalid_action_observation
 from app.schemas.trace import TraceEvent
 from app.tracing.recorder import TraceRecorder
 from app.workspace.worktree import prepare_worktree
@@ -184,8 +184,36 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 summary = observation.summary
                 break
 
+            provider_action = provider_response.actions[0]
+            if provider_action.get("type") != "final_response":
+                observation = Observation(
+                    status="rejected",
+                    summary="Legacy JSON actions are disabled",
+                    payload={"action": provider_action},
+                    error_message=(
+                        "provider returned JSON action instead of schema tool_calls; "
+                        "return native ToolInvocation objects for tool execution"
+                    ),
+                )
+                action = FinalResponseAction(
+                    type="final_response",
+                    status="failed",
+                    summary=observation.summary,
+                )
+                handled = _handled_response(
+                    status="failed",
+                    summary=observation.summary,
+                    index=index,
+                    action=action,
+                    observation=observation,
+                )
+                record_handled_action(handled)
+                status = "failed"
+                summary = observation.summary
+                break
+
             handled = _handle_action_payload(
-                payload=provider_response.actions[0],
+                payload=provider_action,
                 index=index,
                 workspace_path=workspace_path,
                 settings=settings,
@@ -202,6 +230,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
             status = "failed"
             summary = "Agent loop exhausted step budget without final response"
     else:
+        # Compatibility path for legacy CLI/scripted callers that still pass JSON actions directly.
         for index, payload in enumerate(loop_input.actions[: loop_input.step_budget], start=1):
             handled = _handle_action_payload(
                 payload=payload,

@@ -155,7 +155,15 @@ class SequentialOpenAIClient:
                 ]
             )
         assert any(message.role == "tool" for message in messages)
-        return OpenAICompletion(content="当前目录包含 README.md。")
+        return OpenAICompletion(
+            tool_calls=[
+                OpenAIToolCall(
+                    id="call_final",
+                    name="final_response",
+                    arguments='{"summary":"当前目录包含 README.md。"}',
+                )
+            ]
+        )
 
 
 class LastSentenceOpenAIClient:
@@ -274,6 +282,7 @@ def test_agent_loop_openai_native_tool_call_roundtrip_grounds_final_text(
     assert [tool["function"]["name"] for tool in client.calls[0]["tools"]] == [
         "list_dir",
         "read_file",
+        "final_response",
     ]
     assert any(message.role == "tool" for message in client.calls[1]["messages"])
 
@@ -666,14 +675,16 @@ def test_agent_loop_asks_provider_for_each_next_action(tmp_path: Path) -> None:
         "def add(a, b):\n    return a + b\n",
         encoding="utf-8",
     )
-    provider = RecordingProvider(
+    provider = NativeToolProvider(
         [
-            {
-                "type": "tool_call",
-                "action": "search_code",
-                "reason": "locate implementation",
-                "args": {"query": "def add", "glob": "*.py"},
-            },
+            [
+                ToolInvocation(
+                    id="call_search",
+                    name="search_code",
+                    args={"query": "def add", "glob": "*.py"},
+                    source="openai_tool_call",
+                )
+            ],
             {"type": "final_response", "status": "completed", "summary": "done"},
         ]
     )
@@ -698,14 +709,16 @@ def test_agent_loop_asks_provider_for_each_next_action(tmp_path: Path) -> None:
 
 
 def test_agent_loop_passes_failed_observation_to_provider(tmp_path: Path) -> None:
-    provider = RecordingProvider(
+    provider = NativeToolProvider(
         [
-            {
-                "type": "tool_call",
-                "action": "run_command",
-                "reason": "run failing command",
-                "args": {"command": "python -c 'raise SystemExit(1)'"},
-            },
+            [
+                ToolInvocation(
+                    id="call_run",
+                    name="run_command",
+                    args={"command": "python -c 'raise SystemExit(1)'"},
+                    source="openai_tool_call",
+                )
+            ],
             {"type": "final_response", "status": "failed", "summary": "failed"},
         ]
     )
@@ -1004,18 +1017,52 @@ def test_agent_loop_rejects_invalid_provider_action(tmp_path: Path) -> None:
 
     assert result.status == "failed"
     assert result.steps[0].observation.status == "rejected"
-    assert result.steps[0].observation.summary == "Invalid MendCode action"
+    assert result.steps[0].observation.summary == "Legacy JSON actions are disabled"
 
 
-def test_provider_driven_loop_stops_for_permission_denial(tmp_path: Path) -> None:
+def test_agent_loop_rejects_provider_json_tool_call_action(tmp_path: Path) -> None:
     provider = RecordingProvider(
         [
             {
                 "type": "tool_call",
-                "action": "run_command",
-                "reason": "run tests",
-                "args": {"command": "pytest -q"},
+                "action": "search_code",
+                "reason": "legacy JSON action",
+                "args": {"query": "def add"},
             }
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="find add",
+            provider=provider,
+            step_budget=3,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert "Legacy JSON actions are disabled" in result.summary
+    assert result.steps[0].observation.status == "rejected"
+    assert result.steps[0].observation.summary == "Legacy JSON actions are disabled"
+    assert result.steps[0].observation.error_message is not None
+    assert "provider returned JSON action instead of schema tool_calls" in (
+        result.steps[0].observation.error_message
+    )
+
+
+def test_provider_driven_loop_stops_for_permission_denial(tmp_path: Path) -> None:
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_run",
+                    name="run_command",
+                    args={"command": "pytest -q"},
+                    source="openai_tool_call",
+                )
+            ]
         ]
     )
 
@@ -1037,14 +1084,16 @@ def test_provider_driven_loop_stops_for_permission_denial(tmp_path: Path) -> Non
 
 
 def test_provider_driven_loop_fails_when_step_budget_exhausted(tmp_path: Path) -> None:
-    provider = RecordingProvider(
+    provider = NativeToolProvider(
         [
-            {
-                "type": "tool_call",
-                "action": "search_code",
-                "reason": "search forever",
-                "args": {"query": "missing"},
-            }
+            [
+                ToolInvocation(
+                    id="call_search",
+                    name="search_code",
+                    args={"query": "missing"},
+                    source="openai_tool_call",
+                )
+            ]
         ]
     )
 
