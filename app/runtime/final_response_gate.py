@@ -1,4 +1,22 @@
+import re
+
 from app.agent.loop import AgentLoopStatus, AgentStep, FinalResponseAction, _HandledAction
+
+_LOCAL_FACT_MARKERS = (
+    "readme",
+    ".md",
+    ".py",
+    "文件",
+    "目录",
+    "仓库",
+    "路径",
+)
+_LOCAL_FACT_PATTERNS = (
+    re.compile(r"\bgit\s+(status|diff|log|branch|show)\b", re.IGNORECASE),
+    re.compile(r"git\s*(状态|分支|提交|差异|日志)", re.IGNORECASE),
+    re.compile(r"(当前|这个|项目|仓库).{0,8}代码"),
+    re.compile(r"代码.{0,4}(中|里|路径|文件)"),
+)
 
 
 def apply_final_response_gate(
@@ -42,6 +60,12 @@ def apply_final_response_gate(
         step.observation.status != "succeeded" for step in meaningful_steps
     ):
         return "failed", "Agent loop ended with failed observations"
+    if (
+        handled.step.action.status == "completed"
+        and _looks_like_local_fact_answer(handled.step.action.summary)
+        and not _has_successful_tool_observation(steps)
+    ):
+        return "failed", "Final response requires tool evidence for local repository facts"
     return handled.status, handled.summary
 
 
@@ -54,4 +78,18 @@ def _is_successful_patch_boundary(step: AgentStep) -> bool:
         step.action.type == "tool_call"
         and getattr(step.action, "action", None)
         in {"apply_patch", "apply_patch_to_worktree"}
+    )
+
+
+def _has_successful_tool_observation(steps: list[AgentStep]) -> bool:
+    return any(
+        step.action.type == "tool_call" and step.observation.status == "succeeded"
+        for step in steps
+    )
+
+
+def _looks_like_local_fact_answer(summary: str) -> bool:
+    normalized = summary.lower()
+    return any(marker in normalized for marker in _LOCAL_FACT_MARKERS) or any(
+        pattern.search(summary) for pattern in _LOCAL_FACT_PATTERNS
     )

@@ -67,6 +67,48 @@ def test_gate_blocks_completed_final_after_failed_observation() -> None:
     assert summary == "Agent loop ended with failed observations"
 
 
+def test_gate_blocks_local_fact_final_without_successful_tool_observation() -> None:
+    status, summary = apply_final_response_gate(
+        steps=[],
+        handled=handled_final(index=1, summary="README.md 的最后一句是 Task 4。"),
+    )
+
+    assert status == "failed"
+    assert "requires tool evidence" in summary
+
+
+def test_gate_allows_local_fact_final_after_successful_tool_observation() -> None:
+    status, summary = apply_final_response_gate(
+        steps=[
+            tool_step(index=1, action="read_file", summary="Read README.md"),
+        ],
+        handled=handled_final(index=2, summary="README.md 的最后一句是 Task 4。"),
+    )
+
+    assert status == "completed"
+    assert summary == "README.md 的最后一句是 Task 4。"
+
+
+def test_gate_allows_general_final_without_tool_observation() -> None:
+    status, summary = apply_final_response_gate(
+        steps=[],
+        handled=handled_final(index=1, summary="Python 是一种通用编程语言。"),
+    )
+
+    assert status == "completed"
+    assert summary == "Python 是一种通用编程语言。"
+
+
+def test_gate_allows_general_git_explanation_without_tool_observation() -> None:
+    status, summary = apply_final_response_gate(
+        steps=[],
+        handled=handled_final(index=1, summary="Git 是一个分布式版本控制系统。"),
+    )
+
+    assert status == "completed"
+    assert summary == "Git 是一个分布式版本控制系统。"
+
+
 def test_gate_requires_successful_verification_after_patch() -> None:
     status, summary = apply_final_response_gate(
         steps=[
