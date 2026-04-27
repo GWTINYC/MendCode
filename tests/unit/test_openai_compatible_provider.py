@@ -4,7 +4,6 @@ from app.agent.openai_compatible import (
     OpenAICompatibleAgentProvider,
     OpenAICompletion,
     OpenAIToolCall,
-    extract_action_json,
     redact_secret,
 )
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
@@ -124,40 +123,6 @@ def step_input() -> AgentProviderStepInput:
         remaining_steps=4,
         observations=[],
     )
-
-
-def test_extract_action_json_accepts_plain_object() -> None:
-    text = '{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}'
-
-    assert extract_action_json(text) == {
-        "type": "tool_call",
-        "action": "repo_status",
-        "reason": "inspect",
-        "args": {},
-    }
-
-
-def test_extract_action_json_accepts_single_json_fence() -> None:
-    text = '```json\n{"type":"final_response","status":"completed","summary":"done"}\n```'
-
-    assert extract_action_json(text) == {
-        "type": "final_response",
-        "status": "completed",
-        "summary": "done",
-    }
-
-
-def test_extract_action_json_accepts_reasoning_preamble() -> None:
-    text = (
-        "<think>Need to return a JSON action.</think>\n\n"
-        '{"type":"final_response","status":"completed","summary":"done"}'
-    )
-
-    assert extract_action_json(text) == {
-        "type": "final_response",
-        "status": "completed",
-        "summary": "done",
-    }
 
 
 def test_openai_compatible_provider_returns_native_invocation_from_fake_client() -> None:
@@ -608,7 +573,7 @@ def test_openai_compatible_provider_rejects_plain_text_without_tool_call() -> No
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned plain text instead of a schema tool call"
+        == "Provider returned message content instead of a schema tool call"
     )
 
 
@@ -627,7 +592,7 @@ def test_openai_compatible_provider_rejects_empty_response_without_tool_call() -
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned plain text instead of a schema tool call"
+        == "Provider returned message content instead of a schema tool call"
     )
 
 
@@ -665,7 +630,7 @@ def test_openai_compatible_provider_rejects_text_after_tool_observation() -> Non
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned plain text instead of a schema tool call"
+        == "Provider returned message content instead of a schema tool call"
     )
 
 
@@ -703,7 +668,7 @@ def test_openai_compatible_provider_rejects_think_block_text_after_tool_observat
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned plain text instead of a schema tool call"
+        == "Provider returned message content instead of a schema tool call"
     )
 
 
@@ -722,7 +687,7 @@ def test_openai_compatible_provider_rejects_json_action_without_tool_call() -> N
     assert response.observation is not None
     assert (
         response.observation.error_message
-        == "Provider returned plain text instead of a schema tool call"
+        == "Provider returned message content instead of a schema tool call"
     )
 
 

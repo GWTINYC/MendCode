@@ -132,7 +132,6 @@ class OpenAIChatCompletionsClient:
         )
 
 
-_JSON_FENCE = re.compile(r"^```(?:json)?\s*(?P<body>.*?)\s*```$", re.DOTALL)
 _THINK_BLOCK = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 
 
@@ -140,35 +139,6 @@ def redact_secret(message: str, secret: str | None) -> str:
     if not secret:
         return message
     return message.replace(secret, "[REDACTED]")
-
-
-def extract_action_json(text: str) -> dict[str, object]:
-    stripped = text.strip()
-    if not stripped:
-        raise ValueError("empty response")
-    fence_match = _JSON_FENCE.match(stripped)
-    if fence_match is not None:
-        stripped = fence_match.group("body").strip()
-    try:
-        parsed = json.loads(stripped)
-    except json.JSONDecodeError:
-        parsed = _extract_first_json_object(stripped)
-    if not isinstance(parsed, dict):
-        raise ValueError("action JSON must be an object")
-    return parsed
-
-
-def _extract_first_json_object(text: str) -> object:
-    decoder = json.JSONDecoder()
-    for index, character in enumerate(text):
-        if character != "{":
-            continue
-        try:
-            parsed, _ = decoder.raw_decode(text[index:])
-        except json.JSONDecodeError:
-            continue
-        return parsed
-    raise ValueError("no JSON object found")
 
 
 class OpenAICompatibleAgentProvider:
@@ -228,7 +198,7 @@ class OpenAICompatibleAgentProvider:
                 text_final_status=_text_final_status(step_input),
             )
         return ProviderResponse.failed(
-            "Provider returned plain text instead of a schema tool call"
+            "Provider returned message content instead of a schema tool call"
         )
 
 
@@ -333,38 +303,6 @@ def _response_from_tool_calls(
         except ValidationError:
             return ProviderResponse.failed("Provider returned invalid tool call")
     return ProviderResponse(status="succeeded", tool_invocations=tool_invocations)
-
-
-def _response_from_action_text(
-    content: str,
-    *,
-    text_final_status: str | None = None,
-) -> ProviderResponse:
-    if not content.strip():
-        return ProviderResponse.failed("Provider returned empty response")
-    try:
-        payload = extract_action_json(content)
-    except (json.JSONDecodeError, ValueError):
-        if text_final_status is not None:
-            return ProviderResponse(
-                status="succeeded",
-                actions=[
-                    {
-                        "type": "final_response",
-                        "status": text_final_status,
-                        "summary": _strip_think_blocks(content),
-                        "recommended_actions": [],
-                    }
-                ],
-            )
-        return ProviderResponse.failed("Provider returned invalid JSON action")
-    if payload.get("type") == "final_response" and isinstance(payload.get("summary"), str):
-        payload["summary"] = _strip_think_blocks(str(payload["summary"]))
-    try:
-        parse_mendcode_action(payload)
-    except ValidationError:
-        return ProviderResponse.failed("Provider returned invalid MendCode action")
-    return ProviderResponse(status="succeeded", actions=[payload])
 
 
 def _strip_think_blocks(text: str) -> str:
