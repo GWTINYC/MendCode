@@ -9,10 +9,19 @@ class ReadFileArgs(BaseModel):
     path: str = Field(description="Repo-relative file path to read.")
     start_line: int | None = Field(default=None, ge=1)
     end_line: int | None = Field(default=None, ge=1)
+    tail_lines: int | None = Field(
+        default=None,
+        ge=1,
+        description="Read the last N lines of the file. Use for questions about the end of a file.",
+    )
     max_chars: int | None = Field(default=12000, ge=0)
 
     @model_validator(mode="after")
     def validate_line_range(self) -> "ReadFileArgs":
+        if self.tail_lines is not None and (
+            self.start_line is not None or self.end_line is not None
+        ):
+            raise ValueError("tail_lines cannot be combined with start_line or end_line")
         if (
             self.start_line is not None
             and self.end_line is not None

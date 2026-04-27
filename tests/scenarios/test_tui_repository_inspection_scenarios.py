@@ -156,6 +156,24 @@ async def test_git_status_request_uses_safe_shell_and_stays_compact(tmp_path):
     assert_no_raw_trace_or_large_json_dump(transcript)
 
 
+async def test_chinese_git_state_request_uses_safe_shell_not_chat(tmp_path):
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="chinese git state",
+            repo_files={"README.md": "MendCode\n"},
+            user_inputs=["查看当前git状态"],
+            shell_stdout=" M README.md\n",
+        )
+    )
+
+    assert_used_only_shell_route(transcript, "git status")
+    assert_did_not_use_chat(transcript)
+    assert_visible_answer_contains(transcript, "git status")
+    assert_visible_answer_contains(transcript, "M README.md")
+    assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
+    assert_no_raw_trace_or_large_json_dump(transcript)
+
+
 async def test_project_stack_question_is_tool_backed(tmp_path):
     transcript = await TuiScenarioRunner(tmp_path).run(
         TuiScenario(

@@ -213,6 +213,7 @@ def test_default_registry_generates_openai_schemas() -> None:
     assert "read_file" in names
     read_file_schema = next(tool for tool in tools if tool["function"]["name"] == "read_file")
     assert "path" in read_file_schema["function"]["parameters"]["properties"]
+    assert "tail_lines" in read_file_schema["function"]["parameters"]["properties"]
 
 
 def test_registry_filters_openai_schemas_to_allowed_tools() -> None:
@@ -259,6 +260,26 @@ def test_registry_executes_read_file_tool(tmp_path: Path) -> None:
     assert observation.payload["payload"]["content"] == "hello\n"
     assert observation.payload["relative_path"] == "README.md"
     assert observation.payload["content"] == "hello\n"
+
+
+def test_registry_executes_read_file_tail_lines(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("first\nmiddle\nlast\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("read_file").execute(
+        {"path": "README.md", "tail_lines": 1},
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    assert observation.payload["payload"]["start_line"] == 3
+    assert observation.payload["payload"]["end_line"] == 3
+    assert observation.payload["payload"]["content"] == "last\n"
 
 
 def test_registry_executes_search_code_alias(tmp_path: Path) -> None:

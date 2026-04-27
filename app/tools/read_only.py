@@ -1,4 +1,5 @@
 import subprocess
+from collections import deque
 from pathlib import Path
 
 from app.tools.guard import resolve_workspace_file, resolve_workspace_path
@@ -21,17 +22,56 @@ def _reject_read_file(relative_path: str, workspace_path: Path, message: str) ->
     )
 
 
+def _join_lines_with_limit(
+    lines: list[str] | deque[str],
+    max_chars: int | None,
+) -> tuple[str, bool]:
+    if max_chars is None:
+        return "".join(lines), False
+
+    content_parts: list[str] = []
+    content_length = 0
+    truncated = False
+    for line in lines:
+        if truncated:
+            break
+
+        remaining = max_chars - content_length
+        if remaining <= 0:
+            truncated = True
+            break
+
+        if len(line) <= remaining:
+            content_parts.append(line)
+            content_length += len(line)
+            continue
+
+        content_parts.append(line[:remaining])
+        truncated = True
+
+    return "".join(content_parts), truncated
+
+
 def read_file(
     workspace_path: Path,
     relative_path: str,
     start_line: int | None = None,
     end_line: int | None = None,
+    tail_lines: int | None = None,
     max_chars: int | None = None,
 ) -> ToolResult:
     if start_line is not None and start_line <= 0:
         return _reject_read_file(relative_path, workspace_path, "start_line must be greater than 0")
     if end_line is not None and end_line <= 0:
         return _reject_read_file(relative_path, workspace_path, "end_line must be greater than 0")
+    if tail_lines is not None and tail_lines <= 0:
+        return _reject_read_file(relative_path, workspace_path, "tail_lines must be greater than 0")
+    if tail_lines is not None and (start_line is not None or end_line is not None):
+        return _reject_read_file(
+            relative_path,
+            workspace_path,
+            "tail_lines cannot be combined with start_line or end_line",
+        )
     if start_line is not None and end_line is not None and start_line > end_line:
         return _reject_read_file(
             relative_path,
@@ -49,6 +89,45 @@ def read_file(
         target = resolve_workspace_file(workspace_path, relative_path)
     except ValueError as exc:
         return _reject_read_file(relative_path, workspace_path, str(exc))
+
+    if tail_lines is not None:
+        tail: deque[str] = deque(maxlen=tail_lines)
+        total_lines = 0
+        try:
+            with target.open("r", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, start=1):
+                    total_lines = line_number
+                    tail.append(line)
+        except (UnicodeDecodeError, OSError) as exc:
+            return ToolResult(
+                tool_name="read_file",
+                status="failed",
+                summary=f"Unable to read {relative_path}",
+                payload={"relative_path": relative_path},
+                error_message=str(exc),
+                workspace_path=str(workspace_path),
+            )
+
+        content, truncated = _join_lines_with_limit(tail, max_chars)
+        line_count = len(tail)
+        start = total_lines - line_count + 1 if line_count else 0
+        end = total_lines if line_count else 0
+
+        return ToolResult(
+            tool_name="read_file",
+            status="passed",
+            summary=f"Read {relative_path}",
+            payload={
+                "relative_path": relative_path,
+                "start_line": start,
+                "end_line": end,
+                "total_lines": total_lines,
+                "content": content,
+                "truncated": truncated,
+            },
+            error_message=None,
+            workspace_path=str(workspace_path),
+        )
 
     start = 1 if start_line is None else start_line
     requested_end = end_line
@@ -310,6 +389,63 @@ def _failed_search_code(
     )
 
 
+def _fallback_search_code(
+    workspace_path: Path,
+    query: str,
+    glob: str | None,
+    max_results: int | None,
+) -> ToolResult:
+    matches: list[dict[str, object]] = []
+    total_matches = 0
+    workspace_root = workspace_path.resolve()
+
+    for candidate in sorted(workspace_path.rglob("*"), key=lambda item: item.as_posix()):
+        if not candidate.is_file():
+            continue
+
+        try:
+            relative = candidate.resolve().relative_to(workspace_root)
+        except ValueError:
+            continue
+        if any(part in {".git", ".worktrees"} for part in relative.parts):
+            continue
+        if glob is not None and not relative.match(glob):
+            continue
+
+        try:
+            with candidate.open("r", encoding="utf-8") as handle:
+                for line_number, line in enumerate(handle, start=1):
+                    line_text = line.rstrip("\n")
+                    if query not in line_text:
+                        continue
+
+                    total_matches += 1
+                    if max_results is None or len(matches) < max_results:
+                        matches.append(
+                            {
+                                "relative_path": relative.as_posix(),
+                                "line_number": line_number,
+                                "line_text": line_text,
+                            }
+                        )
+        except (OSError, UnicodeDecodeError):
+            continue
+
+    return ToolResult(
+        tool_name="search_code",
+        status="passed",
+        summary=f"Searched for {query}",
+        payload={
+            "query": query,
+            "glob": glob,
+            "total_matches": total_matches,
+            "matches": matches,
+        },
+        error_message=None,
+        workspace_path=str(workspace_path),
+    )
+
+
 def search_code(
     workspace_path: Path,
     query: str,
@@ -339,6 +475,8 @@ def search_code(
             text=True,
             check=False,
         )
+    except FileNotFoundError:
+        return _fallback_search_code(workspace_path, query, glob, max_results)
     except OSError as exc:
         return _failed_search_code(workspace_path, query, glob, str(exc))
 

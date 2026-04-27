@@ -140,7 +140,7 @@ User Message
 | `repo_status` | 已完成 | 通过 ToolRegistry 读取当前分支和短状态 |
 | `detect_project` | 已完成 | 通过 ToolRegistry 识别项目类型和建议验证命令 |
 | `show_diff` | 已完成 | 通过 ToolRegistry 读取 compact diff stat |
-| `read_file` | 已完成 | 读取 repo-relative 文本文件，支持行范围和截断 |
+| `read_file` | 已完成 | 读取 repo-relative 文本文件，支持行范围、尾部读取和截断 |
 | `list_dir` | 已完成 | 列目录，未截断时完整 entries 进入 prompt context |
 | `glob_file_search` | 已完成 | 按 glob 查找路径 |
 | `rg` / `search_code` | 已完成 | 文本搜索 |
@@ -331,13 +331,14 @@ duration_ms
 状态：
 
 - Mock provider harness 已完成基础版。
-- 已覆盖 read_file、list_dir、rg、多工具、shell stdout、tool error、allowed-tools denial、confirmation stop。
+- 已覆盖 read_file、read_file tail_lines、list_dir、rg、多工具、shell stdout、tool error、allowed-tools denial、confirmation stop。
 - 后续继续扩展到 write 工具、permission allow/deny 和重复只读工具调用。
 
 场景：
 
 - [ ] streaming text
 - [x] read_file roundtrip
+- [x] read_file tail_lines roundtrip
 - [x] rg roundtrip
 - [x] multi-tool turn
 - [x] shell stdout

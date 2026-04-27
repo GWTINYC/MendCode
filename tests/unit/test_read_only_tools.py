@@ -1,5 +1,6 @@
 import subprocess
 from pathlib import Path
+from unittest.mock import patch
 
 from app.tools.read_only import glob_file_search, list_dir, read_file, search_code
 
@@ -54,6 +55,45 @@ def test_read_file_returns_requested_line_range(tmp_path: Path) -> None:
     }
 
 
+def test_read_file_returns_tail_lines(tmp_path: Path) -> None:
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+    target = workspace_path / "notes.txt"
+    target.write_text("a\nb\nc\nd\n", encoding="utf-8")
+
+    result = read_file(
+        workspace_path=workspace_path,
+        relative_path="notes.txt",
+        tail_lines=2,
+    )
+
+    assert result.status == "passed"
+    assert result.payload == {
+        "relative_path": "notes.txt",
+        "start_line": 3,
+        "end_line": 4,
+        "total_lines": 4,
+        "content": "c\nd\n",
+        "truncated": False,
+    }
+
+
+def test_read_file_rejects_tail_lines_with_explicit_range(tmp_path: Path) -> None:
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+    (workspace_path / "notes.txt").write_text("a\nb\n", encoding="utf-8")
+
+    result = read_file(
+        workspace_path=workspace_path,
+        relative_path="notes.txt",
+        start_line=1,
+        tail_lines=1,
+    )
+
+    assert result.status == "rejected"
+    assert result.error_message == "tail_lines cannot be combined with start_line or end_line"
+
+
 def test_read_file_returns_empty_file_as_passed(tmp_path: Path) -> None:
     workspace_path = tmp_path / "workspace"
     workspace_path.mkdir()
@@ -87,6 +127,22 @@ def test_read_file_truncates_large_content(tmp_path: Path) -> None:
     assert result.status == "passed"
     assert result.payload["content"] == "abc"
     assert result.payload["truncated"] is True
+
+
+def test_search_code_falls_back_when_rg_binary_is_unavailable(tmp_path: Path) -> None:
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+    (workspace_path / "app.py").write_text("alpha\nbeta alpha\n", encoding="utf-8")
+
+    with patch("app.tools.read_only.subprocess.run", side_effect=FileNotFoundError("rg")):
+        result = search_code(workspace_path=workspace_path, query="alpha", glob="*.py")
+
+    assert result.status == "passed"
+    assert result.payload["total_matches"] == 2
+    assert result.payload["matches"] == [
+        {"relative_path": "app.py", "line_number": 1, "line_text": "alpha"},
+        {"relative_path": "app.py", "line_number": 2, "line_text": "beta alpha"},
+    ]
 
 
 def test_read_file_rejects_missing_path(tmp_path: Path) -> None:

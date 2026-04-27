@@ -139,9 +139,7 @@ def summarize_observation_record(
     )
     summary: dict[str, object] = {
         "tool_name": (
-            getattr(action, "action", None)
-            if action is not None
-            else tool_invocation_name
+            getattr(action, "action", None) if action is not None else tool_invocation_name
         ),
         "status": observation.status,
         "summary": _trim_text(
@@ -256,11 +254,7 @@ def _native_tool_result_messages(
 
     for record in records:
         invocation = record.tool_invocation
-        if (
-            invocation is None
-            or invocation.id is None
-            or invocation.source != "openai_tool_call"
-        ):
+        if invocation is None or invocation.id is None or invocation.source != "openai_tool_call":
             flush_group()
             current_group_id = None
             current_records = []
@@ -290,11 +284,7 @@ def _system_prompt(allowed_tools: set[str] | None = None) -> str:
     )
     if not scoped_prompt:
         json_tool_actions = [*tool_names, "apply_patch_to_worktree"]
-        text += (
-            "Allowed JSON tool actions: "
-            + ", ".join(dict.fromkeys(json_tool_actions))
-            + ".\n"
-        )
+        text += "Allowed JSON tool actions: " + ", ".join(dict.fromkeys(json_tool_actions)) + ".\n"
     text += (
         "Use the discriminator field named type. Do not use action_type. Examples: "
         '{"type": "tool_call", "action": "repo_status", "reason": "inspect", "args": {}}; '
@@ -306,14 +296,18 @@ def _system_prompt(allowed_tools: set[str] | None = None) -> str:
         "edit_file for workspace edits, todo_write for short task tracking, and "
         "tool_search when tool capabilities are unclear."
     )
+    if "read_file" in tool_names:
+        text += (
+            " For questions about the final line, last sentence, or end of a file, "
+            "call read_file with tail_lines instead of guessing line numbers."
+        )
     if "apply_patch" in tool_names:
         text += " Use apply_patch for unified diffs."
     if "run_shell_command" in tool_names:
         text += " Use run_shell_command only when no structured tool fits."
     if "run_command" in tool_names:
         text += (
-            " Use run_command only for declared verification commands "
-            "from verification_commands."
+            " Use run_command only for declared verification commands from verification_commands."
         )
     text += (
         "\n"

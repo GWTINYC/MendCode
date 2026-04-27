@@ -93,6 +93,45 @@ def test_read_file_roundtrip_returns_observation_before_final_answer(tmp_path: P
     assert result.summary == "README.md 内容是 MendCode demo"
 
 
+def test_read_file_tail_lines_roundtrip_answers_last_sentence(tmp_path: Path) -> None:
+    (tmp_path / "MendCode_问题记录.md").write_text(
+        "# MendCode 问题记录\n\n第一段。\n\n最后一句：只回答必要内容。\n",
+        encoding="utf-8",
+    )
+    provider = MockToolProvider(
+        [
+            tool_call_step(
+                native_tool("read_file", {"path": "MendCode_问题记录.md", "tail_lines": 2})
+            ),
+            final_response_step(
+                "最后一句是：只回答必要内容。",
+                expected_observation_count=1,
+                assertions=(
+                    assert_last_observation(tool_name="read_file"),
+                    assert_payload_contains("start_line", 4),
+                    assert_payload_contains("content", "\n最后一句：只回答必要内容。\n"),
+                ),
+            ),
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="MendCode 问题记录的最后一句是什么",
+            provider=provider,
+            verification_commands=[],
+            allowed_tools={"read_file"},
+            step_budget=4,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.summary == "最后一句是：只回答必要内容。"
+
+
 def test_rg_roundtrip_returns_matches_before_final_answer(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("needle\n", encoding="utf-8")
     provider = MockToolProvider(

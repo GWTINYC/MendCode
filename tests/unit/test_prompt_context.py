@@ -50,6 +50,7 @@ def test_provider_messages_describe_scoped_allowed_tools() -> None:
     )
 
     assert "Allowed native tools in this turn: list_dir, read_file." in messages[0].content
+    assert "call read_file with tail_lines" in messages[0].content
     assert "apply_patch" not in messages[0].content
     assert "run_shell_command" not in messages[0].content
 
@@ -347,8 +348,7 @@ def test_provider_messages_redact_and_truncate_openai_tool_result_content() -> N
 
 def test_provider_messages_include_all_untruncated_directory_entries() -> None:
     entries = [
-        {"name": f"file_{index}.txt", "relative_path": f"file_{index}.txt"}
-        for index in range(12)
+        {"name": f"file_{index}.txt", "relative_path": f"file_{index}.txt"} for index in range(12)
     ]
     messages = build_provider_messages(
         AgentProviderStepInput(

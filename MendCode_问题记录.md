@@ -279,6 +279,42 @@
 - AgentLoop 中剩余 legacy 分支只能作为迁移兼容层，不能扩张。
 - PermissionPolicy 后续必须从 ToolSpec 读取 required mode/risk，避免再维护平行风险表。
 
+### 问题 11：自然语言本地事实提问仍会漏到 chat 或刷屏
+
+状态：已修复本轮暴露路径，后续需持续扩展场景库
+
+现象：
+
+- 用户输入“查看当前git状态”时，请求被判为 chat，模型没有执行工具却编造了 `git status` 输出。
+- 用户询问“某文档的最后一句是什么”时，请求进入 tool path，但 TUI 把 `read_file` 的文件内容直接渲染到聊天流，导致用户看到大段全文，而不是只看最终答案。
+- 用户询问“Mendcode问题记录的最后一句是什么”时，模型多次 `glob_file_search` / `read_file`，又尝试不可用的 `rg`，最后耗尽 step budget，没有给出已经读到的答案。
+
+根因：
+
+- `plan_rule_based_shell_command` 只覆盖 `git status` 和“仓库状态”，没有覆盖“当前git状态 / git状态”这类无空格中文表达。
+- TUI 的 tool result renderer 直接追加 `read_file` payload 中的 `content`，把工具原始内容和面向用户的最终回答混在一起。
+- `read_file` 只支持从头或指定行号读取，没有表达“读文件尾部”的参数，模型只能猜测行号并反复调用工具。
+- `search_code` 完全依赖外部 `rg` 二进制，TUI 运行环境 PATH 不完整时会让可降级的只读搜索变成失败 observation。
+- TUI 只读工具 Agent 的 step budget 偏紧，模型在最后一步拿到足够信息后没有剩余轮次生成 final response。
+- 旧场景测试覆盖了“第一句话”和 `git status` 字面命令，但没有覆盖这两类真实自然语言变体。
+
+处理：
+
+- 规则路由增加中文 Git 状态表达，确保“查看当前git状态”直接进入 shell path 并执行 `git status`。
+- TUI 工具结果不再直接渲染 `read_file.content`，改为展示 `content_length` / `content_truncated` 等紧凑元信息，完整内容仍保留在 trace / observation 中。
+- `read_file` 增加 `tail_lines` 参数，并在 prompt contract 中明确最后一行、最后一句、文件末尾问题应使用该参数，避免猜 `end_line`。
+- `search_code` 在 `rg` 不可用时降级为 Python 只读文本搜索，保持工具链可用。
+- TUI 只读工具 Agent 的 step budget 从 8 提升到 12，给工具调用后的 final response 留出余量。
+- 场景测试新增“中文 git 状态不走 chat”和“文档最后一句不刷全文”回归用例。
+- TUI 场景自动巡检报告明确记录文件内容不刷屏、中文 Git 状态和文档末句提问覆盖范围。
+
+后续约束：
+
+- 本地事实类自然语言变体必须持续进入 `tests/scenarios/`，不能只测英文命令或 slash command。
+- 聊天流默认展示摘要和最终答案；完整工具 payload 只能通过 trace / viewer 按需查看。
+- 新增 `read_file` 类场景时，必须断言不会把不相关的文件正文刷到 visible transcript。
+- 问文件末尾内容时必须优先用 `tail_lines`，不要让模型通过猜测行号完成。
+
 ## 3. 后续重点风险
 
 ### 风险 A：模型重复调用等价只读工具

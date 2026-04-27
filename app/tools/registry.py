@@ -88,6 +88,7 @@ def _execute_read_file(args: ReadFileArgs, context: ToolExecutionContext) -> Obs
             args.path,
             start_line=args.start_line,
             end_line=args.end_line,
+            tail_lines=args.tail_lines,
             max_chars=args.max_chars,
         )
     )
@@ -244,9 +245,7 @@ def _shell_result_to_observation(result: ShellCommandResult) -> Observation:
 def _path_escapes_workspace(path: str, workspace_path: Path) -> bool:
     candidate = Path(path)
     resolved = (
-        candidate.resolve()
-        if candidate.is_absolute()
-        else (workspace_path / candidate).resolve()
+        candidate.resolve() if candidate.is_absolute() else (workspace_path / candidate).resolve()
     )
     try:
         resolved.relative_to(workspace_path.resolve())
@@ -649,7 +648,10 @@ def default_tool_registry() -> ToolRegistry:
             ),
             ToolSpec(
                 name="read_file",
-                description="Read text content from a repo-relative file.",
+                description=(
+                    "Read text content from a repo-relative file. Use tail_lines for "
+                    "questions about the final line, last sentence, or end of a file."
+                ),
                 args_model=ReadFileArgs,
                 risk_level=ToolRisk.READ_ONLY,
                 executor=_execute_read_file,

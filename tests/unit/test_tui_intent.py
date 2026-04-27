@@ -49,6 +49,16 @@ def test_rule_based_intent_router_detects_direct_shell_commands(tmp_path: Path) 
     assert decision.command == "git status"
 
 
+def test_rule_based_intent_router_maps_chinese_git_state_to_shell(tmp_path: Path) -> None:
+    decision = RuleBasedIntentRouter().route(
+        "查看当前git状态",
+        IntentContext(repo_path=tmp_path),
+    )
+
+    assert decision.kind == "shell"
+    assert decision.command == "git status"
+
+
 def test_rule_based_intent_router_maps_natural_language_shell_requests(
     tmp_path: Path,
 ) -> None:

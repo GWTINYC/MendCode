@@ -55,8 +55,7 @@ class AgentSessionLike(Protocol):
         problem_statement: str,
         verification_commands: list[str],
         step_budget: int = 12,
-    ) -> AgentSessionTurn:
-        ...
+    ) -> AgentSessionTurn: ...
 
 
 class ShellExecutor(Protocol):
@@ -67,8 +66,7 @@ class ShellExecutor(Protocol):
         cwd: Path,
         policy: ShellPolicy,
         confirmed: bool = False,
-    ) -> ShellCommandResult:
-        ...
+    ) -> ShellCommandResult: ...
 
 
 def _git_value(repo_path: Path, args: list[str], fallback: str) -> str:
@@ -115,6 +113,17 @@ def _available_review_actions(turn: AgentSessionTurn) -> list[str]:
         actions.discard("view_trace")
     ordered = ["view_diff", "view_trace", "apply", "discard"]
     return [action for action in ordered if action in actions]
+
+
+def _content_metadata_line(content: str, payload: dict[str, object]) -> str:
+    length = payload.get("content_length")
+    if not isinstance(length, int):
+        length = len(content)
+    truncated = payload.get("content_truncated", payload.get("truncated", False))
+    return (
+        "content: omitted from chat stream "
+        f"(content_length={length}, content_truncated={bool(truncated)})"
+    )
 
 
 def _review_action_unavailable(action: str, message: str) -> ReviewActionResult:
@@ -330,9 +339,7 @@ class MendCodeTextualApp(App[None]):
             else self.session_state.last_turn_status
         )
         pending_shell = (
-            self.session_state.pending_shell.command
-            if self.session_state.pending_shell
-            else "none"
+            self.session_state.pending_shell.command if self.session_state.pending_shell else "none"
         )
         conversation_log = self.session_state.conversation_markdown_path or "not set"
         return "\n".join(
@@ -625,7 +632,7 @@ class MendCodeTextualApp(App[None]):
                 verification_commands=[],
                 allowed_tools=READ_ONLY_TOOL_AGENT_TOOLS,
                 permission_mode="guided",
-                step_budget=8,
+                step_budget=12,
                 use_worktree=False,
             ),
             self.settings,
@@ -751,7 +758,7 @@ class MendCodeTextualApp(App[None]):
                         lines.append(f"  - {relative_path} ({entry_type or 'unknown'})")
             content = step.observation.payload.get("content")
             if isinstance(content, str) and content:
-                lines.append(content)
+                lines.append(_content_metadata_line(content, step.observation.payload))
             stdout = step.observation.payload.get("stdout_excerpt")
             if isinstance(stdout, str) and stdout:
                 lines.extend(["stdout:", stdout])
@@ -787,8 +794,7 @@ class MendCodeTextualApp(App[None]):
             }
             self.append_message(
                 "System",
-                "Available actions: "
-                + ", ".join(command_names[action] for action in actions),
+                "Available actions: " + ", ".join(command_names[action] for action in actions),
             )
 
     def _run_review_action(self, command_name: str) -> None:

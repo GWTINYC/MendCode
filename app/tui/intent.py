@@ -219,7 +219,7 @@ def plan_rule_based_shell_command(message: str) -> str | None:
         return "ls"
     if any(term in normalized for term in ["看下当前路径", "当前路径", "当前目录是哪里"]):
         return "pwd"
-    if "git status" in normalized or "仓库状态" in normalized:
+    if _looks_like_git_status_request(normalized):
         return "git status"
     if "git diff" in normalized or "看下 diff" in normalized or "查看 diff" in normalized:
         return "git diff"
@@ -234,6 +234,17 @@ def plan_rule_based_shell_command(message: str) -> str | None:
     if executable in DIRECT_SHELL_COMMANDS:
         return stripped
     return None
+
+
+def _looks_like_git_status_request(normalized: str) -> bool:
+    compact = normalized.replace(" ", "")
+    return (
+        "git status" in normalized
+        or "git状态" in compact
+        or "当前git状态" in compact
+        or "查看git状态" in compact
+        or "仓库状态" in normalized
+    )
 
 
 def _parse_model_shell_command(content: str) -> str | None:

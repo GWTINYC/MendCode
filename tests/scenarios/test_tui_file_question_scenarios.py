@@ -47,7 +47,63 @@ async def test_file_first_line_question_reads_actual_file(tmp_path):
     assert_did_not_use_chat(transcript)
     assert_has_evidence_from_observation(transcript, "read_file")
     assert_visible_answer_contains(transcript, "MendCode 开发方案")
-    assert_visible_answer_contains(transcript, "## 1. 文档职责")
+    assert_visible_answer_contains(transcript, "content: omitted from chat stream")
+    assert_visible_answer_contains(transcript, "content_length=28")
+    if "## 1. 文档职责" in transcript.visible_text:
+        pytest.fail(transcript.debug_text())
+    assert_no_fabricated_command_claims(transcript)
+    assert_no_raw_trace_or_large_json_dump(transcript)
+    assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
+
+
+async def test_document_last_sentence_question_does_not_dump_file_content(tmp_path):
+    last_sentence = "最后一句：不再记录纯讨论、一次性环境噪声、旧路线细枝末节。"
+    document = "\n\n".join(
+        [
+            "# MendCode 问题记录",
+            "第一段说明这个文档记录工程问题。",
+            "第二段继续解释背景。",
+            last_sentence,
+        ]
+    )
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="document last sentence",
+            repo_files={"MendCode_问题记录.md": document},
+            user_inputs=["MendCode_问题记录的最后一句是什么"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="read_file",
+                    status="succeeded",
+                    summary="Read MendCode_问题记录.md",
+                    payload={
+                        "relative_path": "MendCode_问题记录.md",
+                        "start_line": 7,
+                        "end_line": 7,
+                        "total_lines": 7,
+                        "content": last_sentence,
+                        "content_excerpt": last_sentence,
+                        "content_length": len(last_sentence),
+                        "content_truncated": False,
+                    },
+                    args={"path": "MendCode_问题记录.md", "tail_lines": 3},
+                )
+            ],
+            final_summary="最后一句是：不再记录纯讨论、一次性环境噪声、旧路线细枝末节。",
+        )
+    )
+
+    assert_used_tool_path(transcript)
+    assert_did_not_use_chat(transcript)
+    assert_has_evidence_from_observation(transcript, "read_file")
+    assert_visible_answer_contains(
+        transcript,
+        "不再记录纯讨论、一次性环境噪声、旧路线细枝末节",
+    )
+    if "# MendCode 问题记录" in transcript.visible_text:
+        pytest.fail(transcript.debug_text())
+    if "第一段说明这个文档记录工程问题" in transcript.visible_text:
+        pytest.fail(transcript.debug_text())
     assert_no_fabricated_command_claims(transcript)
     assert_no_raw_trace_or_large_json_dump(transcript)
     assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
@@ -84,17 +140,13 @@ async def test_provider_config_question_uses_code_search(tmp_path, user_input):
                                 "relative_path": "README.md",
                                 "line_number": 1,
                                 "line": (
-                                    "Set MENDCODE_PROVIDER=openai-compatible to "
-                                    "configure provider."
+                                    "Set MENDCODE_PROVIDER=openai-compatible to configure provider."
                                 ),
                             },
                             {
                                 "relative_path": "app/config/settings.py",
                                 "line_number": 1,
-                                "line": (
-                                    "provider = os.getenv('MENDCODE_PROVIDER', "
-                                    "'scripted')"
-                                ),
+                                "line": ("provider = os.getenv('MENDCODE_PROVIDER', 'scripted')"),
                             },
                         ],
                     },

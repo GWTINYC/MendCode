@@ -433,8 +433,10 @@ def _execute_tool_call(
     verification_commands: list[str],
     allow_legacy_git: bool = True,
 ) -> Observation:
-    if allow_legacy_git and action.action == "git" and (
-        "args" in action.args or "command" in action.args
+    if (
+        allow_legacy_git
+        and action.action == "git"
+        and ("args" in action.args or "command" in action.args)
     ):
         return _run_git(repo_path, settings, action.args)
 
@@ -469,6 +471,7 @@ def _execute_tool_call(
             relative_path=str(action.args.get("relative_path") or action.args.get("path") or ""),
             start_line=action.args.get("start_line"),  # type: ignore[arg-type]
             end_line=action.args.get("end_line"),  # type: ignore[arg-type]
+            tail_lines=action.args.get("tail_lines"),  # type: ignore[arg-type]
             max_chars=action.args.get("max_chars"),  # type: ignore[arg-type]
         )
         return _tool_result_to_observation(result)
