@@ -85,19 +85,22 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
 
     def record_handled_action(handled, tool_invocation=None) -> None:
         nonlocal trace_path
-        steps.append(handled.step)
+        step = handled.step
+        if tool_invocation is not None:
+            step = handled.step.model_copy(update={"tool_invocation": tool_invocation})
+        steps.append(step)
         trace_path = _record_step(
             recorder=recorder,
             run_id=run_id,
-            index=handled.step.index,
-            action=handled.step.action,
-            observation=handled.step.observation,
+            index=step.index,
+            action=step.action,
+            observation=step.observation,
         )
         observation_history.append(
             AgentObservationRecord(
-                action=handled.step.action,
+                action=step.action,
                 tool_invocation=tool_invocation,
-                observation=handled.step.observation,
+                observation=step.observation,
             )
         )
 

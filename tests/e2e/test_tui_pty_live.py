@@ -170,6 +170,18 @@ def test_live_tui_natural_dangerous_shell_uses_schema_tool(live_repo: Path) -> N
     assert '"event_type": "shell_result"' not in result.conversation_jsonl
 
 
+def test_live_tui_reports_available_tools_with_session_status(live_repo: Path) -> None:
+    result = run_live_tui_question(live_repo, "现在你能用哪些工具", timeout_seconds=90)
+
+    assert_no_provider_failure_or_trace_exposed(result)
+    assert_schema_tool_call_route(result)
+    assert_conversation_has_tool_evidence(result, "session_status")
+    assert_conversation_has_tool_evidence(result, "tool_search")
+    assert_conversation_has_native_tool_evidence(result, "session_status")
+    assert_conversation_has_native_tool_evidence(result, "tool_search")
+    assert_response_evidence_contains(result, "read_file")
+
+
 def test_live_tui_reports_current_path(live_repo: Path) -> None:
     result = run_live_tui_question(
         live_repo,
@@ -479,9 +491,29 @@ def assert_conversation_has_tool_evidence(
     )
 
 
+def assert_conversation_has_native_tool_evidence(
+    result: LiveTuiResult,
+    *tool_names: str,
+) -> None:
+    if any(_has_native_tool_result_action(result, tool_name) for tool_name in tool_names):
+        return
+    raise AssertionError(
+        f"missing native tool evidence {tool_names}: {_conversation_evidence(result)}"
+    )
+
+
 def _has_tool_result_action(result: LiveTuiResult, tool_name: str) -> bool:
     return any(
         isinstance(step, dict) and step.get("action") == tool_name
+        for step in _tool_result_steps(result)
+    )
+
+
+def _has_native_tool_result_action(result: LiveTuiResult, tool_name: str) -> bool:
+    return any(
+        isinstance(step, dict)
+        and step.get("action") == tool_name
+        and step.get("tool_invocation_source") == "openai_tool_call"
         for step in _tool_result_steps(result)
     )
 

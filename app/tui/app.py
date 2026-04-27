@@ -10,10 +10,12 @@ from textual.widgets import Input, RichLog, Static
 
 from app.agent.loop import AgentLoopInput, AgentLoopResult, run_agent_loop
 from app.agent.prompt_context import ChatMessage
+from app.agent.provider import AgentObservationRecord, AgentProviderStepInput, ProviderResponse
 from app.agent.provider_factory import ProviderConfigurationError, build_agent_provider
 from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import Settings
 from app.runtime.session_store import SessionNotFoundError, SessionStore
+from app.tools.structured import ToolInvocation
 from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_responder
 from app.tui.commands import ChatCommand
 from app.tui.controller import TuiController
@@ -35,6 +37,7 @@ READ_ONLY_TOOL_AGENT_TOOLS = {
     "glob_file_search",
     "git",
     "list_dir",
+    "lsp",
     "read_file",
     "rg",
     "search_code",
@@ -42,11 +45,89 @@ READ_ONLY_TOOL_AGENT_TOOLS = {
     "tool_search",
 }
 
+_TOOL_AVAILABILITY_TERMS = (
+    "哪些工具",
+    "可用工具",
+    "能用哪些",
+    "能用什么工具",
+    "available tools",
+    "what tools can you use",
+    "which tools can you use",
+)
+
 ReviewActionExecutor = Callable[[str, AgentSessionTurn], ReviewActionResult]
 ToolAgentRunner = Callable[..., AgentLoopResult]
 
 _CONFIRM_TERMS = {"start", "yes", "y", "confirm", "开始", "确认", "可以", "执行", "好", "好的"}
 _CANCEL_TERMS = {"cancel", "no", "n", "stop", "取消", "不用", "停止", "算了"}
+
+
+def _is_tool_availability_question(message: str) -> bool:
+    normalized = message.casefold()
+    return any(term in normalized for term in _TOOL_AVAILABILITY_TERMS)
+
+
+class ToolAvailabilityProvider:
+    def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
+        if step_input.step_index == 1:
+            return ProviderResponse(
+                status="succeeded",
+                tool_invocations=[
+                    ToolInvocation(
+                        id="tui_session_status",
+                        name="session_status",
+                        args={"include_tools": True, "include_recent_steps": False},
+                        source="openai_tool_call",
+                    )
+                ],
+            )
+        if step_input.step_index == 2:
+            return ProviderResponse(
+                status="succeeded",
+                tool_invocations=[
+                    ToolInvocation(
+                        id="tui_tool_search",
+                        name="tool_search",
+                        args={"query": "read", "max_results": 10},
+                        source="openai_tool_call",
+                    )
+                ],
+            )
+        return ProviderResponse(
+            status="succeeded",
+            actions=[
+                {
+                    "type": "final_response",
+                    "status": "completed",
+                    "summary": _tool_availability_summary(step_input.observations),
+                }
+            ],
+        )
+
+
+def _tool_availability_summary(observations: list[AgentObservationRecord]) -> str:
+    available_tools = _available_tools_from_session_status(observations)
+    if not available_tools:
+        return "当前可用工具暂时无法从 session_status 读取。"
+    return "当前可用工具包括：" + "、".join(available_tools) + "。"
+
+
+def _available_tools_from_session_status(
+    observations: list[AgentObservationRecord],
+) -> list[str]:
+    for record in observations:
+        if record.tool_invocation is None or record.tool_invocation.name != "session_status":
+            continue
+        available_tools = record.observation.payload.get("available_tools")
+        if not isinstance(available_tools, list):
+            nested_payload = record.observation.payload.get("payload")
+            if isinstance(nested_payload, dict):
+                available_tools = nested_payload.get("available_tools")
+        if isinstance(available_tools, list) and all(
+            isinstance(tool_name, str) for tool_name in available_tools
+        ):
+            return sorted(available_tools)
+    return []
 
 
 class AgentSessionLike(Protocol):
@@ -616,11 +697,15 @@ class MendCodeTextualApp(App[None]):
         self.call_from_thread(self._complete_tool_request, result)
 
     def _run_tool_agent_loop(self, *, problem_statement: str) -> AgentLoopResult:
+        if _is_tool_availability_question(problem_statement):
+            provider = ToolAvailabilityProvider()
+        else:
+            provider = build_agent_provider(self.settings)
         return run_agent_loop(
             AgentLoopInput(
                 repo_path=self.repo_path,
                 problem_statement=problem_statement,
-                provider=build_agent_provider(self.settings),
+                provider=provider,
                 verification_commands=[],
                 allowed_tools=READ_ONLY_TOOL_AGENT_TOOLS,
                 permission_mode="guided",

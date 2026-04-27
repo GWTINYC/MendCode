@@ -17,7 +17,7 @@ from app.agent.openai_compatible import (
 from app.agent.session import AgentSessionTurn, ReviewSummary, ToolCallSummary
 from app.config.settings import Settings
 from app.schemas.agent_action import FinalResponseAction, Observation, ToolCallAction
-from app.tui.app import MendCodeTextualApp
+from app.tui.app import MendCodeTextualApp, _is_tool_availability_question
 from app.tui.chat import ChatResponse
 from app.workspace.review_actions import ReviewActionResult
 from app.workspace.shell_executor import ShellCommandResult
@@ -661,6 +661,27 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
         assert tool_payload["step_count"] == 2
         assert tool_payload["steps"][0]["action"] == "list_dir"
         assert "observation" not in tool_payload["steps"][0]
+
+
+async def test_tool_availability_answer_uses_actual_read_only_tool_pool(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    settings = make_settings(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=settings)
+
+    result = app._run_tool_agent_loop(problem_statement="现在你能用哪些工具")
+
+    assert result.status == "completed"
+    assert "glob_file_search" in result.summary
+    assert "session_status" in result.summary
+    assert result.steps[0].tool_invocation is not None
+    assert result.steps[0].tool_invocation.source == "openai_tool_call"
+
+
+async def test_tool_availability_detection_does_not_hijack_repo_stack_question() -> None:
+    assert not _is_tool_availability_question("what tools does this project use?")
+    assert _is_tool_availability_question("what tools can you use?")
 
 
 async def test_tui_last_sentence_question_completes_after_final_response_tool_call(

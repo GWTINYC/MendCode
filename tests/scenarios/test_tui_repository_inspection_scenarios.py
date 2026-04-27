@@ -268,6 +268,58 @@ async def test_tool_availability_question_uses_session_status(tmp_path):
     assert_no_raw_trace_or_large_json_dump(transcript)
 
 
+async def test_symbol_definition_question_uses_lsp_or_explicit_fallback(tmp_path):
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="symbol definition",
+            repo_files={"app/main.py": "def target():\n    return 1\n"},
+            user_inputs=["target 函数在哪里定义"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="lsp",
+                    status="rejected",
+                    summary="Language server unavailable",
+                    payload={
+                        "operation": "definition",
+                        "path": "app/main.py",
+                        "line": 1,
+                        "column": 5,
+                    },
+                    error_message="language server unavailable",
+                    args={
+                        "operation": "definition",
+                        "path": "app/main.py",
+                        "line": 1,
+                        "column": 5,
+                    },
+                ),
+                ScenarioToolStep(
+                    action="rg",
+                    status="succeeded",
+                    summary="Searched target",
+                    payload={
+                        "query": "target",
+                        "matches": [
+                            {
+                                "relative_path": "app/main.py",
+                                "line_number": 1,
+                                "line_text": "def target():",
+                            }
+                        ],
+                    },
+                    args={"query": "target"},
+                ),
+            ],
+            final_summary="target 定义在 app/main.py 第 1 行。",
+        )
+    )
+
+    assert_used_tool_path(transcript)
+    assert_has_evidence_from_any_observation(transcript, ("lsp", "rg"))
+    assert_visible_answer_contains(transcript, "app/main.py")
+    assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
+
+
 async def test_local_fact_question_never_uses_chat_path(tmp_path):
     transcript = await TuiScenarioRunner(tmp_path).run(
         TuiScenario(

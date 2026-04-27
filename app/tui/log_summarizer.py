@@ -109,6 +109,9 @@ def _compact_step(step: AgentStep) -> dict[str, object]:
         "status": step.observation.status,
         "summary": step.observation.summary,
     }
+    if step.tool_invocation is not None:
+        compact["tool_invocation_id"] = step.tool_invocation.id
+        compact["tool_invocation_source"] = step.tool_invocation.source
     if step.observation.error_message is not None:
         compact["error_message"] = step.observation.error_message
     payload = _compact_payload(step.observation.payload)

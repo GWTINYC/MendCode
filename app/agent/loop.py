@@ -63,6 +63,7 @@ class AgentStep(BaseModel):
     index: int
     action: MendCodeAction
     observation: Observation
+    tool_invocation: ToolInvocation | None = None
 
 
 class AgentLoopResult(BaseModel):
