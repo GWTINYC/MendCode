@@ -11,6 +11,7 @@ from app.agent.session import (
     build_review_summary,
 )
 from app.schemas.agent_action import Observation, PatchProposalAction, ToolCallAction
+from app.tools.structured import ToolInvocation
 
 
 def tool_step(index: int, action: str, observation: Observation) -> AgentStep:
@@ -89,13 +90,13 @@ class SessionFakeProvider:
         if len(self.calls) == 1:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "tool_call",
-                        "action": "run_command",
-                        "reason": "verify",
-                        "args": {"command": step_input.verification_commands[0]},
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_verify",
+                        name="run_command",
+                        args={"command": step_input.verification_commands[0]},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         return ProviderResponse(

@@ -7,6 +7,7 @@ from typer.testing import CliRunner
 
 from app.agent.provider import AgentProviderStepInput, ProviderResponse
 from app.cli.main import app
+from app.tools.structured import ToolInvocation
 
 runner = CliRunner()
 PYTHON = shlex.quote(sys.executable)
@@ -57,25 +58,25 @@ class FakeOpenAICompatibleProvider:
         if len(self.calls) == 1:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "tool_call",
-                        "action": "repo_status",
-                        "reason": "inspect repo",
-                        "args": {},
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_repo_status",
+                        name="repo_status",
+                        args={},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         if len(self.calls) == 2:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "tool_call",
-                        "action": "run_command",
-                        "reason": "run verification",
-                        "args": {"command": step_input.verification_commands[0]},
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_run_command",
+                        name="run_command",
+                        args={"command": step_input.verification_commands[0]},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         return ProviderResponse(
@@ -101,37 +102,40 @@ class PatchReviewProvider:
         if len(self.calls) == 1:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "patch_proposal",
-                        "reason": "make add return the sum",
-                        "files_to_modify": ["calculator.py"],
-                        "patch": self.patch,
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_apply_patch",
+                        name="apply_patch",
+                        args={
+                            "files_to_modify": ["calculator.py"],
+                            "patch": self.patch,
+                        },
+                        source="openai_tool_call",
+                    )
                 ],
             )
         if len(self.calls) == 2:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "tool_call",
-                        "action": "run_command",
-                        "reason": "verify patch",
-                        "args": {"command": self.command},
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_verify_patch",
+                        name="run_command",
+                        args={"command": self.command},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         if len(self.calls) == 3:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "tool_call",
-                        "action": "show_diff",
-                        "reason": "summarize changed files",
-                        "args": {},
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_show_diff",
+                        name="show_diff",
+                        args={},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         return ProviderResponse(
@@ -156,13 +160,13 @@ class FailedReviewProvider:
         if len(self.calls) == 1:
             return ProviderResponse(
                 status="succeeded",
-                actions=[
-                    {
-                        "type": "tool_call",
-                        "action": "run_command",
-                        "reason": "run failing verification",
-                        "args": {"command": self.command},
-                    }
+                tool_invocations=[
+                    ToolInvocation(
+                        id="call_failed_verify",
+                        name="run_command",
+                        args={"command": self.command},
+                        source="openai_tool_call",
+                    )
                 ],
             )
         return ProviderResponse(

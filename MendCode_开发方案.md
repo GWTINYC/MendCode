@@ -67,7 +67,7 @@ User Message
 - [x] observation history
 - [x] provider failure observation
 - [x] OpenAI-compatible native `tool_calls`
-- [x] JSON Action fallback
+- [x] Provider-driven normal turn 禁用 legacy JSON action / free-text fallback
 - [x] native tool invocation 执行
 - [x] assistant/tool message 回填
 - [x] 工具后普通文本包装为 `final_response`
@@ -79,7 +79,7 @@ User Message
 当前不足：
 
 - [ ] runtime loop 仍依赖 `app.agent.loop` 中的 action parsing / tool invocation helpers
-- [ ] legacy JSON action path 和 native tool path 仍有部分重复逻辑
+- [ ] direct `loop_input.actions` 仍作为 scripted/repair 兼容路径保留
 - [ ] 没有等价只读工具调用去重
 - [ ] Provider request/response 调试摘要不足
 - [ ] `apply_patch_to_worktree` 仍是 legacy/builtin 工具路径
@@ -88,6 +88,8 @@ User Message
 
 - 继续把 `_handle_action_payload`、`_handle_tool_invocation` 等 helper 拆入 runtime 内部小模块，最终让 `app.agent.loop` 只保留兼容数据模型和 wrapper。
 - 把 `_execute_tool_call` 中的 legacy 分支逐步收敛到 ToolRegistry。
+- 删除 legacy scripted action compatibility path once CLI repair no longer uses it。
+- 将 `/fix` 兼容路径迁移为纯工具化 repair flow。
 - 给 AgentLoop 增加最近工具调用指纹，处理重复 `list_dir` / `read_file` / `rg`。
 - 把 provider 调试摘要写入 trace，注意不要落 API key。
 
@@ -99,7 +101,7 @@ User Message
 - [x] `OpenAICompatibleAgentProvider`
 - [x] OpenAI-compatible tools schema 发送
 - [x] 原生 tool call 解析
-- [x] tools unsupported fallback
+- [x] tools unsupported 明确失败，不再静默 fallback
 - [x] tool 后普通文本 final response
 - [x] tool 后 `final_response` provider-local tool call
 - [x] API key redaction
@@ -108,6 +110,7 @@ User Message
 - [x] 越权 tool call 拒绝
 - [x] mock tool provider harness 覆盖 tool result 回传后的 final response
 - [x] OpenAI native tool result 不再重复写入 user context，避免 prompt 中 observation 双份膨胀
+- [x] Provider 不再对正常用户轮次静默 fallback 到 JSON action 或 free text
 
 当前不足：
 
@@ -218,20 +221,20 @@ User Message
 已完成：
 
 - [x] TUI 启动
-- [x] `TuiController` 接管输入解析、intent routing 和 chat/shell/tool/fix 调度
+- [x] `TuiController` 接管输入解析、slash commands 和 AgentLoop 调度
 - [x] `/status`
 - [x] `/sessions`
 - [x] `/resume [session_id]`
-- [x] chat / fix / shell / tool intent
-- [x] shell 自动执行和 pending confirmation
-- [x] tool request 进入 AgentLoop
+- [x] 自然语言 TUI 请求统一走 schema tool-call AgentLoop
+- [x] TUI 规则路由不再直接执行自然语言 shell/tool 请求
+- [x] slash command 和 pending confirmation 仍本地处理
 - [x] tool result 摘要展示
 - [x] conversation Markdown / JSONL 写入，并对 `tool_result` / `turn_result` 做 compact 摘要
 - [x] review actions：view diff / view trace / apply / discard
 - [x] 第一批 TUI experience scenario tests 覆盖目录查看、文件问题、失败场景和 resume
 - [x] 新增 PTY live TUI e2e 测试入口，启动真实 `python -m app.cli.main` 并模拟用户输入
 - [x] TUI scenario audit 默认覆盖 `tests/scenarios` 和 `tests/e2e`
-- [x] PTY live 场景扩展到多轮目录+Git、明确读文件、代码定位、危险 shell 取消确认、路径查看、git diff、pending status、确认执行、会话列表
+- [x] PTY live 场景扩展到多轮目录+Git、明确读文件、代码定位、危险自然语言 shell 不走本地 pending、路径查看、git diff、会话列表
 - [x] 新增 `tests/scenarios/tool_parity_scenarios.json`，固定 read/rg/write/multi-tool/bash/permission 的核心工具闭环场景
 - [x] e2e 测试可自动读取项目根目录 `.env` 中的真实 provider 配置
 
@@ -379,7 +382,7 @@ duration_ms
 
 目标：
 
-用 PTY 启动真实 TUI 进程，模拟用户在终端里输入自然语言问题，观察真实 provider、intent router、AgentLoop、工具执行、聊天流渲染和 conversation log 的端到端行为。
+用 PTY 启动真实 TUI 进程，模拟用户在终端里输入自然语言问题，观察真实 provider、AgentLoop、schema 工具执行、聊天流渲染和 conversation log 的端到端行为。
 
 状态：
 
@@ -387,7 +390,7 @@ duration_ms
 - [x] 使用 `pexpect` 启动 `python -m app.cli.main`
 - [x] 每个用例在临时 Git 仓库中构造真实文件和脏工作区
 - [x] 默认要求真实 OpenAI-compatible provider 环境变量，不静默 skip
-- [x] 覆盖文档最后一句、当前目录查看、中文 Git 状态、多轮对话、明确读文件、代码定位、路径查看、git diff、危险命令取消/确认、会话列表
+- [x] 覆盖文档最后一句、当前目录查看、中文 Git 状态、多轮对话、明确读文件、代码定位、路径查看、git diff、危险自然语言命令不产生本地 shell pending、会话列表
 
 环境要求：
 
@@ -452,7 +455,7 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 - AgentLoop 改动：`tests/unit/test_agent_loop.py`
 - ToolRegistry 改动：`tests/unit/test_tool_registry.py`
 - 权限改动：`tests/unit/test_permission_gate.py`、`tests/unit/test_shell_policy.py`
-- TUI 改动：`tests/unit/test_tui_app.py`、`tests/unit/test_tui_intent.py`
+- TUI 改动：`tests/unit/test_tui_app.py`、`tests/unit/test_tui_controller.py`
 - TUI 体验场景测试：`tests/scenarios/` 覆盖常见用户问题，断言 route、tool evidence、简洁输出和 no-fabrication。
 - TUI 真实终端测试：`tests/e2e/` 使用 PTY 启动真实 TUI 进程；默认要求真实 OpenAI-compatible provider 环境变量，缺失时应明确失败。
 - TUI 巡检：`python -m app.runtime.tui_scenario_audit --report-dir data/tui-scenario-reports` 默认同时运行 `tests/scenarios` 和 `tests/e2e`。
