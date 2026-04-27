@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import json
 import subprocess
 import threading
@@ -397,6 +398,20 @@ async def test_app_starts_with_repo_header_and_help_hint(tmp_path: Path) -> None
         assert "Message 1 - System" in app.session_state.conversation_markdown_path.read_text(
             encoding="utf-8"
         )
+
+
+async def test_app_exposes_only_agent_request_for_normal_text_path(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=FakeToolAgentRunner(),
+    )
+
+    assert "intent_router" not in inspect.signature(MendCodeTextualApp).parameters
+    assert not hasattr(app, "ensure_intent_router")
+    assert not hasattr(app, "start_tool_request")
+    assert hasattr(app, "start_agent_request")
 
 
 async def test_status_shows_conversation_log_path(tmp_path: Path) -> None:

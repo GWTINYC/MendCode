@@ -18,7 +18,6 @@ from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_re
 from app.tui.commands import ChatCommand
 from app.tui.controller import TuiController
 from app.tui.conversation_log import ConversationLog
-from app.tui.intent import IntentRouter, build_intent_router
 from app.tui.log_summarizer import compact_agent_loop_result, compact_agent_session_turn
 from app.tui.state import TuiSessionState
 from app.workspace.project_detection import detect_project
@@ -199,7 +198,6 @@ class MendCodeTextualApp(App[None]):
         settings: Settings,
         agent_session: AgentSessionLike | None = None,
         chat_responder: ChatResponder | None = None,
-        intent_router: IntentRouter | None = None,
         review_action_executor: ReviewActionExecutor | None = None,
         shell_executor: ShellExecutor | None = None,
         tool_agent_runner: ToolAgentRunner | None = None,
@@ -212,7 +210,6 @@ class MendCodeTextualApp(App[None]):
         self.message_texts: list[str] = []
         self._agent_session = agent_session
         self._chat_responder = chat_responder
-        self._intent_router = intent_router
         self._review_action_executor = review_action_executor
         self._shell_executor = shell_executor
         self._tool_agent_runner = tool_agent_runner
@@ -262,9 +259,6 @@ class MendCodeTextualApp(App[None]):
     def conversation_log(self) -> ConversationLog:
         return self._conversation_log
 
-    def ensure_intent_router(self) -> IntentRouter:
-        return self._ensure_intent_router()
-
     def handle_pending_shell_reply(self, message: str) -> bool:
         return self._handle_pending_shell_reply(message)
 
@@ -276,9 +270,6 @@ class MendCodeTextualApp(App[None]):
 
     def prepare_shell_command(self, command: str, *, source: str) -> None:
         self._prepare_shell_command(command, source=source)
-
-    def start_tool_request(self, task: str) -> None:
-        self._start_tool_request(task)
 
     def start_agent_request(self, task: str) -> None:
         self._start_agent_request(task)
@@ -441,11 +432,6 @@ class MendCodeTextualApp(App[None]):
             self._chat_responder = build_chat_responder(self.settings)
         return self._chat_responder
 
-    def _ensure_intent_router(self) -> IntentRouter:
-        if self._intent_router is None:
-            self._intent_router = build_intent_router(self.settings)
-        return self._intent_router
-
     def _prepare_fix(self, task: str, *, source: str) -> None:
         command = self.session_state.verification_command
         if command is None:
@@ -580,9 +566,6 @@ class MendCodeTextualApp(App[None]):
             return
         self.session_state.mark_chat_started()
         self._run_chat_worker(message)
-
-    def _start_tool_request(self, task: str) -> None:
-        self._start_agent_request(task)
 
     def _start_agent_request(self, task: str) -> None:
         if self.session_state.running:
