@@ -77,6 +77,16 @@ def test_gate_blocks_local_fact_final_without_successful_tool_observation() -> N
     assert "requires tool evidence" in summary
 
 
+def test_gate_blocks_current_project_fact_without_successful_tool_observation() -> None:
+    status, summary = apply_final_response_gate(
+        steps=[],
+        handled=handled_final(index=1, summary="当前项目使用 Pydantic。"),
+    )
+
+    assert status == "failed"
+    assert "requires tool evidence" in summary
+
+
 def test_gate_allows_local_fact_final_after_successful_tool_observation() -> None:
     status, summary = apply_final_response_gate(
         steps=[
@@ -107,6 +117,31 @@ def test_gate_allows_general_git_explanation_without_tool_observation() -> None:
 
     assert status == "completed"
     assert summary == "Git 是一个分布式版本控制系统。"
+
+
+def test_gate_allows_general_repository_explanation_without_tool_observation() -> None:
+    status, summary = apply_final_response_gate(
+        steps=[],
+        handled=handled_final(index=1, summary="仓库是 Git 用来保存项目历史的地方。"),
+    )
+
+    assert status == "completed"
+    assert summary == "仓库是 Git 用来保存项目历史的地方。"
+
+
+def test_gate_allows_general_file_directory_path_explanations_without_tool_observation() -> None:
+    for answer in [
+        "文件是保存数据的一种基本单位。",
+        "目录通常用于组织多个文件。",
+        "路径用于描述文件或目录的位置。",
+    ]:
+        status, summary = apply_final_response_gate(
+            steps=[],
+            handled=handled_final(index=1, summary=answer),
+        )
+
+        assert status == "completed"
+        assert summary == answer
 
 
 def test_gate_requires_successful_verification_after_patch() -> None:

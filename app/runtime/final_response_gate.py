@@ -6,16 +6,21 @@ _LOCAL_FACT_MARKERS = (
     "readme",
     ".md",
     ".py",
-    "文件",
-    "目录",
-    "仓库",
-    "路径",
+    "当前项目",
+    "这个项目",
+    "本项目",
+    "当前仓库",
+    "这个仓库",
+    "本仓库",
+    "当前目录",
+    "当前文件夹",
 )
 _LOCAL_FACT_PATTERNS = (
     re.compile(r"\bgit\s+(status|diff|log|branch|show)\b", re.IGNORECASE),
     re.compile(r"git\s*(状态|分支|提交|差异|日志)", re.IGNORECASE),
-    re.compile(r"(当前|这个|项目|仓库).{0,8}代码"),
+    re.compile(r"(当前|这个|本)(项目|仓库|目录|文件夹)"),
     re.compile(r"代码.{0,4}(中|里|路径|文件)"),
+    re.compile(r"(?:^|[\s`'\"])(?:\.{1,2}/|[/\w.-]+/)[\w.-]+"),
 )
 
 
