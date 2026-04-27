@@ -153,7 +153,11 @@ def test_resume_context_keeps_final_answers_and_compact_tool_summaries(tmp_path:
     assert "relative_path=README.md" in context
     assert "content_excerpt=" in context
     assert full_content not in context
-    assert "/tmp/trace.jsonl" in context
+    assert "/tmp/trace.jsonl" not in context
+    assert "trace_path" not in context
+    assert "/tmp/trace.jsonl" in (
+        data_dir / "conversations" / "2026-04-26_120000-resume.jsonl"
+    ).read_text(encoding="utf-8")
 
 
 def test_trace_viewer_returns_tool_event_excerpts_and_full_payload(tmp_path: Path) -> None:

@@ -335,13 +335,10 @@ def _summarize_tool_payload(payload: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     status = result_payload.get("status")
     summary = result_payload.get("summary")
-    trace_path = result_payload.get("trace_path")
     if status or summary:
         head = f"result: {status or 'unknown'}"
         if summary:
             head += f" - {summary}"
-        if trace_path:
-            head += f" (trace_path={trace_path})"
         lines.append(head)
 
     steps = result_payload.get("steps")

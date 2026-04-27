@@ -432,6 +432,7 @@ def assert_no_raw_trace_or_large_json_dump(transcript: ScenarioTranscript) -> No
         '"tool_name"',
         "{\n",
         "TraceEvent(",
+        "trace_path",
         "{'observation':",
         "{'payload':",
         "'tool_name'",

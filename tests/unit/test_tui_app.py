@@ -514,12 +514,15 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
         assert shell_executor.calls == []
         assert any("list_dir" in message for message in app.message_texts)
         assert any("README.md" in message for message in app.message_texts)
+        assert all("/tmp/tool-trace.jsonl" not in message for message in app.message_texts)
+        assert all("trace_path" not in message for message in app.message_texts)
         assert app.session_state.conversation_markdown_path is not None
         markdown = app.session_state.conversation_markdown_path.read_text(encoding="utf-8")
         assert "intent" in markdown
         assert '"kind": "tool"' in markdown
         assert "Tool Result" in markdown
         assert "README.md" in markdown
+        assert "/tmp/tool-trace.jsonl" in markdown
         assert app.session_state.conversation_jsonl_path is not None
         records = [
             json.loads(line)
@@ -533,6 +536,7 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
             for record in records
             if record["event_type"] == "tool_result"
         )
+        assert tool_payload["trace_path"] == "/tmp/tool-trace.jsonl"
         assert tool_payload["step_count"] == 2
         assert tool_payload["steps"][0]["action"] == "list_dir"
         assert "observation" not in tool_payload["steps"][0]
@@ -622,6 +626,11 @@ async def test_natural_fix_request_waits_for_confirmation_then_runs_with_set_tes
         assert app.session_state.last_turn is not None
         assert any("Tool Summary" in message for message in app.message_texts)
         assert any("Review Summary" in message for message in app.message_texts)
+        assert all("/tmp/trace.jsonl" not in message for message in app.message_texts)
+        assert all("trace_path" not in message for message in app.message_texts)
+        assert app.session_state.conversation_markdown_path is not None
+        markdown = app.session_state.conversation_markdown_path.read_text(encoding="utf-8")
+        assert "/tmp/trace.jsonl" in markdown
 
 
 async def test_natural_fix_request_suggests_verification_command_before_running(

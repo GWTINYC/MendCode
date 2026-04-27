@@ -737,7 +737,6 @@ class MendCodeTextualApp(App[None]):
         lines = [
             f"status: {result.status}",
             f"summary: {result.summary}",
-            f"trace_path: {result.trace_path or ''}",
         ]
         for step in result.steps:
             if step.action.type != "tool_call":
@@ -779,7 +778,6 @@ class MendCodeTextualApp(App[None]):
             f"summary: {turn.result.summary}",
             f"verification_status: {turn.review.verification_status}",
             f"workspace_path: {turn.review.workspace_path or ''}",
-            f"trace_path: {turn.review.trace_path or ''}",
             f"changed_files: {', '.join(turn.review.changed_files)}",
         ]
         self.append_message("Agent", "Review Summary\n" + "\n".join(review_lines))
