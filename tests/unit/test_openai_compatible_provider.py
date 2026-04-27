@@ -160,8 +160,18 @@ def test_extract_action_json_accepts_reasoning_preamble() -> None:
     }
 
 
-def test_openai_compatible_provider_returns_action_from_fake_client() -> None:
-    client = FakeClient('{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}')
+def test_openai_compatible_provider_returns_native_invocation_from_fake_client() -> None:
+    client = FakeClient(
+        OpenAICompletion(
+            tool_calls=[
+                OpenAIToolCall(
+                    id="call-1",
+                    name="list_dir",
+                    arguments='{"path":"."}',
+                )
+            ]
+        )
+    )
     provider = OpenAICompatibleAgentProvider(
         model="test-model",
         api_key="secret-key",
@@ -173,12 +183,8 @@ def test_openai_compatible_provider_returns_action_from_fake_client() -> None:
     response = provider.next_action(step_input())
 
     assert response.status == "succeeded"
-    assert response.action == {
-        "type": "tool_call",
-        "action": "repo_status",
-        "reason": "inspect",
-        "args": {},
-    }
+    assert response.tool_invocations[0].name == "list_dir"
+    assert response.tool_invocations[0].args == {"path": "."}
     assert client.calls[0]["model"] == "test-model"
     assert client.calls[0]["timeout_seconds"] == 12
 
@@ -195,7 +201,10 @@ def test_openai_compatible_provider_sends_registered_tools_to_client() -> None:
 
     provider.next_action(step_input())
 
-    assert client.calls[0]["tools"] == default_tool_registry().openai_tools()
+    assert [tool["function"]["name"] for tool in client.calls[0]["tools"]] == [
+        *[tool["function"]["name"] for tool in default_tool_registry().openai_tools()],
+        "final_response",
+    ]
 
 
 def test_openai_compatible_provider_sends_only_allowed_tools() -> None:
@@ -226,24 +235,11 @@ def test_openai_compatible_provider_sends_only_allowed_tools() -> None:
     assert [tool["function"]["name"] for tool in client.calls[0]["tools"]] == [
         "list_dir",
         "read_file",
+        "final_response",
     ]
 
 
-def test_openai_compatible_provider_exposes_final_response_tool_after_observation() -> None:
-    action = ToolCallAction(
-        type="tool_call",
-        action="read_file",
-        reason="read document tail",
-        args={"path": "MendCode_问题记录.md", "tail_lines": 10},
-    )
-    observation = Observation(
-        status="succeeded",
-        summary="Read MendCode_问题记录.md",
-        payload={
-            "relative_path": "MendCode_问题记录.md",
-            "content": "不再记录纯讨论、一次性环境噪声、旧路线细枝末节。\n",
-        },
-    )
+def test_openai_compatible_provider_always_exposes_final_response_tool() -> None:
     client = FakeClient(
         OpenAICompletion(
             tool_calls=[
@@ -264,14 +260,7 @@ def test_openai_compatible_provider_exposes_final_response_tool_after_observatio
     )
 
     response = provider.next_action(
-        AgentProviderStepInput(
-            problem_statement="Mendcode问题记录的最后一句话是什么",
-            verification_commands=[],
-            step_index=2,
-            remaining_steps=10,
-            observations=[AgentObservationRecord(action=action, observation=observation)],
-            allowed_tools={"read_file", "glob_file_search"},
-        )
+        step_input().model_copy(update={"allowed_tools": {"read_file", "glob_file_search"}})
     )
 
     sent_tool_names = [tool["function"]["name"] for tool in client.calls[0]["tools"]]
@@ -416,7 +405,7 @@ def test_openai_compatible_provider_rejects_tool_call_outside_allowed_tools() ->
     assert response.observation.error_message == "Provider returned disallowed tool call"
 
 
-def test_openai_compatible_provider_falls_back_when_tools_are_unsupported() -> None:
+def test_openai_compatible_provider_fails_when_tools_are_unsupported() -> None:
     client = ToolsUnsupportedClient(
         '{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}'
     )
@@ -430,16 +419,10 @@ def test_openai_compatible_provider_falls_back_when_tools_are_unsupported() -> N
 
     response = provider.next_action(step_input())
 
-    assert response.status == "succeeded"
-    assert response.action == {
-        "type": "tool_call",
-        "action": "repo_status",
-        "reason": "inspect",
-        "args": {},
-    }
-    assert len(client.calls) == 2
-    assert client.calls[0]["tools"] == default_tool_registry().openai_tools()
-    assert "tools" not in client.calls[1]
+    assert response.status == "failed"
+    assert response.observation is not None
+    assert "MendCode requires tool calls" in response.observation.error_message
+    assert len(client.calls) == 1
 
 
 def test_openai_compatible_provider_returns_native_tool_invocation() -> None:
@@ -610,23 +593,7 @@ def test_openai_compatible_provider_uses_repair_contract_prompt() -> None:
     assert "secret-key" not in "\n".join(message.content for message in messages)
 
 
-def test_openai_compatible_provider_rejects_empty_response() -> None:
-    provider = OpenAICompatibleAgentProvider(
-        model="test-model",
-        api_key="secret-key",
-        base_url="https://example.test/v1",
-        timeout_seconds=12,
-        client=FakeClient(""),
-    )
-
-    response = provider.next_action(step_input())
-
-    assert response.status == "failed"
-    assert response.observation is not None
-    assert response.observation.error_message == "Provider returned empty response"
-
-
-def test_openai_compatible_provider_rejects_invalid_json() -> None:
+def test_openai_compatible_provider_rejects_plain_text_without_tool_call() -> None:
     provider = OpenAICompatibleAgentProvider(
         model="test-model",
         api_key="secret-key",
@@ -639,10 +606,32 @@ def test_openai_compatible_provider_rejects_invalid_json() -> None:
 
     assert response.status == "failed"
     assert response.observation is not None
-    assert response.observation.error_message == "Provider returned invalid JSON action"
+    assert (
+        response.observation.error_message
+        == "Provider returned plain text instead of a schema tool call"
+    )
 
 
-def test_openai_compatible_provider_wraps_text_after_tool_observation() -> None:
+def test_openai_compatible_provider_rejects_empty_response_without_tool_call() -> None:
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=FakeClient(""),
+    )
+
+    response = provider.next_action(step_input())
+
+    assert response.status == "failed"
+    assert response.observation is not None
+    assert (
+        response.observation.error_message
+        == "Provider returned plain text instead of a schema tool call"
+    )
+
+
+def test_openai_compatible_provider_rejects_text_after_tool_observation() -> None:
     action = ToolCallAction(
         type="tool_call",
         action="read_file",
@@ -672,16 +661,15 @@ def test_openai_compatible_provider_wraps_text_after_tool_observation() -> None:
         )
     )
 
-    assert response.status == "succeeded"
-    assert response.action == {
-        "type": "final_response",
-        "status": "completed",
-        "summary": "第一句话是：本文档是当前开发执行方案。",
-        "recommended_actions": [],
-    }
+    assert response.status == "failed"
+    assert response.observation is not None
+    assert (
+        response.observation.error_message
+        == "Provider returned plain text instead of a schema tool call"
+    )
 
 
-def test_openai_compatible_provider_strips_think_blocks_from_wrapped_text() -> None:
+def test_openai_compatible_provider_rejects_think_block_text_after_tool_observation() -> None:
     action = ToolCallAction(
         type="tool_call",
         action="read_file",
@@ -711,12 +699,15 @@ def test_openai_compatible_provider_strips_think_blocks_from_wrapped_text() -> N
         )
     )
 
-    assert response.status == "succeeded"
-    assert response.action is not None
-    assert response.action["summary"] == "README.md 写了：Hello MendCode."
+    assert response.status == "failed"
+    assert response.observation is not None
+    assert (
+        response.observation.error_message
+        == "Provider returned plain text instead of a schema tool call"
+    )
 
 
-def test_openai_compatible_provider_rejects_invalid_action_schema() -> None:
+def test_openai_compatible_provider_rejects_json_action_without_tool_call() -> None:
     provider = OpenAICompatibleAgentProvider(
         model="test-model",
         api_key="secret-key",
@@ -729,7 +720,10 @@ def test_openai_compatible_provider_rejects_invalid_action_schema() -> None:
 
     assert response.status == "failed"
     assert response.observation is not None
-    assert response.observation.error_message == "Provider returned invalid MendCode action"
+    assert (
+        response.observation.error_message
+        == "Provider returned plain text instead of a schema tool call"
+    )
 
 
 def test_openai_compatible_provider_redacts_api_key_from_client_errors() -> None:

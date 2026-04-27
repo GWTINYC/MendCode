@@ -282,21 +282,14 @@ def _system_prompt(
     tool_names = pool.names()
     scoped_prompt = allowed_tools is not None
     text = (
-        "You are MendCode's action planner. Use native tool calls when tools are available. "
-        "Return JSON only when no native tool call is needed, such as final_response or "
-        "a patch_proposal fallback. The JSON object must be a valid MendCodeAction.\n"
-        "Allowed action types: assistant_message, tool_call, patch_proposal, "
-        "user_confirmation_request, final_response.\n"
+        "You are MendCode's action planner. Use schema tool calls for all actions. "
+        "Do not answer local repository facts from memory. End every completed turn "
+        "by calling final_response. Do not return free-form final text.\n"
         f"Allowed native tools in this turn: {', '.join(tool_names)}.\n"
     )
-    if not scoped_prompt:
-        json_tool_actions = [*tool_names, "apply_patch_to_worktree"]
-        text += "Allowed JSON tool actions: " + ", ".join(dict.fromkeys(json_tool_actions)) + ".\n"
     text += (
-        "Use the discriminator field named type. Do not use action_type. Examples: "
-        '{"type": "tool_call", "action": "repo_status", "reason": "inspect", "args": {}}; '
-        '{"type": "final_response", "status": "completed", "summary": "verified", '
-        '"recommended_actions": []}.\n'
+        "When finishing, call final_response with a concise summary and optional "
+        "recommended_actions.\n"
         "Prefer structured tools over raw shell: use read_file for file content, "
         "list_dir for directory inspection, glob_file_search for path discovery, rg or "
         "search_code for text search, git for repository inspection, write_file or "
@@ -320,7 +313,7 @@ def _system_prompt(
         "\n"
         "When list_dir returns truncated=false, the listed entries are complete; do not "
         "repeat list_dir for the same path with a larger max_entries. When the "
-        "observations answer the user, return a final_response JSON instead of making "
+        "observations answer the user, call final_response instead of making "
         "more tool calls.\n"
     )
     if not scoped_prompt or {"run_command", "apply_patch"}.intersection(tool_names):

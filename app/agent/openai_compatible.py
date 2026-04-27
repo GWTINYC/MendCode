@@ -201,8 +201,7 @@ class OpenAICompatibleAgentProvider:
             )
             openai_tools = tool_pool.openai_tools()
             allowed_tool_names = set(tool_pool.names())
-            if step_input.observations:
-                openai_tools = [*openai_tools, _FINAL_RESPONSE_TOOL]
+            openai_tools = [*openai_tools, _FINAL_RESPONSE_TOOL]
         except KeyError as exc:
             return ProviderResponse.failed(str(exc.args[0]))
         try:
@@ -214,19 +213,9 @@ class OpenAICompatibleAgentProvider:
             )
         except Exception as exc:
             if _looks_like_unsupported_tools_error(exc):
-                try:
-                    content = self._client.complete(
-                        model=self._model,
-                        messages=messages,
-                        timeout_seconds=self._timeout_seconds,
-                    )
-                except Exception as retry_exc:
-                    return ProviderResponse.failed(
-                        f"Provider request failed: {redact_secret(str(retry_exc), self._api_key)}"
-                    )
-                return _response_from_action_text(
-                    content,
-                    text_final_status=_text_final_status(step_input),
+                return ProviderResponse.failed(
+                    "MendCode requires tool calls, but the configured provider "
+                    f"rejected tools: {redact_secret(str(exc), self._api_key)}"
                 )
             return ProviderResponse.failed(
                 f"Provider request failed: {redact_secret(str(exc), self._api_key)}"
@@ -238,9 +227,8 @@ class OpenAICompatibleAgentProvider:
                 allowed_tool_names=allowed_tool_names,
                 text_final_status=_text_final_status(step_input),
             )
-        return _response_from_action_text(
-            completion.content,
-            text_final_status=_text_final_status(step_input),
+        return ProviderResponse.failed(
+            "Provider returned plain text instead of a schema tool call"
         )
 
 

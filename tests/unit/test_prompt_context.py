@@ -18,8 +18,10 @@ def test_provider_messages_include_repair_contract_and_allowed_tools() -> None:
     )
 
     assert messages[0].role == "system"
-    assert "Use native tool calls when tools are available" in messages[0].content
-    assert "Return JSON only when no native tool call is needed" in messages[0].content
+    assert "Use schema tool calls for all actions" in messages[0].content
+    assert "Do not answer local repository facts from memory" in messages[0].content
+    assert "End every completed turn by calling final_response" in messages[0].content
+    assert "Do not return free-form final text" in messages[0].content
     assert "patch_proposal" in messages[0].content
     assert "show_diff" in messages[0].content
     assert "list_dir" in messages[0].content
@@ -29,8 +31,8 @@ def test_provider_messages_include_repair_contract_and_allowed_tools() -> None:
     assert "rg" in messages[0].content
     assert "run_shell_command" in messages[0].content
     assert "run_command only for declared verification commands" in messages[0].content
-    assert '"type": "final_response"' in messages[0].content
-    assert "Do not use action_type" in messages[0].content
+    assert "call final_response" in messages[0].content
+    assert "JSON tool actions" not in messages[0].content
     assert "Never claim completed after a failed verification" in messages[0].content
     assert messages[1].role == "user"
     assert "fix failing tests" in messages[1].content
@@ -66,8 +68,8 @@ def test_system_prompt_prefers_native_tools_over_json_actions() -> None:
         )
     )
 
-    assert "Use native tool calls when tools are available" in messages[0].content
-    assert "Return JSON only when no native tool call is needed" in messages[0].content
+    assert "Use schema tool calls for all actions" in messages[0].content
+    assert "Do not return free-form final text" in messages[0].content
 
 
 def test_provider_messages_summarize_failed_run_command() -> None:
