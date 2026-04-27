@@ -115,6 +115,7 @@ class ToolExecutionContext(BaseModel):
     recent_steps: list[dict[str, object]] = Field(default_factory=list)
     pending_confirmation: dict[str, object] | None = None
     process_registry: Any | None = None
+    lsp_client: Any | None = None
 
 
 ToolExecutor = Callable[[BaseModel, ToolExecutionContext], Observation]

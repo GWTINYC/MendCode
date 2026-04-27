@@ -61,6 +61,25 @@ class GitArgs(BaseModel):
     limit: int = Field(default=5, ge=1, le=50)
 
 
+class LspArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    operation: Literal[
+        "diagnostics",
+        "definition",
+        "references",
+        "hover",
+        "document_symbols",
+        "workspace_symbols",
+        "implementations",
+    ]
+    path: str | None = None
+    line: int | None = Field(default=None, ge=1)
+    column: int | None = Field(default=None, ge=1)
+    query: str | None = None
+    max_results: int = Field(default=50, ge=1, le=500)
+
+
 class ApplyPatchArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

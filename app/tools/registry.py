@@ -11,6 +11,7 @@ from app.tools.arguments import (
     GitArgs,
     GlobFileSearchArgs,
     ListDirArgs,
+    LspArgs,
     ProcessPollArgs,
     ProcessStartArgs,
     ProcessStopArgs,
@@ -24,6 +25,7 @@ from app.tools.arguments import (
     ToolSearchArgs,
     WriteFileArgs,
 )
+from app.tools.lsp_tool import lsp
 from app.tools.observations import observation_from_tool_result, tool_observation
 from app.tools.process_tools import (
     process_list,
@@ -842,10 +844,14 @@ def default_tool_registry() -> ToolRegistry:
             ),
             ToolSpec(
                 name="lsp",
-                description="Use language-server assistance when available.",
-                args_model=EmptyToolArgs,
+                description=(
+                    "Use configured language-server assistance for diagnostics, "
+                    "definitions, references, hover, and symbols; returns rejected "
+                    "when no server transport is available."
+                ),
+                args_model=LspArgs,
                 risk_level=ToolRisk.READ_ONLY,
-                executor=_unavailable_tool("lsp"),
+                executor=lsp,
             ),
         ]
     )

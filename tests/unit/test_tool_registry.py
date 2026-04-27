@@ -10,6 +10,7 @@ from app.config.settings import Settings
 from app.schemas.agent_action import Observation
 from app.tools.arguments import (
     EmptyToolArgs,
+    LspArgs,
     ProcessPollArgs,
     ProcessStartArgs,
     ProcessStopArgs,
@@ -478,7 +479,27 @@ def test_default_registry_contains_real_process_tools() -> None:
         assert spec.args_model is args_model
         assert spec.risk_level == risk_level
 
-    assert registry.get("lsp").args_model is EmptyToolArgs
+
+def test_default_registry_contains_lsp_tool() -> None:
+    registry = default_tool_registry()
+    assert "lsp" in registry.names()
+    assert registry.get("lsp").args_model is LspArgs
+    assert registry.get("lsp").risk_level == ToolRisk.READ_ONLY
+    schema = next(
+        tool for tool in registry.openai_tools() if tool["function"]["name"] == "lsp"
+    )
+    parameters = schema["function"]["parameters"]
+    operation_schema = parameters["properties"]["operation"]
+    assert parameters["additionalProperties"] is False
+    assert set(operation_schema["enum"]) == {
+        "diagnostics",
+        "definition",
+        "references",
+        "hover",
+        "document_symbols",
+        "workspace_symbols",
+        "implementations",
+    }
 
 
 def test_repo_status_runs_through_registry(tmp_path: Path) -> None:
