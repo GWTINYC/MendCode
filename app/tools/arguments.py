@@ -129,5 +129,39 @@ class RunCommandArgs(BaseModel):
     command: str
 
 
+class ProcessStartArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command: str = Field(min_length=1)
+    cwd: str = "."
+    name: str | None = None
+    pty: bool = False
+    background: bool = True
+
+
+class ProcessPollArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    process_id: str = Field(min_length=1)
+    offset: int | None = Field(default=None, ge=0)
+    stdout_offset: int | None = Field(default=None, ge=0)
+    stderr_offset: int | None = Field(default=None, ge=0)
+    max_chars: int = Field(default=12000, ge=0)
+
+
+class ProcessWriteArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    process_id: str = Field(min_length=1)
+    input: str
+
+
+class ProcessStopArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    process_id: str = Field(min_length=1)
+    signal: Literal["term", "kill"] = "term"
+
+
 class EmptyToolArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")

@@ -452,6 +452,84 @@ def test_agent_loop_executes_run_shell_command_action(tmp_path: Path) -> None:
     assert "README.md" in result.steps[0].observation.payload["stdout_excerpt"]
 
 
+def test_agent_loop_allows_low_risk_process_start_in_guided_mode(tmp_path: Path) -> None:
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="start background inspection",
+            actions=[
+                {
+                    "type": "tool_call",
+                    "action": "process_start",
+                    "reason": "inspect current directory",
+                    "args": {"command": "pwd"},
+                },
+                {"type": "final_response", "status": "completed", "summary": "done"},
+            ],
+            allowed_tools={"full_coding_agent"},
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.steps[0].action.type == "tool_call"
+    assert result.steps[0].observation.status == "succeeded"
+    assert result.steps[0].observation.payload["command"] == "pwd"
+
+
+def test_agent_loop_process_start_permission_uses_requested_cwd(tmp_path: Path) -> None:
+    subdir = tmp_path / "sub"
+    subdir.mkdir()
+    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="start cwd-sensitive background read",
+            actions=[
+                {
+                    "type": "tool_call",
+                    "action": "process_start",
+                    "reason": "read from subdir",
+                    "args": {"command": "cat ../README.md", "cwd": "sub"},
+                },
+                {"type": "final_response", "status": "completed", "summary": "done"},
+            ],
+            allowed_tools={"full_coding_agent"},
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.steps[0].observation.status == "succeeded"
+
+
+def test_agent_loop_process_start_rejects_missing_cwd(tmp_path: Path) -> None:
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="start in missing cwd",
+            actions=[
+                {
+                    "type": "tool_call",
+                    "action": "process_start",
+                    "reason": "bad cwd",
+                    "args": {"command": "pwd", "cwd": "missing"},
+                },
+                {"type": "final_response", "status": "completed", "summary": "done"},
+            ],
+            allowed_tools={"full_coding_agent"},
+            permission_mode="danger-full-access",
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.summary == "Agent loop ended with failed observations"
+    assert result.steps[0].observation.status == "rejected"
+    assert result.steps[0].observation.error_message == "cwd must exist and be a directory"
+
+
 def test_agent_loop_executes_list_dir_action(tmp_path: Path) -> None:
     repo_path = tmp_path / "repo"
     repo_path.mkdir()

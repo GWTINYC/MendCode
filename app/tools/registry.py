@@ -11,6 +11,10 @@ from app.tools.arguments import (
     GitArgs,
     GlobFileSearchArgs,
     ListDirArgs,
+    ProcessPollArgs,
+    ProcessStartArgs,
+    ProcessStopArgs,
+    ProcessWriteArgs,
     ReadFileArgs,
     RgArgs,
     RunCommandArgs,
@@ -21,6 +25,13 @@ from app.tools.arguments import (
     WriteFileArgs,
 )
 from app.tools.observations import observation_from_tool_result, tool_observation
+from app.tools.process_tools import (
+    process_list,
+    process_poll,
+    process_start,
+    process_stop,
+    process_write,
+)
 from app.tools.read_only import (
     glob_file_search,
     list_dir,
@@ -796,40 +807,38 @@ def default_tool_registry() -> ToolRegistry:
             ),
             ToolSpec(
                 name="process_start",
-                description="Start a long-running process when process tools are available.",
-                args_model=EmptyToolArgs,
+                description="Start a background process through the restricted shell policy.",
+                args_model=ProcessStartArgs,
                 risk_level=ToolRisk.SHELL_RESTRICTED,
-                executor=_unavailable_tool("process_start"),
+                executor=process_start,
             ),
             ToolSpec(
                 name="process_poll",
-                description="Poll a long-running process when process tools are available.",
-                args_model=EmptyToolArgs,
-                risk_level=ToolRisk.SHELL_RESTRICTED,
-                executor=_unavailable_tool("process_poll"),
+                description="Poll output and status for a background process.",
+                args_model=ProcessPollArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=process_poll,
             ),
             ToolSpec(
                 name="process_write",
-                description=(
-                    "Write stdin to a long-running process when process tools are available."
-                ),
-                args_model=EmptyToolArgs,
+                description="Write stdin to a background process.",
+                args_model=ProcessWriteArgs,
                 risk_level=ToolRisk.SHELL_RESTRICTED,
-                executor=_unavailable_tool("process_write"),
+                executor=process_write,
             ),
             ToolSpec(
                 name="process_stop",
-                description="Stop a long-running process when process tools are available.",
-                args_model=EmptyToolArgs,
+                description="Stop a background process.",
+                args_model=ProcessStopArgs,
                 risk_level=ToolRisk.SHELL_RESTRICTED,
-                executor=_unavailable_tool("process_stop"),
+                executor=process_stop,
             ),
             ToolSpec(
                 name="process_list",
-                description="List long-running processes when process tools are available.",
+                description="List background processes.",
                 args_model=EmptyToolArgs,
-                risk_level=ToolRisk.SHELL_RESTRICTED,
-                executor=_unavailable_tool("process_list"),
+                risk_level=ToolRisk.READ_ONLY,
+                executor=process_list,
             ),
             ToolSpec(
                 name="lsp",

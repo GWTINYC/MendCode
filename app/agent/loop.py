@@ -389,6 +389,7 @@ def _tool_execution_context(
     run_id: str | None = None,
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
+    process_registry: Any | None = None,
 ) -> ToolExecutionContext:
     return ToolExecutionContext(
         workspace_path=repo_path,
@@ -401,6 +402,7 @@ def _tool_execution_context(
         run_id=run_id,
         trace_path=trace_path,
         recent_steps=recent_steps or [],
+        process_registry=process_registry,
     )
 
 
@@ -424,6 +426,7 @@ def _execute_tool_invocation(
     run_id: str | None = None,
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
+    process_registry: Any | None = None,
 ) -> Observation:
     registry = default_tool_registry()
     try:
@@ -454,6 +457,7 @@ def _execute_tool_invocation(
             run_id=run_id,
             trace_path=trace_path,
             recent_steps=recent_steps,
+            process_registry=process_registry,
         ),
     )
 
@@ -469,6 +473,7 @@ def _execute_tool_call(
     run_id: str | None = None,
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
+    process_registry: Any | None = None,
     allow_legacy_git: bool = True,
 ) -> Observation:
     if (
@@ -498,6 +503,7 @@ def _execute_tool_call(
             run_id=run_id,
             trace_path=trace_path,
             recent_steps=recent_steps,
+            process_registry=process_registry,
         )
 
     if action.action == "repo_status":
@@ -589,7 +595,7 @@ def _record_step(
 
 
 def _shell_policy_command_for_action(action: ToolCallAction) -> str | None:
-    if action.action == "run_shell_command":
+    if action.action in {"run_shell_command", "process_start"}:
         return str(action.args.get("command", ""))
     if action.action == "git":
         command, error_message = _build_git_command(action.args)
@@ -597,6 +603,16 @@ def _shell_policy_command_for_action(action: ToolCallAction) -> str | None:
             return None
         return command
     return None
+
+
+def _shell_policy_cwd_for_action(action: ToolCallAction, workspace_path: Path) -> Path:
+    if action.action != "process_start":
+        return workspace_path
+    raw_cwd = str(action.args.get("cwd") or ".")
+    candidate = Path(raw_cwd)
+    if candidate.is_absolute():
+        return candidate.resolve()
+    return (workspace_path / candidate).resolve()
 
 
 def _confirmation_handled_action(
@@ -634,6 +650,7 @@ def _handle_tool_call_action(
     run_id: str | None = None,
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
+    process_registry: Any | None = None,
     allow_legacy_git: bool = True,
 ) -> _HandledAction:
     shell_policy_command = (
@@ -646,7 +663,7 @@ def _handle_tool_call_action(
         shell_decision = ShellPolicy(
             allowed_root=workspace_path,
             timeout_seconds=settings.verification_timeout_seconds,
-        ).evaluate(shell_policy_command, workspace_path)
+        ).evaluate(shell_policy_command, _shell_policy_cwd_for_action(action, workspace_path))
 
     decision = decide_permission(
         action,
@@ -692,6 +709,7 @@ def _handle_tool_call_action(
             run_id=run_id,
             trace_path=trace_path,
             recent_steps=recent_steps,
+            process_registry=process_registry,
             allow_legacy_git=allow_legacy_git,
         )
     return _HandledAction(
@@ -752,6 +770,7 @@ def _handle_tool_invocation(
     run_id: str | None = None,
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
+    process_registry: Any | None = None,
 ) -> _HandledAction:
     action = _tool_call_action_for_invocation(invocation)
     if action is None:
@@ -800,6 +819,7 @@ def _handle_tool_invocation(
         run_id=run_id,
         trace_path=trace_path,
         recent_steps=recent_steps,
+        process_registry=process_registry,
         allow_legacy_git=False,
     )
 
@@ -816,6 +836,7 @@ def _handle_action_payload(
     run_id: str | None = None,
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
+    process_registry: Any | None = None,
 ) -> _HandledAction:
     try:
         action = parse_mendcode_action(payload)
@@ -848,6 +869,7 @@ def _handle_action_payload(
             run_id=run_id,
             trace_path=trace_path,
             recent_steps=recent_steps,
+            process_registry=process_registry,
         )
 
     if isinstance(action, PatchProposalAction):

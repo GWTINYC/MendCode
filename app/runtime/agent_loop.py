@@ -16,6 +16,7 @@ from app.agent.loop import (
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
 from app.config.settings import Settings
 from app.runtime.final_response_gate import apply_final_response_gate
+from app.runtime.process_registry import ProcessRegistry
 from app.runtime.tool_repetition import RepetitionTracker
 from app.schemas.agent_action import Observation, ToolCallAction, build_invalid_action_observation
 from app.schemas.trace import TraceEvent
@@ -27,6 +28,7 @@ from app.workspace.worktree import prepare_worktree
 def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopResult:
     recorder = TraceRecorder(settings.traces_dir)
     run_id = f"agent-{uuid4().hex[:12]}"
+    process_registry = ProcessRegistry(log_dir=settings.data_dir / "processes" / run_id)
     workspace_path = loop_input.repo_path
     if loop_input.use_worktree:
         try:
@@ -99,182 +101,190 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
             )
         )
 
-    if loop_input.provider is not None:
-        index = 1
-        provider_turn = 0
-        while index <= loop_input.step_budget:
-            provider_turn += 1
-            provider_response = loop_input.provider.next_action(
-                AgentProviderStepInput(
-                    problem_statement=loop_input.problem_statement,
-                    verification_commands=loop_input.verification_commands,
-                    step_index=index,
-                    remaining_steps=loop_input.step_budget - index,
-                    observations=observation_history,
-                    context=loop_input.provider_context,
-                    allowed_tools=loop_input.allowed_tools,
-                    permission_mode=loop_input.permission_mode,
-                )
-            )
-            if provider_response.status != "succeeded":
-                observation = provider_response.observation or _failed_observation(
-                    "Provider failed",
-                    "provider failed without observation",
-                )
-                action = FinalResponseAction(
-                    type="final_response",
-                    status="failed",
-                    summary="Provider failed",
-                )
-                handled = _handled_response(
-                    status="failed",
-                    summary=observation.summary,
-                    index=index,
-                    action=action,
-                    observation=observation,
-                )
-                record_handled_action(handled)
-                status = "failed"
-                summary = observation.summary
-                break
-
-            if provider_response.tool_invocations:
-                group_id = f"provider-{provider_turn}"
-                stop_after_invocation = False
-                for raw_invocation in provider_response.tool_invocations:
-                    if index > loop_input.step_budget:
-                        status = "failed"
-                        summary = "Agent loop exhausted step budget without final response"
-                        stop_after_invocation = True
-                        break
-                    invocation = raw_invocation.model_copy(update={"group_id": group_id})
-                    rejection = repetition_tracker.rejection_for(
-                        invocation,
-                        workspace_path,
-                        next_step_index=index,
-                    )
-                    if rejection is None:
-                        handled = _handle_tool_invocation(
-                            invocation=invocation,
-                            index=index,
-                            workspace_path=workspace_path,
-                            settings=settings,
-                            permission_mode=loop_input.permission_mode,
-                            verification_commands=loop_input.verification_commands,
-                            allowed_tools=loop_input.allowed_tools,
-                            run_id=run_id,
-                            trace_path=str(trace_path),
-                            recent_steps=recent_step_payloads(),
-                        )
-                    else:
-                        handled = _handled_tool_rejection(index, invocation, rejection)
-                    record_handled_action(handled, tool_invocation=invocation)
-                    repetition_tracker.record(
-                        invocation,
-                        workspace_path,
+    try:
+        if loop_input.provider is not None:
+            index = 1
+            provider_turn = 0
+            while index <= loop_input.step_budget:
+                provider_turn += 1
+                provider_response = loop_input.provider.next_action(
+                    AgentProviderStepInput(
+                        problem_statement=loop_input.problem_statement,
+                        verification_commands=loop_input.verification_commands,
                         step_index=index,
-                        observation=handled.step.observation,
+                        remaining_steps=loop_input.step_budget - index,
+                        observations=observation_history,
+                        context=loop_input.provider_context,
+                        allowed_tools=loop_input.allowed_tools,
+                        permission_mode=loop_input.permission_mode,
                     )
-                    index += 1
-                    if handled.stop:
-                        status = handled.status
-                        summary = handled.summary
-                        stop_after_invocation = True
-                        break
-                if stop_after_invocation:
+                )
+                if provider_response.status != "succeeded":
+                    observation = provider_response.observation or _failed_observation(
+                        "Provider failed",
+                        "provider failed without observation",
+                    )
+                    action = FinalResponseAction(
+                        type="final_response",
+                        status="failed",
+                        summary="Provider failed",
+                    )
+                    handled = _handled_response(
+                        status="failed",
+                        summary=observation.summary,
+                        index=index,
+                        action=action,
+                        observation=observation,
+                    )
+                    record_handled_action(handled)
+                    status = "failed"
+                    summary = observation.summary
                     break
-                continue
 
-            if len(provider_response.actions) != 1:
-                observation = build_invalid_action_observation(
-                    payload={"actions": provider_response.actions},
-                    error_message="provider step responses must include exactly one action",
-                )
-                action = FinalResponseAction(
-                    type="final_response",
-                    status="failed",
-                    summary="Invalid MendCode action",
-                )
-                handled = _handled_response(
-                    status="failed",
-                    summary=observation.summary,
+                if provider_response.tool_invocations:
+                    group_id = f"provider-{provider_turn}"
+                    stop_after_invocation = False
+                    for raw_invocation in provider_response.tool_invocations:
+                        if index > loop_input.step_budget:
+                            status = "failed"
+                            summary = "Agent loop exhausted step budget without final response"
+                            stop_after_invocation = True
+                            break
+                        invocation = raw_invocation.model_copy(update={"group_id": group_id})
+                        rejection = repetition_tracker.rejection_for(
+                            invocation,
+                            workspace_path,
+                            next_step_index=index,
+                        )
+                        if rejection is None:
+                            handled = _handle_tool_invocation(
+                                invocation=invocation,
+                                index=index,
+                                workspace_path=workspace_path,
+                                settings=settings,
+                                permission_mode=loop_input.permission_mode,
+                                verification_commands=loop_input.verification_commands,
+                                allowed_tools=loop_input.allowed_tools,
+                                run_id=run_id,
+                                trace_path=str(trace_path),
+                                recent_steps=recent_step_payloads(),
+                                process_registry=process_registry,
+                            )
+                        else:
+                            handled = _handled_tool_rejection(index, invocation, rejection)
+                        record_handled_action(handled, tool_invocation=invocation)
+                        repetition_tracker.record(
+                            invocation,
+                            workspace_path,
+                            step_index=index,
+                            observation=handled.step.observation,
+                        )
+                        index += 1
+                        if handled.stop:
+                            status = handled.status
+                            summary = handled.summary
+                            stop_after_invocation = True
+                            break
+                    if stop_after_invocation:
+                        break
+                    continue
+
+                if len(provider_response.actions) != 1:
+                    observation = build_invalid_action_observation(
+                        payload={"actions": provider_response.actions},
+                        error_message="provider step responses must include exactly one action",
+                    )
+                    action = FinalResponseAction(
+                        type="final_response",
+                        status="failed",
+                        summary="Invalid MendCode action",
+                    )
+                    handled = _handled_response(
+                        status="failed",
+                        summary=observation.summary,
+                        index=index,
+                        action=action,
+                        observation=observation,
+                    )
+                    record_handled_action(handled)
+                    status = "failed"
+                    summary = observation.summary
+                    break
+
+                provider_action = provider_response.actions[0]
+                if provider_action.get("type") != "final_response":
+                    observation = Observation(
+                        status="rejected",
+                        summary="Legacy JSON actions are disabled",
+                        payload={"action": provider_action},
+                        error_message=(
+                            "provider returned JSON action instead of schema tool_calls; "
+                            "return native ToolInvocation objects for tool execution"
+                        ),
+                    )
+                    action = FinalResponseAction(
+                        type="final_response",
+                        status="failed",
+                        summary=observation.summary,
+                    )
+                    handled = _handled_response(
+                        status="failed",
+                        summary=observation.summary,
+                        index=index,
+                        action=action,
+                        observation=observation,
+                    )
+                    record_handled_action(handled)
+                    status = "failed"
+                    summary = observation.summary
+                    break
+
+                handled = _handle_action_payload(
+                    payload=provider_action,
                     index=index,
-                    action=action,
-                    observation=observation,
+                    workspace_path=workspace_path,
+                    settings=settings,
+                    permission_mode=loop_input.permission_mode,
+                    verification_commands=loop_input.verification_commands,
+                    allowed_tools=loop_input.allowed_tools,
+                    run_id=run_id,
+                    trace_path=str(trace_path),
+                    recent_steps=recent_step_payloads(),
+                    process_registry=process_registry,
                 )
                 record_handled_action(handled)
+                if handled.stop:
+                    status, summary = apply_final_response_gate(steps=steps[:-1], handled=handled)
+                    break
+                index += 1
+            if (
+                index > loop_input.step_budget
+                and summary == "Agent loop ended without final response"
+            ):
                 status = "failed"
-                summary = observation.summary
-                break
-
-            provider_action = provider_response.actions[0]
-            if provider_action.get("type") != "final_response":
-                observation = Observation(
-                    status="rejected",
-                    summary="Legacy JSON actions are disabled",
-                    payload={"action": provider_action},
-                    error_message=(
-                        "provider returned JSON action instead of schema tool_calls; "
-                        "return native ToolInvocation objects for tool execution"
-                    ),
-                )
-                action = FinalResponseAction(
-                    type="final_response",
-                    status="failed",
-                    summary=observation.summary,
-                )
-                handled = _handled_response(
-                    status="failed",
-                    summary=observation.summary,
+                summary = "Agent loop exhausted step budget without final response"
+        else:
+            # Compatibility path for CLI/scripted callers that pass JSON actions directly.
+            for index, payload in enumerate(loop_input.actions[: loop_input.step_budget], start=1):
+                handled = _handle_action_payload(
+                    payload=payload,
                     index=index,
-                    action=action,
-                    observation=observation,
+                    workspace_path=workspace_path,
+                    settings=settings,
+                    permission_mode=loop_input.permission_mode,
+                    verification_commands=loop_input.verification_commands,
+                    allowed_tools=loop_input.allowed_tools,
+                    run_id=run_id,
+                    trace_path=str(trace_path),
+                    recent_steps=recent_step_payloads(),
+                    process_registry=process_registry,
                 )
                 record_handled_action(handled)
-                status = "failed"
-                summary = observation.summary
-                break
-
-            handled = _handle_action_payload(
-                payload=provider_action,
-                index=index,
-                workspace_path=workspace_path,
-                settings=settings,
-                permission_mode=loop_input.permission_mode,
-                verification_commands=loop_input.verification_commands,
-                allowed_tools=loop_input.allowed_tools,
-                run_id=run_id,
-                trace_path=str(trace_path),
-                recent_steps=recent_step_payloads(),
-            )
-            record_handled_action(handled)
-            if handled.stop:
-                status, summary = apply_final_response_gate(steps=steps[:-1], handled=handled)
-                break
-            index += 1
-        if index > loop_input.step_budget and summary == "Agent loop ended without final response":
-            status = "failed"
-            summary = "Agent loop exhausted step budget without final response"
-    else:
-        # Compatibility path for legacy CLI/scripted callers that still pass JSON actions directly.
-        for index, payload in enumerate(loop_input.actions[: loop_input.step_budget], start=1):
-            handled = _handle_action_payload(
-                payload=payload,
-                index=index,
-                workspace_path=workspace_path,
-                settings=settings,
-                permission_mode=loop_input.permission_mode,
-                verification_commands=loop_input.verification_commands,
-                allowed_tools=loop_input.allowed_tools,
-                run_id=run_id,
-                trace_path=str(trace_path),
-                recent_steps=recent_step_payloads(),
-            )
-            record_handled_action(handled)
-            if handled.stop:
-                status, summary = apply_final_response_gate(steps=steps[:-1], handled=handled)
-                break
-
+                if handled.stop:
+                    status, summary = apply_final_response_gate(steps=steps[:-1], handled=handled)
+                    break
+    finally:
+        process_registry.stop_all()
     trace_path = recorder.record(
         TraceEvent(
             run_id=run_id,

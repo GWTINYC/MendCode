@@ -57,9 +57,9 @@ _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
         "runtime",
         "planning",
         "introspection",
-        "process",
         "lsp_tools",
     ),
+    "full_coding_agent": ("coding_agent", "process"),
     "repair_agent": ("coding_agent",),
     "simple_chat_tool_agent": (
         "fs_read",
@@ -114,6 +114,7 @@ class ToolExecutionContext(BaseModel):
     trace_path: str | None = None
     recent_steps: list[dict[str, object]] = Field(default_factory=list)
     pending_confirmation: dict[str, object] | None = None
+    process_registry: Any | None = None
 
 
 ToolExecutor = Callable[[BaseModel, ToolExecutionContext], Observation]

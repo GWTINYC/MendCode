@@ -8,6 +8,13 @@ import app.tools as tool_exports
 import app.tools.structured as structured
 from app.config.settings import Settings
 from app.schemas.agent_action import Observation
+from app.tools.arguments import (
+    EmptyToolArgs,
+    ProcessPollArgs,
+    ProcessStartArgs,
+    ProcessStopArgs,
+    ProcessWriteArgs,
+)
 from app.tools.registry import default_tool_registry, tool_result_to_observation
 from app.tools.schemas import ToolResult
 from app.tools.structured import (
@@ -454,6 +461,24 @@ def test_default_registry_contains_command_tools() -> None:
     assert "apply_patch" in registry.names()
     assert "run_shell_command" in registry.names()
     assert "run_command" in registry.names()
+
+
+def test_default_registry_contains_real_process_tools() -> None:
+    registry = default_tool_registry()
+
+    expected = {
+        "process_start": (ProcessStartArgs, ToolRisk.SHELL_RESTRICTED),
+        "process_poll": (ProcessPollArgs, ToolRisk.READ_ONLY),
+        "process_write": (ProcessWriteArgs, ToolRisk.SHELL_RESTRICTED),
+        "process_stop": (ProcessStopArgs, ToolRisk.SHELL_RESTRICTED),
+        "process_list": (EmptyToolArgs, ToolRisk.READ_ONLY),
+    }
+    for tool_name, (args_model, risk_level) in expected.items():
+        spec = registry.get(tool_name)
+        assert spec.args_model is args_model
+        assert spec.risk_level == risk_level
+
+    assert registry.get("lsp").args_model is EmptyToolArgs
 
 
 def test_repo_status_runs_through_registry(tmp_path: Path) -> None:
