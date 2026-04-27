@@ -38,6 +38,7 @@ class FakeHost:
         self.started_chat: list[str] = []
         self.prepared_shell: list[tuple[str, str]] = []
         self.started_tool: list[str] = []
+        self.started_agent: list[str] = []
         self.prepared_fix: list[tuple[str, str]] = []
         self.pending_shell_replies: list[str] = []
         self.pending_fix_replies: list[str] = []
@@ -65,6 +66,9 @@ class FakeHost:
     def start_tool_request(self, task: str) -> None:
         self.started_tool.append(task)
 
+    def start_agent_request(self, task: str) -> None:
+        self.started_agent.append(task)
+
     def prepare_fix(self, task: str, *, source: str) -> None:
         self.prepared_fix.append((task, source))
 
@@ -72,24 +76,35 @@ class FakeHost:
         self.commands.append(command)
 
 
-def test_controller_routes_plain_chat_to_chat_start() -> None:
+def test_controller_routes_normal_text_to_agent_request_without_intent_router() -> None:
     host = FakeHost(IntentDecision(kind="chat", source="rule", command=None))
 
-    TuiController(host).handle_user_input("what can you do?")
+    TuiController(host).handle_user_input("帮我查看当前文件夹里的文件")
 
-    assert host.started_chat == ["what can you do?"]
-    assert host.router.calls == ["what can you do?"]
+    assert host.started_agent == ["帮我查看当前文件夹里的文件"]
+    assert host.started_chat == []
+    assert host.prepared_shell == []
+    assert host.started_tool == []
+    assert host.prepared_fix == []
+    assert host.router.calls == []
     assert host.conversation_log.events[0][0] == "intent"
-    assert host.conversation_log.events[0][1]["kind"] == "chat"
+    assert host.conversation_log.events[0][1] == {
+        "kind": "agent",
+        "source": "schema_tool_call",
+        "command": None,
+        "message": "帮我查看当前文件夹里的文件",
+    }
 
 
-def test_controller_routes_shell_decision_to_shell_preparation() -> None:
+def test_controller_does_not_route_direct_shell_text_locally() -> None:
     host = FakeHost(IntentDecision(kind="shell", source="rule", command="ls"))
 
     TuiController(host).handle_user_input("ls")
 
-    assert host.prepared_shell == [("ls", "rule")]
+    assert host.started_agent == ["ls"]
+    assert host.prepared_shell == []
     assert host.started_chat == []
+    assert host.router.calls == []
 
 
 def test_controller_dispatches_slash_commands_without_intent_router() -> None:
@@ -99,3 +114,4 @@ def test_controller_dispatches_slash_commands_without_intent_router() -> None:
 
     assert host.commands[0].name == "status"
     assert host.router.calls == []
+    assert host.started_agent == []

@@ -218,11 +218,22 @@ class FakeShellExecutor:
 
 
 class FakeToolAgentRunner:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        started: threading.Event | None = None,
+        release: threading.Event | None = None,
+    ) -> None:
+        self.started = started
+        self.release = release
         self.calls: list[str] = []
 
     def __call__(self, *, problem_statement: str) -> AgentLoopResult:
         self.calls.append(problem_statement)
+        if self.started is not None:
+            self.started.set()
+        if self.release is not None:
+            self.release.wait(timeout=5)
         return AgentLoopResult(
             run_id="agent-tool-test",
             status="completed",
@@ -498,17 +509,19 @@ async def test_resume_command_renders_compact_previous_session_context(tmp_path:
         )
 
 
-async def test_plain_message_without_test_command_runs_general_chat(
+async def test_plain_message_without_test_command_runs_agent_tools_not_chat(
     tmp_path: Path,
 ) -> None:
     repo_path = init_git_repo(tmp_path)
     fake_session = FakeSession(make_turn())
     chat_responder = FakeChatResponder("I can discuss the repo before tools run.")
+    tool_agent_runner = FakeToolAgentRunner()
     app = MendCodeTextualApp(
         repo_path=repo_path,
         settings=make_settings(tmp_path),
         agent_session=fake_session,
         chat_responder=chat_responder,
+        tool_agent_runner=tool_agent_runner,
     )
 
     async with app.run_test():
@@ -517,10 +530,9 @@ async def test_plain_message_without_test_command_runs_general_chat(
 
         assert app.session_state.recent_task == "what can you do?"
         assert fake_session.calls == []
-        assert chat_responder.calls == ["what can you do?"]
-        assert any(
-            "I can discuss the repo before tools run." in message for message in app.message_texts
-        )
+        assert chat_responder.calls == []
+        assert tool_agent_runner.calls == ["what can you do?"]
+        assert any("Running tools: what can you do?" in message for message in app.message_texts)
         assert app.session_state.conversation_jsonl_path is not None
         records = [
             json.loads(line)
@@ -528,26 +540,29 @@ async def test_plain_message_without_test_command_runs_general_chat(
                 encoding="utf-8"
             ).splitlines()
         ]
-        assert "chat_result" in [record["event_type"] for record in records]
+        event_types = [record["event_type"] for record in records]
+        assert "tool_result" in event_types
+        assert "chat_result" not in event_types
 
 
-async def test_shell_command_runs_automatically_and_renders_output(tmp_path: Path) -> None:
+async def test_direct_shell_text_runs_agent_tools_not_shell_executor(tmp_path: Path) -> None:
     repo_path = init_git_repo(tmp_path)
     shell_executor = FakeShellExecutor()
+    tool_agent_runner = FakeToolAgentRunner()
     app = MendCodeTextualApp(
         repo_path=repo_path,
         settings=make_settings(tmp_path),
         shell_executor=shell_executor,
+        tool_agent_runner=tool_agent_runner,
     )
 
     async with app.run_test():
         app.handle_user_input("ls")
         await wait_until(lambda: not app.session_state.running)
 
-        assert shell_executor.calls == [("ls", repo_path, False)]
+        assert tool_agent_runner.calls == ["ls"]
+        assert shell_executor.calls == []
         assert app.session_state.pending_shell is None
-        assert any("Shell Result" in message for message in app.message_texts)
-        assert any("command: ls" in message for message in app.message_texts)
         assert any("README.md" in message for message in app.message_texts)
         assert app.session_state.conversation_jsonl_path is not None
         records = [
@@ -556,7 +571,9 @@ async def test_shell_command_runs_automatically_and_renders_output(tmp_path: Pat
                 encoding="utf-8"
             ).splitlines()
         ]
-        assert "shell_result" in [record["event_type"] for record in records]
+        event_types = [record["event_type"] for record in records]
+        assert "tool_result" in event_types
+        assert "shell_result" not in event_types
 
 
 async def test_natural_language_shell_request_runs_planned_command(
@@ -564,17 +581,20 @@ async def test_natural_language_shell_request_runs_planned_command(
 ) -> None:
     repo_path = init_git_repo(tmp_path)
     shell_executor = FakeShellExecutor()
+    tool_agent_runner = FakeToolAgentRunner()
     app = MendCodeTextualApp(
         repo_path=repo_path,
         settings=make_settings(tmp_path),
         shell_executor=shell_executor,
+        tool_agent_runner=tool_agent_runner,
     )
 
     async with app.run_test():
         app.handle_user_input("列一下当前目录")
         await wait_until(lambda: not app.session_state.running)
 
-        assert shell_executor.calls == [("ls", repo_path, False)]
+        assert tool_agent_runner.calls == ["列一下当前目录"]
+        assert shell_executor.calls == []
 
 
 async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
@@ -606,7 +626,8 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
         assert app.session_state.conversation_markdown_path is not None
         markdown = app.session_state.conversation_markdown_path.read_text(encoding="utf-8")
         assert "intent" in markdown
-        assert '"kind": "tool"' in markdown
+        assert '"kind": "agent"' in markdown
+        assert '"source": "schema_tool_call"' in markdown
         assert "Tool Result" in markdown
         assert "README.md" in markdown
         assert "/tmp/tool-trace.jsonl" in markdown
@@ -676,28 +697,30 @@ async def test_tui_last_sentence_question_completes_after_final_response_tool_ca
         )
 
 
-async def test_dangerous_shell_command_waits_for_confirmation(tmp_path: Path) -> None:
+async def test_pending_shell_reply_can_cancel_without_agent_request(tmp_path: Path) -> None:
     repo_path = init_git_repo(tmp_path)
     shell_executor = FakeShellExecutor()
+    tool_agent_runner = FakeToolAgentRunner()
     app = MendCodeTextualApp(
         repo_path=repo_path,
         settings=make_settings(tmp_path),
         shell_executor=shell_executor,
+        tool_agent_runner=tool_agent_runner,
     )
 
     async with app.run_test() as pilot:
-        app.handle_user_input("rm README.md")
-        await pilot.pause()
-
-        assert shell_executor.calls == []
-        assert app.session_state.pending_shell is not None
-        assert app.session_state.pending_shell.command == "rm README.md"
-        assert any("需要确认" in message for message in app.message_texts)
+        app.session_state.set_pending_shell(
+            command="rm README.md",
+            risk_level="high",
+            reason="test pending shell",
+            source="test",
+        )
 
         app.handle_user_input("取消")
         await pilot.pause()
 
         assert shell_executor.calls == []
+        assert tool_agent_runner.calls == []
         assert app.session_state.pending_shell is None
 
 
@@ -720,10 +743,16 @@ async def test_pending_shell_confirmation_runs_command(tmp_path: Path) -> None:
         repo_path=repo_path,
         settings=make_settings(tmp_path),
         shell_executor=shell_executor,
+        tool_agent_runner=FakeToolAgentRunner(),
     )
 
     async with app.run_test():
-        app.handle_user_input("rm README.md")
+        app.session_state.set_pending_shell(
+            command="rm README.md",
+            risk_level="high",
+            reason="test pending shell",
+            source="test",
+        )
         app.handle_user_input("确认")
         await wait_until(lambda: not app.session_state.running)
 
@@ -745,7 +774,7 @@ async def test_natural_fix_request_waits_for_confirmation_then_runs_with_set_tes
 
     async with app.run_test() as pilot:
         app.handle_user_input("/test python -m pytest -q")
-        app.handle_user_input("fix tests")
+        app.handle_user_input("/fix fix tests")
         await pilot.pause()
 
         assert fake_session.calls == []
@@ -780,7 +809,7 @@ async def test_natural_fix_request_suggests_verification_command_before_running(
     )
 
     async with app.run_test() as pilot:
-        app.handle_user_input("pytest 失败了，帮我修复")
+        app.handle_user_input("/fix pytest 失败了，帮我修复")
         await pilot.pause()
 
         assert fake_session.calls == []
@@ -809,7 +838,7 @@ async def test_pending_fix_can_be_cancelled_before_running(tmp_path: Path) -> No
     )
 
     async with app.run_test() as pilot:
-        app.handle_user_input("pytest 失败了，帮我修复")
+        app.handle_user_input("/fix pytest 失败了，帮我修复")
         await pilot.pause()
         app.handle_user_input("取消")
         await pilot.pause()
@@ -819,15 +848,17 @@ async def test_pending_fix_can_be_cancelled_before_running(tmp_path: Path) -> No
         assert any("已取消" in message for message in app.message_texts)
 
 
-async def test_test_command_then_general_chat_does_not_start_agent_turn(tmp_path: Path) -> None:
+async def test_test_command_then_normal_text_starts_agent_tools_not_chat(tmp_path: Path) -> None:
     repo_path = init_git_repo(tmp_path)
     fake_session = FakeSession(make_turn())
     chat_responder = FakeChatResponder("You are welcome.")
+    tool_agent_runner = FakeToolAgentRunner()
     app = MendCodeTextualApp(
         repo_path=repo_path,
         settings=make_settings(tmp_path),
         agent_session=fake_session,
         chat_responder=chat_responder,
+        tool_agent_runner=tool_agent_runner,
     )
 
     async with app.run_test() as pilot:
@@ -837,8 +868,12 @@ async def test_test_command_then_general_chat_does_not_start_agent_turn(tmp_path
         await pilot.pause()
 
         assert fake_session.calls == []
-        assert chat_responder.calls == ["thanks, what changed in the last turn?"]
-        assert any("You are welcome." in message for message in app.message_texts)
+        assert chat_responder.calls == []
+        assert tool_agent_runner.calls == ["thanks, what changed in the last turn?"]
+        assert any(
+            "Running tools: thanks, what changed in the last turn?" in message
+            for message in app.message_texts
+        )
 
 
 async def test_fix_command_without_test_command_prompts_for_verification_command(
@@ -872,7 +907,7 @@ async def test_test_command_overrides_pending_fix_suggestion(tmp_path: Path) -> 
     )
 
     async with app.run_test() as pilot:
-        app.handle_user_input("pytest 失败了，帮我修复")
+        app.handle_user_input("/fix pytest 失败了，帮我修复")
         await pilot.pause()
         app.handle_user_input("/test python -m pytest tests/unit -q")
         app.handle_user_input("yes")
@@ -896,7 +931,7 @@ async def test_running_worker_rejects_second_fix_request(tmp_path: Path) -> None
 
     async with app.run_test() as pilot:
         app.handle_user_input("/test python -m pytest -q")
-        app.handle_user_input("fix tests")
+        app.handle_user_input("/fix fix tests")
         app.handle_user_input("yes")
         await wait_until(started.is_set)
 
@@ -908,15 +943,15 @@ async def test_running_worker_rejects_second_fix_request(tmp_path: Path) -> None
         await pilot.pause()
 
 
-async def test_shell_running_rejects_second_shell_request(tmp_path: Path) -> None:
+async def test_running_agent_tool_request_rejects_second_normal_request(tmp_path: Path) -> None:
     repo_path = init_git_repo(tmp_path)
     started = threading.Event()
     release = threading.Event()
-    shell_executor = FakeShellExecutor(started=started, release=release)
+    tool_agent_runner = FakeToolAgentRunner(started=started, release=release)
     app = MendCodeTextualApp(
         repo_path=repo_path,
         settings=make_settings(tmp_path),
-        shell_executor=shell_executor,
+        tool_agent_runner=tool_agent_runner,
     )
 
     async with app.run_test() as pilot:
@@ -926,6 +961,7 @@ async def test_shell_running_rejects_second_shell_request(tmp_path: Path) -> Non
         app.handle_user_input("pwd")
 
         assert any("already running" in message for message in app.message_texts)
+        assert tool_agent_runner.calls == ["ls"]
         release.set()
         await wait_until(lambda: not app.session_state.running)
         await pilot.pause()

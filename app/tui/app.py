@@ -234,7 +234,7 @@ class MendCodeTextualApp(App[None]):
     def on_mount(self) -> None:
         self.append_message(
             "System",
-            "Tell me what is broken, or ask for a safe shell inspection like ls or git status. "
+            "Describe a task; normal text runs through schema tool calls. "
             "Type /help for precise commands.",
         )
         self.query_one("#chat-input", Input).focus()
@@ -280,6 +280,9 @@ class MendCodeTextualApp(App[None]):
     def start_tool_request(self, task: str) -> None:
         self._start_tool_request(task)
 
+    def start_agent_request(self, task: str) -> None:
+        self._start_agent_request(task)
+
     def prepare_fix(self, task: str, *, source: str) -> None:
         self._prepare_fix(task, source=source)
 
@@ -319,7 +322,8 @@ class MendCodeTextualApp(App[None]):
                 "/status - show repo and turn status",
                 "/test <command> - set or override verification command",
                 "/fix [problem] - prepare a fix with the argument or recent task",
-                "Natural shell - ls, pwd, git status, git diff, rg, cat/head/tail, find",
+                "Natural language asks the model to call schema tools; "
+                "slash commands control the TUI.",
                 "/diff - show latest worktree diff",
                 "/trace - show latest trace excerpt",
                 "/sessions - list saved conversation sessions",
@@ -578,6 +582,9 @@ class MendCodeTextualApp(App[None]):
         self._run_chat_worker(message)
 
     def _start_tool_request(self, task: str) -> None:
+        self._start_agent_request(task)
+
+    def _start_agent_request(self, task: str) -> None:
         if self.session_state.running:
             self.append_message("Error", "A request is already running.")
             return
