@@ -6,7 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from app.agent.loop import AgentLoopResult, AgentStep
+from app.agent.loop import AgentLoopInput, AgentLoopResult, AgentStep, run_agent_loop
+from app.agent.openai_compatible import (
+    ChatMessage,
+    OpenAICompatibleAgentProvider,
+    OpenAICompletion,
+    OpenAIToolCall,
+)
 from app.agent.session import AgentSessionTurn, ReviewSummary, ToolCallSummary
 from app.config.settings import Settings
 from app.schemas.agent_action import FinalResponseAction, Observation, ToolCallAction
@@ -268,6 +274,88 @@ class FakeToolAgentRunner:
         )
 
 
+class LastSentenceOpenAIClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def complete(
+        self,
+        *,
+        model: str,
+        messages: list[ChatMessage],
+        tools: list[dict[str, object]],
+        timeout_seconds: int,
+    ) -> OpenAICompletion:
+        self.calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "tools": tools,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        if len(self.calls) == 1:
+            return OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(
+                        id="call_glob",
+                        name="glob_file_search",
+                        arguments='{"pattern":"**/*问题记录*"}',
+                    )
+                ]
+            )
+        if len(self.calls) == 2:
+            return OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(
+                        id="call_read",
+                        name="read_file",
+                        arguments='{"path":"MendCode_问题记录.md","tail_lines":10}',
+                    )
+                ]
+            )
+        return OpenAICompletion(
+            tool_calls=[
+                OpenAIToolCall(
+                    id="call_final",
+                    name="final_response",
+                    arguments='{"summary":"最后一句是：不再记录纯讨论、一次性环境噪声、旧路线细枝末节。"}',
+                )
+            ]
+        )
+
+
+class AgentLoopToolRunner:
+    def __init__(self, *, repo_path: Path, settings: Settings) -> None:
+        self.repo_path = repo_path
+        self.settings = settings
+        self.client = LastSentenceOpenAIClient()
+        self.calls: list[str] = []
+
+    def __call__(self, *, problem_statement: str) -> AgentLoopResult:
+        self.calls.append(problem_statement)
+        provider = OpenAICompatibleAgentProvider(
+            model="test-model",
+            api_key="secret-key",
+            base_url="https://example.test/v1",
+            timeout_seconds=12,
+            client=self.client,
+        )
+        return run_agent_loop(
+            AgentLoopInput(
+                repo_path=self.repo_path,
+                problem_statement=problem_statement,
+                provider=provider,
+                verification_commands=[],
+                allowed_tools={"glob_file_search", "read_file"},
+                permission_mode="guided",
+                step_budget=12,
+                use_worktree=False,
+            ),
+            self.settings,
+        )
+
+
 async def wait_until(predicate, timeout: float = 2.0) -> None:
     deadline = asyncio.get_running_loop().time() + timeout
     while asyncio.get_running_loop().time() < deadline:
@@ -431,8 +519,7 @@ async def test_plain_message_without_test_command_runs_general_chat(
         assert fake_session.calls == []
         assert chat_responder.calls == ["what can you do?"]
         assert any(
-            "I can discuss the repo before tools run." in message
-            for message in app.message_texts
+            "I can discuss the repo before tools run." in message for message in app.message_texts
         )
         assert app.session_state.conversation_jsonl_path is not None
         records = [
@@ -532,14 +619,61 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
         ]
         assert "tool_result" in [record["event_type"] for record in records]
         tool_payload = next(
-            record["payload"]
-            for record in records
-            if record["event_type"] == "tool_result"
+            record["payload"] for record in records if record["event_type"] == "tool_result"
         )
         assert tool_payload["trace_path"] == "/tmp/tool-trace.jsonl"
         assert tool_payload["step_count"] == 2
         assert tool_payload["steps"][0]["action"] == "list_dir"
         assert "observation" not in tool_payload["steps"][0]
+
+
+async def test_tui_last_sentence_question_completes_after_final_response_tool_call(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "MendCode_问题记录.md").write_text(
+        "# MendCode 问题记录\n\n"
+        "新增问题必须满足至少一条：\n\n"
+        "- 影响工具闭环正确性\n"
+        "- 影响权限边界\n"
+        "- 影响会话可复盘性\n"
+        "- 影响验证结论可信度\n"
+        "- 影响长期架构方向\n\n"
+        "不再记录纯讨论、一次性环境噪声、旧路线细枝末节。\n",
+        encoding="utf-8",
+    )
+    settings = make_settings(tmp_path)
+    tool_runner = AgentLoopToolRunner(repo_path=repo_path, settings=settings)
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=settings,
+        tool_agent_runner=tool_runner,
+    )
+
+    async with app.run_test():
+        app.handle_user_input("Mendcode问题记录的最后一句话是什么")
+        await wait_until(lambda: not app.session_state.running)
+
+        rendered = "\n".join(app.message_texts)
+        assert "Provider failed" not in rendered
+        assert "最后一句是：不再记录纯讨论、一次性环境噪声、旧路线细枝末节。" in rendered
+        assert tool_runner.calls == ["Mendcode问题记录的最后一句话是什么"]
+        assert len(tool_runner.client.calls) == 3
+        assert app.session_state.conversation_jsonl_path is not None
+        records = [
+            json.loads(line)
+            for line in app.session_state.conversation_jsonl_path.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ]
+        tool_payload = next(
+            record["payload"] for record in records if record["event_type"] == "tool_result"
+        )
+        assert tool_payload["status"] == "completed"
+        assert (
+            tool_payload["summary"]
+            == "最后一句是：不再记录纯讨论、一次性环境噪声、旧路线细枝末节。"
+        )
 
 
 async def test_dangerous_shell_command_waits_for_confirmation(tmp_path: Path) -> None:

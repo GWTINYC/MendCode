@@ -42,7 +42,8 @@ User Message
 2. ToolRegistry 收敛：所有 provider-visible 工具都从注册表生成 schema、risk 和 executor
 3. PermissionPolicy 收敛：统一工具权限、shell 风险、allowed tools 和用户确认
 4. 会话日志、trace、compact context、resume 能力
-5. TUI 工作台体验：让 Textual UI 成为 runtime 的薄展示层
+5. TUI 真实体验测试：用 PTY 启动真实 TUI 进程，覆盖真实 provider/tool-call 闭环和高频自然语言问题
+6. TUI 工作台体验：让 Textual UI 成为 runtime 的薄展示层
 
 当前重构设计：
 
@@ -100,6 +101,7 @@ User Message
 - [x] 原生 tool call 解析
 - [x] tools unsupported fallback
 - [x] tool 后普通文本 final response
+- [x] tool 后 `final_response` provider-local tool call
 - [x] API key redaction
 - [x] scoped `allowed_tools`
 - [x] 越权 tool call 拒绝
@@ -110,6 +112,7 @@ User Message
 
 - [ ] mock provider harness 仍需扩展到 future write tools 和 permission allow/deny resume
 - [ ] 没有请求快照测试覆盖全部工具 schema
+- [ ] 真实 provider 行为仍需要更多 TUI 回放场景覆盖
 - [ ] 未实现 OpenAI 官方 adapter
 - [ ] 未实现 Anthropic adapter
 
@@ -132,6 +135,7 @@ User Message
 - [x] aliases：`read`、`list`、`glob`、`grep`、`search`、`shell`、`bash`、`patch`、`write`、`edit`、`todo`、`tools`
 - [x] shared tool observation envelope
 - [x] `rg` 和 `search_code` observation 保持各自 tool identity
+- [x] 宽泛 `search_code` 默认排除 `.git`、`.worktrees`、`data` 运行产物；显式 `glob='data/**'` 时仍可分析对话记录
 
 当前工具：
 
@@ -143,7 +147,7 @@ User Message
 | `read_file` | 已完成 | 读取 repo-relative 文本文件，支持行范围、尾部读取和截断 |
 | `list_dir` | 已完成 | 列目录，未截断时完整 entries 进入 prompt context |
 | `glob_file_search` | 已完成 | 按 glob 查找路径 |
-| `rg` / `search_code` | 已完成 | 文本搜索 |
+| `rg` / `search_code` | 已完成 | 文本搜索，宽泛搜索默认避开运行产物目录 |
 | `git` | 已完成 | 结构化只读 git status/diff/log |
 | `run_shell_command` | 已完成 | 普通 shell，走 ShellPolicy |
 | `run_command` | 已完成 | 仅允许 declared verification command |
@@ -216,10 +220,13 @@ User Message
 - [x] conversation Markdown / JSONL 写入，并对 `tool_result` / `turn_result` 做 compact 摘要
 - [x] review actions：view diff / view trace / apply / discard
 - [x] 第一批 TUI experience scenario tests 覆盖目录查看、文件问题、失败场景和 resume
+- [x] 新增 PTY live TUI e2e 测试入口，启动真实 `python -m app.cli.main` 并模拟用户输入
+- [x] TUI scenario audit 默认覆盖 `tests/scenarios` 和 `tests/e2e`
 
 当前不足：
 
 - [ ] worker 执行、渲染和 review action 仍主要在 `MendCodeTextualApp`
+- [ ] PTY live TUI 测试依赖真实 OpenAI-compatible provider 环境，本地未配置时会明确失败
 - [ ] 工具调用不能折叠/展开
 - [ ] 完整工具参数和完整输出 viewer 不足
 - [ ] permission prompt 交互仍偏简单
@@ -228,6 +235,8 @@ User Message
 
 下一步：
 
+- 优先扩展 PTY live TUI 用例，覆盖用户真实会问的目录、Git、文档末句、文件定位、失败恢复等问题。
+- 每个 live 用例都要断言：没有 `Provider failed`、没有可见 `trace_path`、结果来自 conversation JSONL 中的 tool/shell 证据。
 - 继续把 worker 启动、completion 处理和 review action 迁到 controller 或 runtime-facing service。
 - 工具结果摘要保留在聊天流；conversation log 只保留摘要、样本和 trace/workspace 指针，完整 payload 通过 trace 或后续 viewer 查看。
 - 对 pending confirmation 支持 allow once / deny / change mode。
@@ -331,7 +340,7 @@ duration_ms
 状态：
 
 - Mock provider harness 已完成基础版。
-- 已覆盖 read_file、read_file tail_lines、list_dir、rg、多工具、shell stdout、tool error、allowed-tools denial、confirmation stop。
+- 已覆盖 read_file、read_file tail_lines、list_dir、rg、多工具、shell stdout、tool error、allowed-tools denial、confirmation stop、OpenAI final_response tool call。
 - 后续继续扩展到 write 工具、permission allow/deny 和重复只读工具调用。
 
 场景：
@@ -339,6 +348,7 @@ duration_ms
 - [ ] streaming text
 - [x] read_file roundtrip
 - [x] read_file tail_lines roundtrip
+- [x] OpenAI final_response tool call roundtrip
 - [x] rg roundtrip
 - [x] multi-tool turn
 - [x] shell stdout
@@ -352,7 +362,37 @@ duration_ms
 - [x] harness 能跑完整 AgentLoop
 - [x] 核心场景都有 observation handoff、tool result、final response 断言
 
-### 任务 4：TUI 会话恢复
+### 任务 4：真实 TUI PTY 测试系统
+
+目标：
+
+用 PTY 启动真实 TUI 进程，模拟用户在终端里输入自然语言问题，观察真实 provider、intent router、AgentLoop、工具执行、聊天流渲染和 conversation log 的端到端行为。
+
+状态：
+
+- [x] 新增 `tests/e2e/test_tui_pty_live.py`
+- [x] 使用 `pexpect` 启动 `python -m app.cli.main`
+- [x] 每个用例在临时 Git 仓库中构造真实文件和脏工作区
+- [x] 默认要求真实 OpenAI-compatible provider 环境变量，不静默 skip
+- [x] 覆盖文档最后一句、当前目录查看、中文 Git 状态三个高频场景
+
+环境要求：
+
+```bash
+export MENDCODE_PROVIDER=openai-compatible
+export MENDCODE_MODEL=<model>
+export MENDCODE_BASE_URL=<base-url>
+export MENDCODE_API_KEY=<api-key>
+```
+
+验收：
+
+- [x] 缺少 provider 环境时，测试明确失败并列出缺失变量
+- [ ] 配置真实 provider 后，live tests 能稳定通过
+- [ ] audit report 能把 live e2e 失败记录成可读问题
+- [ ] 后续每个用户暴露的 TUI 体验问题，都先补一个 PTY live 或 `tests/scenarios` 回归用例
+
+### 任务 5：TUI 会话恢复
 
 目标：
 
@@ -365,7 +405,7 @@ duration_ms
 - [x] 恢复后模型能看到 compact history
 - [ ] TUI 中支持 trace payload 展开
 
-### 任务 5：Runtime 主循环迁移
+### 任务 6：Runtime 主循环迁移
 
 目标：
 
@@ -401,6 +441,8 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 - 权限改动：`tests/unit/test_permission_gate.py`、`tests/unit/test_shell_policy.py`
 - TUI 改动：`tests/unit/test_tui_app.py`、`tests/unit/test_tui_intent.py`
 - TUI 体验场景测试：`tests/scenarios/` 覆盖常见用户问题，断言 route、tool evidence、简洁输出和 no-fabrication。
+- TUI 真实终端测试：`tests/e2e/` 使用 PTY 启动真实 TUI 进程；默认要求真实 OpenAI-compatible provider 环境变量，缺失时应明确失败。
+- TUI 巡检：`python -m app.runtime.tui_scenario_audit --report-dir data/tui-scenario-reports` 默认同时运行 `tests/scenarios` 和 `tests/e2e`。
 - CLI 改动：`tests/integration/test_cli.py`
 
 测试原则：
@@ -409,6 +451,8 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 - 不只测函数存在，要测真实闭环。
 - 对“模型可能编造”的问题，测试必须断言进入 tool path，并断言 chat responder 未被调用。
 - 对工具调用，测试必须断言 observation 进入下一轮 provider input。
+- 对用户真实抱怨的 TUI 行为，优先补 PTY live 测试；如果真实 provider 环境不可用，至少补 fake provider 的 `run_test()` 回归，并在文档中标记 live 验证未完成。
+- 对宽泛文件/代码搜索，测试必须覆盖运行产物目录不会污染普通项目事实；如需分析 `data/conversations`，必须显式指定对应路径或 glob。
 
 ## 6. 文档更新规则
 

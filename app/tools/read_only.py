@@ -5,6 +5,8 @@ from pathlib import Path
 from app.tools.guard import resolve_workspace_file, resolve_workspace_path
 from app.tools.schemas import ToolResult
 
+_DEFAULT_SEARCH_EXCLUDED_DIRS = frozenset({".git", ".worktrees", "data"})
+
 
 def _relative_posix(workspace_path: Path, path: Path) -> str:
     relative = path.resolve().relative_to(workspace_path.resolve())
@@ -407,7 +409,7 @@ def _fallback_search_code(
             relative = candidate.resolve().relative_to(workspace_root)
         except ValueError:
             continue
-        if any(part in {".git", ".worktrees"} for part in relative.parts):
+        if _is_excluded_search_path(relative, glob):
             continue
         if glob is not None and not relative.match(glob):
             continue
@@ -465,6 +467,9 @@ def search_code(
     command = ["rg", "--fixed-strings", "--line-number", "--no-heading"]
     if glob is not None:
         command.extend(["--glob", glob])
+    for dirname in sorted(_DEFAULT_SEARCH_EXCLUDED_DIRS):
+        if not _glob_explicitly_targets_dir(glob, dirname):
+            command.extend(["--glob", f"!{dirname}/**"])
     command.append(query)
 
     try:
@@ -491,6 +496,8 @@ def search_code(
     matches: list[dict[str, object]] = []
     for line in completed.stdout.splitlines():
         relative_path, line_number_text, line_text = line.split(":", 2)
+        if _is_excluded_search_path(Path(relative_path), glob):
+            continue
         matches.append(
             {
                 "relative_path": relative_path,
@@ -516,3 +523,21 @@ def search_code(
         error_message=None,
         workspace_path=str(workspace_path),
     )
+
+
+def _is_excluded_search_path(relative_path: Path, glob: str | None) -> bool:
+    return any(
+        part in _DEFAULT_SEARCH_EXCLUDED_DIRS
+        and not _glob_explicitly_targets_dir(glob, part)
+        for part in relative_path.parts
+    )
+
+
+def _glob_explicitly_targets_dir(glob: str | None, dirname: str) -> bool:
+    if glob is None:
+        return False
+    normalized = glob.replace("\\", "/").strip("/")
+    if not normalized:
+        return False
+    parts = tuple(part for part in normalized.split("/") if part)
+    return dirname in parts

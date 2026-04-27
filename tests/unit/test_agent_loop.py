@@ -158,6 +158,58 @@ class SequentialOpenAIClient:
         return OpenAICompletion(content="当前目录包含 README.md。")
 
 
+class LastSentenceOpenAIClient:
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    def complete(
+        self,
+        *,
+        model: str,
+        messages: list[ChatMessage],
+        tools: list[dict[str, object]],
+        timeout_seconds: int,
+    ) -> OpenAICompletion:
+        self.calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "tools": tools,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        if len(self.calls) == 1:
+            return OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(
+                        id="call_glob",
+                        name="glob_file_search",
+                        arguments='{"pattern":"**/*问题记录*"}',
+                    )
+                ]
+            )
+        if len(self.calls) == 2:
+            return OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(
+                        id="call_read",
+                        name="read_file",
+                        arguments='{"path":"MendCode_问题记录.md","tail_lines":10}',
+                    )
+                ]
+            )
+        assert any(tool["function"]["name"] == "final_response" for tool in tools)
+        return OpenAICompletion(
+            tool_calls=[
+                OpenAIToolCall(
+                    id="call_final",
+                    name="final_response",
+                    arguments='{"summary":"最后一句是：不再记录纯讨论、一次性环境噪声、旧路线细枝末节。"}',
+                )
+            ]
+        )
+
+
 def test_agent_loop_tool_request_passes_allowed_tools_and_grounds_final_answer(
     tmp_path: Path,
 ) -> None:
@@ -224,6 +276,53 @@ def test_agent_loop_openai_native_tool_call_roundtrip_grounds_final_text(
         "read_file",
     ]
     assert any(message.role == "tool" for message in client.calls[1]["messages"])
+
+
+def test_agent_loop_openai_final_response_tool_call_completes_last_sentence_question(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "MendCode_问题记录.md").write_text(
+        "# MendCode 问题记录\n\n"
+        "新增问题必须满足至少一条：\n\n"
+        "- 影响工具闭环正确性\n"
+        "- 影响权限边界\n"
+        "- 影响会话可复盘性\n"
+        "- 影响验证结论可信度\n"
+        "- 影响长期架构方向\n\n"
+        "不再记录纯讨论、一次性环境噪声、旧路线细枝末节。\n",
+        encoding="utf-8",
+    )
+    client = LastSentenceOpenAIClient()
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=client,
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="Mendcode问题记录的最后一句话是什么",
+            provider=provider,
+            verification_commands=[],
+            allowed_tools={"glob_file_search", "read_file"},
+            step_budget=12,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.summary == "最后一句是：不再记录纯讨论、一次性环境噪声、旧路线细枝末节。"
+    assert [step.action.type for step in result.steps] == [
+        "tool_call",
+        "tool_call",
+        "final_response",
+    ]
+    assert len(client.calls) == 3
 
 
 def test_agent_loop_rejects_native_tool_outside_allowed_tools(tmp_path: Path) -> None:
@@ -465,7 +564,7 @@ def test_agent_loop_executes_structured_apply_patch_action(tmp_path: Path) -> No
     target.write_text("alpha\n", encoding="utf-8")
     command = (
         f"{PYTHON} -c "
-        "\"from pathlib import Path; "
+        '"from pathlib import Path; '
         "raise SystemExit(0 if Path('notes.txt').read_text() == 'beta\\\\n' else 1)\""
     )
     patch = "\n".join(
@@ -1098,9 +1197,7 @@ def test_agent_loop_applies_patch_proposal_in_worktree_then_verifies(
         text=True,
     )
     command = (
-        f"{PYTHON} -c "
-        "\"import calculator; "
-        "raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)\""
+        f'{PYTHON} -c "import calculator; raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)"'
     )
     patch = """diff --git a/calculator.py b/calculator.py
 --- a/calculator.py
@@ -1186,9 +1283,7 @@ def test_agent_loop_native_apply_patch_can_complete_after_failed_verification(
         text=True,
     )
     command = (
-        f"{PYTHON} -c "
-        "\"import calculator; "
-        "raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)\""
+        f'{PYTHON} -c "import calculator; raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)"'
     )
     patch = """diff --git a/calculator.py b/calculator.py
 --- a/calculator.py
@@ -1271,9 +1366,7 @@ def test_agent_loop_native_apply_patch_still_blocks_later_failed_observation(
         text=True,
     )
     command = (
-        f"{PYTHON} -c "
-        "\"import calculator; "
-        "raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)\""
+        f'{PYTHON} -c "import calculator; raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)"'
     )
     later_failing_command = f"{PYTHON} -c 'raise SystemExit(1)'"
     patch = """diff --git a/calculator.py b/calculator.py
@@ -1366,9 +1459,7 @@ def test_agent_loop_does_not_complete_when_post_patch_failure_follows_verificati
         text=True,
     )
     command = (
-        f"{PYTHON} -c "
-        "\"import calculator; "
-        "raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)\""
+        f'{PYTHON} -c "import calculator; raise SystemExit(0 if calculator.add(2, 3) == 5 else 1)"'
     )
     later_failing_command = f"{PYTHON} -c 'raise SystemExit(1)'"
     patch = """diff --git a/calculator.py b/calculator.py

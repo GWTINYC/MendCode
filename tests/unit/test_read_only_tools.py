@@ -145,6 +145,45 @@ def test_search_code_falls_back_when_rg_binary_is_unavailable(tmp_path: Path) ->
     ]
 
 
+def test_search_code_excludes_runtime_data_on_broad_search(tmp_path: Path) -> None:
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+    (workspace_path / "MendCode_问题记录.md").write_text("alpha\n", encoding="utf-8")
+    conversations = workspace_path / "data" / "conversations"
+    conversations.mkdir(parents=True)
+    (conversations / "session.md").write_text("alpha from runtime log\n", encoding="utf-8")
+
+    result = search_code(workspace_path=workspace_path, query="alpha")
+
+    assert result.status == "passed"
+    assert result.payload["matches"] == [
+        {
+            "relative_path": "MendCode_问题记录.md",
+            "line_number": 1,
+            "line_text": "alpha",
+        }
+    ]
+
+
+def test_search_code_can_search_runtime_data_when_glob_targets_it(tmp_path: Path) -> None:
+    workspace_path = tmp_path / "workspace"
+    workspace_path.mkdir()
+    conversations = workspace_path / "data" / "conversations"
+    conversations.mkdir(parents=True)
+    (conversations / "session.md").write_text("alpha from runtime log\n", encoding="utf-8")
+
+    result = search_code(workspace_path=workspace_path, query="alpha", glob="data/**")
+
+    assert result.status == "passed"
+    assert result.payload["matches"] == [
+        {
+            "relative_path": "data/conversations/session.md",
+            "line_number": 1,
+            "line_text": "alpha from runtime log",
+        }
+    ]
+
+
 def test_read_file_rejects_missing_path(tmp_path: Path) -> None:
     workspace_path = tmp_path / "workspace"
     workspace_path.mkdir()
@@ -396,7 +435,21 @@ def test_search_code_applies_glob_filter(tmp_path: Path, monkeypatch) -> None:
     assert result.status == "passed"
     assert calls == [
         (
-            ["rg", "--fixed-strings", "--line-number", "--no-heading", "--glob", "*.py", "alpha"],
+            [
+                "rg",
+                "--fixed-strings",
+                "--line-number",
+                "--no-heading",
+                "--glob",
+                "*.py",
+                "--glob",
+                "!.git/**",
+                "--glob",
+                "!.worktrees/**",
+                "--glob",
+                "!data/**",
+                "alpha",
+            ],
             workspace_path,
         )
     ]

@@ -161,9 +161,7 @@ def test_extract_action_json_accepts_reasoning_preamble() -> None:
 
 
 def test_openai_compatible_provider_returns_action_from_fake_client() -> None:
-    client = FakeClient(
-        '{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}'
-    )
+    client = FakeClient('{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}')
     provider = OpenAICompatibleAgentProvider(
         model="test-model",
         api_key="secret-key",
@@ -186,9 +184,7 @@ def test_openai_compatible_provider_returns_action_from_fake_client() -> None:
 
 
 def test_openai_compatible_provider_sends_registered_tools_to_client() -> None:
-    client = FakeClient(
-        '{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}'
-    )
+    client = FakeClient('{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}')
     provider = OpenAICompatibleAgentProvider(
         model="test-model",
         api_key="secret-key",
@@ -231,6 +227,116 @@ def test_openai_compatible_provider_sends_only_allowed_tools() -> None:
         "list_dir",
         "read_file",
     ]
+
+
+def test_openai_compatible_provider_exposes_final_response_tool_after_observation() -> None:
+    action = ToolCallAction(
+        type="tool_call",
+        action="read_file",
+        reason="read document tail",
+        args={"path": "MendCode_问题记录.md", "tail_lines": 10},
+    )
+    observation = Observation(
+        status="succeeded",
+        summary="Read MendCode_问题记录.md",
+        payload={
+            "relative_path": "MendCode_问题记录.md",
+            "content": "不再记录纯讨论、一次性环境噪声、旧路线细枝末节。\n",
+        },
+    )
+    client = FakeClient(
+        OpenAICompletion(
+            tool_calls=[
+                OpenAIToolCall(
+                    id="call-final",
+                    name="final_response",
+                    arguments='{"summary":"最后一句是：不再记录纯讨论、一次性环境噪声、旧路线细枝末节。"}',
+                )
+            ]
+        )
+    )
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=client,
+    )
+
+    response = provider.next_action(
+        AgentProviderStepInput(
+            problem_statement="Mendcode问题记录的最后一句话是什么",
+            verification_commands=[],
+            step_index=2,
+            remaining_steps=10,
+            observations=[AgentObservationRecord(action=action, observation=observation)],
+            allowed_tools={"read_file", "glob_file_search"},
+        )
+    )
+
+    sent_tool_names = [tool["function"]["name"] for tool in client.calls[0]["tools"]]
+    assert sent_tool_names == ["glob_file_search", "read_file", "final_response"]
+    assert response.status == "succeeded"
+    assert response.action == {
+        "type": "final_response",
+        "status": "completed",
+        "summary": "最后一句是：不再记录纯讨论、一次性环境噪声、旧路线细枝末节。",
+        "recommended_actions": [],
+    }
+
+
+def test_openai_compatible_provider_rejects_mixed_final_response_and_tool_call() -> None:
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=FakeClient(
+            OpenAICompletion(
+                tool_calls=[
+                    OpenAIToolCall(
+                        id="call-final",
+                        name="final_response",
+                        arguments='{"summary":"done"}',
+                    ),
+                    OpenAIToolCall(
+                        id="call-read",
+                        name="read_file",
+                        arguments='{"path":"README.md"}',
+                    ),
+                ]
+            )
+        ),
+    )
+
+    response = provider.next_action(
+        step_input().model_copy(
+            update={
+                "observations": [
+                    AgentObservationRecord(
+                        action=ToolCallAction(
+                            type="tool_call",
+                            action="list_dir",
+                            reason="inspect",
+                            args={"path": "."},
+                        ),
+                        observation=Observation(
+                            status="succeeded",
+                            summary="Listed .",
+                            payload={"entries": []},
+                        ),
+                    )
+                ]
+            }
+        )
+    )
+
+    assert response.status == "failed"
+    assert response.observation is not None
+    assert (
+        response.observation.error_message
+        == "Provider returned mixed final_response and tool calls"
+    )
 
 
 def test_openai_compatible_provider_rejects_tool_call_outside_allowed_tools() -> None:
@@ -326,9 +432,7 @@ def test_openai_compatible_provider_rejects_invalid_tool_call_arguments_json() -
         timeout_seconds=12,
         client=FakeClient(
             OpenAICompletion(
-                tool_calls=[
-                    OpenAIToolCall(id="call-1", name="read_file", arguments="{not json")
-                ]
+                tool_calls=[OpenAIToolCall(id="call-1", name="read_file", arguments="{not json")]
             )
         ),
     )
@@ -337,10 +441,7 @@ def test_openai_compatible_provider_rejects_invalid_tool_call_arguments_json() -
 
     assert response.status == "failed"
     assert response.observation is not None
-    assert (
-        response.observation.error_message
-        == "Provider returned invalid tool call arguments"
-    )
+    assert response.observation.error_message == "Provider returned invalid tool call arguments"
 
 
 def test_openai_compatible_provider_rejects_non_object_tool_call_arguments() -> None:
@@ -366,10 +467,7 @@ def test_openai_compatible_provider_rejects_non_object_tool_call_arguments() -> 
 
     assert response.status == "failed"
     assert response.observation is not None
-    assert (
-        response.observation.error_message
-        == "Provider returned non-object tool call arguments"
-    )
+    assert response.observation.error_message == "Provider returned non-object tool call arguments"
 
 
 def test_openai_compatible_provider_rejects_unknown_tool_call_name() -> None:
@@ -380,9 +478,7 @@ def test_openai_compatible_provider_rejects_unknown_tool_call_name() -> None:
         timeout_seconds=12,
         client=FakeClient(
             OpenAICompletion(
-                tool_calls=[
-                    OpenAIToolCall(id="call-1", name="delete_repo", arguments="{}")
-                ]
+                tool_calls=[OpenAIToolCall(id="call-1", name="delete_repo", arguments="{}")]
             )
         ),
     )
@@ -391,13 +487,11 @@ def test_openai_compatible_provider_rejects_unknown_tool_call_name() -> None:
 
     assert response.status == "failed"
     assert response.observation is not None
-    assert response.observation.error_message == "Provider returned unknown tool call"
+    assert response.observation.error_message == "Provider returned unknown tool call: delete_repo"
 
 
 def test_openai_chat_completions_client_returns_text_when_no_tools_requested() -> None:
-    sdk_client = FakeSDKClient(
-        FakeSDKResponse(FakeSDKMessage(content="hello", tool_calls=[]))
-    )
+    sdk_client = FakeSDKClient(FakeSDKResponse(FakeSDKMessage(content="hello", tool_calls=[])))
     client = OpenAIChatCompletionsClient.__new__(OpenAIChatCompletionsClient)
     client._client = sdk_client
 
@@ -450,9 +544,7 @@ def test_openai_chat_completions_client_parses_sdk_tool_calls() -> None:
 
 
 def test_openai_compatible_provider_uses_repair_contract_prompt() -> None:
-    client = FakeClient(
-        '{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}'
-    )
+    client = FakeClient('{"type":"tool_call","action":"repo_status","reason":"inspect","args":{}}')
     provider = OpenAICompatibleAgentProvider(
         model="test-model",
         api_key="secret-key",

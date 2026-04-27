@@ -77,6 +77,8 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 
 下一步重点：
 
+- 建设真实 PTY TUI 场景测试，默认覆盖真实终端进程和真实 OpenAI-compatible provider
+- 把高频自然语言问题纳入体验巡检，持续约束“必须调用工具、回答必须简洁”
 - 工具调用折叠/展开
 - permission prompt 完整交互
 - diff viewer
@@ -105,6 +107,6 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 2. 是否减少模型编造本地事实的机会？
 3. 是否让权限边界更集中？
 4. 是否让会话更可复盘？
-5. 是否有测试锁住 provider、tool、permission 的真实交互？
+5. 是否有测试锁住真实 TUI、provider、tool、permission 的交互？
 
 如果答案不清楚，先不要扩功能。

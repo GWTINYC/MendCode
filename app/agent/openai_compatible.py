@@ -11,6 +11,39 @@ from app.schemas.agent_action import parse_mendcode_action
 from app.tools.registry import default_tool_registry
 from app.tools.structured import ToolInvocation, ToolRegistry
 
+_FINAL_RESPONSE_TOOL_NAME = "final_response"
+_FINAL_RESPONSE_TOOL: dict[str, object] = {
+    "type": "function",
+    "function": {
+        "name": _FINAL_RESPONSE_TOOL_NAME,
+        "description": (
+            "Return the final user-facing answer after the available observations "
+            "already answer the request. Do not call this together with other tools."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["completed", "failed", "needs_user_confirmation"],
+                    "description": "Final response status. Omit when observations are enough.",
+                },
+                "summary": {
+                    "type": "string",
+                    "description": "Concise final answer to show the user.",
+                },
+                "recommended_actions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional follow-up actions.",
+                },
+            },
+            "required": ["summary"],
+            "additionalProperties": False,
+        },
+    },
+}
+
 
 class OpenAIToolCall(BaseModel):
     id: str | None = None
@@ -31,8 +64,7 @@ class OpenAICompatibleClient(Protocol):
         model: str,
         messages: list[ChatMessage],
         timeout_seconds: int,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     @overload
     def complete(
@@ -42,8 +74,7 @@ class OpenAICompatibleClient(Protocol):
         messages: list[ChatMessage],
         tools: list[dict[str, object]],
         timeout_seconds: int,
-    ) -> OpenAICompletion:
-        ...
+    ) -> OpenAICompletion: ...
 
 
 class OpenAIChatCompletionsClient:
@@ -57,8 +88,7 @@ class OpenAIChatCompletionsClient:
         model: str,
         messages: list[ChatMessage],
         timeout_seconds: int,
-    ) -> str:
-        ...
+    ) -> str: ...
 
     @overload
     def complete(
@@ -68,8 +98,7 @@ class OpenAIChatCompletionsClient:
         messages: list[ChatMessage],
         tools: list[dict[str, object]],
         timeout_seconds: int,
-    ) -> OpenAICompletion:
-        ...
+    ) -> OpenAICompletion: ...
 
     def complete(
         self,
@@ -171,6 +200,8 @@ class OpenAICompatibleAgentProvider:
             allowed_tool_names = set(
                 self._tool_registry.names(allowed_tools=step_input.allowed_tools)
             )
+            if step_input.observations:
+                openai_tools = [*openai_tools, _FINAL_RESPONSE_TOOL]
         except KeyError as exc:
             return ProviderResponse.failed(str(exc.args[0]))
         try:
@@ -190,8 +221,7 @@ class OpenAICompatibleAgentProvider:
                     )
                 except Exception as retry_exc:
                     return ProviderResponse.failed(
-                        "Provider request failed: "
-                        f"{redact_secret(str(retry_exc), self._api_key)}"
+                        f"Provider request failed: {redact_secret(str(retry_exc), self._api_key)}"
                     )
                 return _response_from_action_text(
                     content,
@@ -201,36 +231,12 @@ class OpenAICompatibleAgentProvider:
                 f"Provider request failed: {redact_secret(str(exc), self._api_key)}"
             )
         if completion.tool_calls:
-            tool_invocations: list[ToolInvocation] = []
-            for tool_call in completion.tool_calls:
-                try:
-                    args = json.loads(tool_call.arguments or "{}")
-                except json.JSONDecodeError:
-                    return ProviderResponse.failed(
-                        "Provider returned invalid tool call arguments"
-                    )
-                if not isinstance(args, dict):
-                    return ProviderResponse.failed(
-                        "Provider returned non-object tool call arguments"
-                    )
-                try:
-                    self._tool_registry.get(tool_call.name)
-                except KeyError:
-                    return ProviderResponse.failed("Provider returned unknown tool call")
-                if tool_call.name not in allowed_tool_names:
-                    return ProviderResponse.failed("Provider returned disallowed tool call")
-                try:
-                    tool_invocations.append(
-                        ToolInvocation(
-                            id=tool_call.id,
-                            name=tool_call.name,
-                            args=args,
-                            source="openai_tool_call",
-                        )
-                    )
-                except ValidationError:
-                    return ProviderResponse.failed("Provider returned invalid tool call")
-            return ProviderResponse(status="succeeded", tool_invocations=tool_invocations)
+            return _response_from_tool_calls(
+                completion.tool_calls,
+                tool_registry=self._tool_registry,
+                allowed_tool_names=allowed_tool_names,
+                text_final_status=_text_final_status(step_input),
+            )
         return _response_from_action_text(
             completion.content,
             text_final_status=_text_final_status(step_input),
@@ -258,6 +264,84 @@ def _text_final_status(step_input: AgentProviderStepInput) -> str | None:
     if all(record.observation.status == "succeeded" for record in step_input.observations):
         return "completed"
     return "failed"
+
+
+def _parse_tool_call_arguments(tool_call: OpenAIToolCall) -> dict[str, object] | ProviderResponse:
+    try:
+        args = json.loads(tool_call.arguments or "{}")
+    except json.JSONDecodeError:
+        return ProviderResponse.failed("Provider returned invalid tool call arguments")
+    if not isinstance(args, dict):
+        return ProviderResponse.failed("Provider returned non-object tool call arguments")
+    return args
+
+
+def _response_from_final_response_tool_call(
+    args: dict[str, object],
+    *,
+    text_final_status: str | None,
+) -> ProviderResponse:
+    payload = dict(args)
+    payload["type"] = "final_response"
+    if payload.get("status") is None:
+        payload["status"] = text_final_status or "completed"
+    if payload.get("recommended_actions") is None:
+        payload["recommended_actions"] = []
+    try:
+        parse_mendcode_action(payload)
+    except ValidationError:
+        return ProviderResponse.failed("Provider returned invalid final_response tool call")
+    return ProviderResponse(status="succeeded", actions=[payload])
+
+
+def _response_from_tool_calls(
+    tool_calls: list[OpenAIToolCall],
+    *,
+    tool_registry: ToolRegistry,
+    allowed_tool_names: set[str],
+    text_final_status: str | None,
+) -> ProviderResponse:
+    parsed_calls: list[tuple[OpenAIToolCall, dict[str, object]]] = []
+    for tool_call in tool_calls:
+        parsed_args = _parse_tool_call_arguments(tool_call)
+        if isinstance(parsed_args, ProviderResponse):
+            return parsed_args
+        parsed_calls.append((tool_call, parsed_args))
+
+    final_response_calls = [
+        (tool_call, args)
+        for tool_call, args in parsed_calls
+        if tool_call.name == _FINAL_RESPONSE_TOOL_NAME
+    ]
+    if final_response_calls:
+        if len(parsed_calls) != 1:
+            return ProviderResponse.failed("Provider returned mixed final_response and tool calls")
+        _, args = final_response_calls[0]
+        return _response_from_final_response_tool_call(
+            args,
+            text_final_status=text_final_status,
+        )
+
+    tool_invocations: list[ToolInvocation] = []
+    for tool_call, args in parsed_calls:
+        try:
+            tool_registry.get(tool_call.name)
+        except KeyError:
+            return ProviderResponse.failed(f"Provider returned unknown tool call: {tool_call.name}")
+        if tool_call.name not in allowed_tool_names:
+            return ProviderResponse.failed("Provider returned disallowed tool call")
+        try:
+            tool_invocations.append(
+                ToolInvocation(
+                    id=tool_call.id,
+                    name=tool_call.name,
+                    args=args,
+                    source="openai_tool_call",
+                )
+            )
+        except ValidationError:
+            return ProviderResponse.failed("Provider returned invalid tool call")
+    return ProviderResponse(status="succeeded", tool_invocations=tool_invocations)
 
 
 def _response_from_action_text(

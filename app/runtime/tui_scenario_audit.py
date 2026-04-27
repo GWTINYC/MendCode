@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 _OUTPUT_LIMIT = 12_000
+_DEFAULT_TUI_SCENARIO_TARGETS = ["tests/scenarios", "tests/e2e"]
 
 
 @dataclass(frozen=True)
@@ -31,12 +32,16 @@ def extract_pytest_failures(output: str) -> list[str]:
     return failures
 
 
+def default_tui_scenario_audit_command() -> list[str]:
+    return [sys.executable, "-m", "pytest", "-q", *_DEFAULT_TUI_SCENARIO_TARGETS]
+
+
 def run_tui_scenario_audit_command(
     *,
     cwd: Path,
     command: list[str] | None = None,
 ) -> ScenarioAuditResult:
-    audit_command = command or [sys.executable, "-m", "pytest", "-q", "tests/scenarios"]
+    audit_command = command or default_tui_scenario_audit_command()
     started = time.monotonic()
     completed = subprocess.run(
         audit_command,
@@ -83,6 +88,10 @@ def write_tui_scenario_audit_report(
         "## 覆盖范围",
         "",
         "- 自动运行 `tests/scenarios`，通过 Textual `run_test()` 模拟用户输入。",
+        (
+            "- 自动运行 `tests/e2e`，通过 PTY 启动真实 TUI 进程，并要求真实 "
+            "OpenAI-compatible provider 环境变量。"
+        ),
         (
             "- 覆盖目录查看、中文 Git 状态、技术栈识别、文件读取、文档末句提问、"
             "搜索、失败提示、危险命令确认、会话恢复。"

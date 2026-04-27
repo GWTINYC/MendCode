@@ -315,6 +315,88 @@
 - 新增 `read_file` 类场景时，必须断言不会把不相关的文件正文刷到 visible transcript。
 - 问文件末尾内容时必须优先用 `tail_lines`，不要让模型通过猜测行号完成。
 
+### 问题 12：真实 provider 会把最终回答作为 tool call 返回
+
+状态：已修复 OpenAI-compatible 路径
+
+现象：
+
+用户询问“Mendcode问题记录的最后一句话是什么”时，真实 TUI 会话中模型已经通过 `read_file(tail_lines=10)` 读到了正确尾部内容，但下一轮 provider 返回 `final_response` tool call，被 MendCode 判定为 unknown tool call，最终显示 `Provider failed`。
+
+根因：
+
+- prompt 要求模型在 observation 足够时返回 `final_response`，但 OpenAI-compatible 请求只暴露 ToolRegistry 中的执行工具。
+- 部分 OpenAI-compatible 模型在启用 tools 后会继续用 tool call 形式表达最终回答，而不是返回普通文本或 JSON action。
+- 既有测试覆盖了“工具后普通文本 final answer”，但没有覆盖“工具后 final_response tool call”这一真实分支。
+
+处理：
+
+- OpenAI-compatible provider 增加 provider-local `final_response` tool，仅用于收尾，不进入 ToolRegistry、权限策略或执行链。
+- 已有 observation 后才把 `final_response` 暴露给模型；收到该 tool call 时转换为 MendCode `final_response` action。
+- 同一轮混合 `final_response` 和普通执行工具时直接失败，避免边执行边收尾。
+- AgentLoop 和 TUI 测试增加 `glob_file_search -> read_file(tail_lines) -> final_response tool call` 闭环覆盖。
+
+后续约束：
+
+- provider-local action tool 必须和可执行工具分层，不能进入 ToolRegistry risk 表。
+- 新增 provider 时必须覆盖“工具调用后模型如何最终回答”的真实协议变体。
+- TUI 场景不能只 mock 最终 AgentLoopResult，还要保留至少一条真实 AgentLoop + fake provider 的端到端用例。
+
+### 问题 13：只靠 Textual run_test 和 fake runner 无法代表真实 TUI 使用
+
+状态：开始修复，已新增 PTY live e2e 测试入口
+
+现象：
+
+用户在真实 TUI 中询问“文档最后一句是什么”时仍然失败，但既有测试看起来已经覆盖了类似问题。测试体系主要调用 `app.run_test()` 或直接注入 fake runner，绕过了真实终端、真实 provider、OpenAI-compatible tool call 细节和 TUI 进程生命周期。
+
+根因：
+
+- `tests/scenarios/` 更适合验证路由、渲染摘要和 no-fabrication，但不启动真实命令行进程。
+- fake runner 直接返回最终 `AgentLoopResult`，无法暴露真实 provider 在 tool result 后继续返回 `final_response` tool call 的协议差异。
+- 缺少“像用户一样在终端输入一句话并等待结果”的自动化测试层。
+- 巡检命令只跑轻量 scenario tests，没有把真实 PTY 用例纳入默认质量门。
+
+处理：
+
+- 新增 `tests/e2e/test_tui_pty_live.py`，使用 `pexpect` 启动真实 `python -m app.cli.main`。
+- live 用例在临时 Git 仓库中构造真实文件、Git 状态和 conversation log。
+- 默认要求真实 OpenAI-compatible provider 环境变量，缺失时测试明确失败，不静默跳过。
+- TUI scenario audit 默认同时运行 `tests/scenarios` 和 `tests/e2e`。
+
+后续约束：
+
+- 用户在真实 TUI 暴露的问题，优先补 PTY live 回归；只有无法稳定自动化时才退到 fake provider scenario。
+- live 用例必须断言可见输出和后台 conversation JSONL 中的工具证据，不能只看屏幕文本。
+- 缺少真实 provider 环境时，测试可以阻塞验证，但不能伪装成通过。
+
+### 问题 14：运行产物污染工具搜索会误导模型回答
+
+状态：已修复基础路径
+
+现象：
+
+真实 PTY 巡检中，用户问“MendCode问题记录的最后一句话是什么”。模型没有读取根目录 `MendCode_问题记录.md`，而是用 `search_code` 命中了当前 `data/conversations/*.md` 会话日志，随后读取该日志，并把日志里的“Running tools: MendCode问题记录的最后一句话是什么”当作最终答案。
+
+根因：
+
+- TUI 启动后会立刻在当前仓库写入 `data/conversations` 和 `data/traces`。
+- 宽泛 `search_code` 默认扫描整个工作区，模型容易被当前会话、trace 或历史运行记录中的同名文本吸引。
+- 运行产物对复盘很有价值，但不应该参与普通“项目文件/文档内容”事实检索。
+
+处理：
+
+- `search_code` 宽泛搜索默认排除 `.git`、`.worktrees`、`data`。
+- 显式 `glob='data/**'` 时仍允许搜索运行记录，保留分析 conversation log 的能力。
+- 单测覆盖 broad search 排除 runtime data，以及显式 data glob 可搜索。
+- 真实 PTY TUI 巡检复跑通过，确认文档末句场景不再被 conversation log 污染。
+
+后续约束：
+
+- 面向模型的默认项目检索必须区分“用户项目内容”和“MendCode 自身运行产物”。
+- 新增搜索、glob、上下文恢复能力时，都要考虑运行产物是否会被模型误当成目标事实。
+- 分析 `data/conversations` 应作为显式路径任务，而不是普通项目检索的默认结果。
+
 ## 3. 后续重点风险
 
 ### 风险 A：模型重复调用等价只读工具

@@ -2,6 +2,7 @@ from pathlib import Path
 
 from app.runtime.tui_scenario_audit import (
     ScenarioAuditResult,
+    default_tui_scenario_audit_command,
     extract_pytest_failures,
     write_tui_scenario_audit_report,
 )
@@ -22,6 +23,12 @@ def test_extract_pytest_failures_from_failed_output() -> None:
         "tests/scenarios/test_tui_file_question_scenarios.py::test_reads",
         "tests/scenarios/test_tui_failure_scenarios.py::test_missing",
     ]
+
+
+def test_default_tui_scenario_audit_command_includes_live_e2e_tests() -> None:
+    command = default_tui_scenario_audit_command()
+
+    assert command[-2:] == ["tests/scenarios", "tests/e2e"]
 
 
 def test_write_tui_scenario_audit_report_records_failure_issue(tmp_path: Path) -> None:
