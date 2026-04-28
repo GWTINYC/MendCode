@@ -32,7 +32,7 @@ def build_lesson_candidates(
         candidates.append(
             _lesson_candidate(
                 kind="context_lesson",
-                summary="Repeated file reads detected during context gathering",
+                summary="Detected repeated read_file calls during context gathering",
                 evidence={
                     "repeated_read_file_count": _repeated_read_file_count(turn),
                     "read_file_count": turn.context_metrics.get("read_file_count", 0),

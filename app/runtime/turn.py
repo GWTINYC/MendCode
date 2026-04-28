@@ -36,3 +36,5 @@ class RuntimeTurnResult(BaseModel):
     trace_path: str | None
     workspace_path: str | None = None
     steps: list[RuntimeToolStep] = Field(default_factory=list)
+    context_summary: dict[str, object] | None = None
+    evolution_summary: dict[str, object] | None = None

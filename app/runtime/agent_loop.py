@@ -1,4 +1,3 @@
-import json
 import subprocess
 from uuid import uuid4
 
@@ -16,6 +15,10 @@ from app.agent.loop import (
 )
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
 from app.config.settings import Settings
+from app.context.manager import ContextManager
+from app.evolution.models import EvolutionTurnInput
+from app.evolution.runtime import EvolutionRuntime
+from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
 from app.runtime.final_response_gate import apply_final_response_gate
 from app.runtime.process_registry import ProcessRegistry
@@ -59,6 +62,8 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 trace_path=str(trace_path),
                 workspace_path=None,
                 steps=[],
+                context_summary=None,
+                evolution_summary=None,
             )
 
     trace_path = recorder.record(
@@ -82,17 +87,19 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
     observation_history: list[AgentObservationRecord] = []
     repetition_tracker = RepetitionTracker()
     memory_store = MemoryStore(settings.data_dir / "memory")
+    memory_runtime = MemoryRuntime(memory_store)
+    context_manager = ContextManager(
+        memory_runtime=memory_runtime,
+        base_context=loop_input.provider_context,
+    )
+    context_manager.begin_turn(
+        user_message=loop_input.problem_statement,
+        repo_path=workspace_path,
+    )
+    evolution_runtime = EvolutionRuntime(memory_runtime)
 
     def provider_context() -> str:
-        return json.dumps(
-            _runtime_context_payload(
-                base_context=loop_input.provider_context,
-                problem_statement=loop_input.problem_statement,
-                memory_store=memory_store,
-            ),
-            ensure_ascii=False,
-            sort_keys=True,
-        )
+        return context_manager.build_provider_context().provider_context
 
     def recent_step_payloads() -> list[dict[str, object]]:
         return [step.model_dump(mode="json") for step in steps]
@@ -117,6 +124,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 observation=step.observation,
             )
         )
+        context_manager.record_observation(observation_history[-1])
 
     try:
         if loop_input.provider is not None:
@@ -305,12 +313,43 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                     break
     finally:
         process_registry.stop_all()
+
+    context_bundle = context_manager.build_provider_context()
+    context_summary = {
+        "metrics": context_bundle.metrics.model_dump(mode="json"),
+        "warnings": [
+            warning.model_dump(mode="json", exclude_none=True)
+            for warning in context_bundle.warnings
+        ],
+        "items": [
+            item.model_dump(mode="json", exclude_none=True)
+            for item in context_bundle.items
+        ],
+    }
+    evolution_result = evolution_runtime.after_turn(
+        EvolutionTurnInput(
+            user_message=loop_input.problem_statement,
+            final_response=summary,
+            turn_status=status,
+            tool_steps=[step.model_dump(mode="json") for step in steps],
+            trace_path=str(trace_path) if trace_path is not None else None,
+            verification_results=[],
+            context_metrics=context_bundle.metrics.model_dump(mode="json"),
+        )
+    )
+    evolution_summary = evolution_result.model_dump(mode="json", exclude_none=True)
     trace_path = recorder.record(
         TraceEvent(
             run_id=run_id,
             event_type="agent.run.completed",
             message="Completed agent loop",
-            payload={"status": status, "summary": summary, "step_count": len(steps)},
+            payload={
+                "status": status,
+                "summary": summary,
+                "step_count": len(steps),
+                "context_summary": context_summary,
+                "evolution_summary": evolution_summary,
+            },
         )
     )
     return AgentLoopResult(
@@ -320,6 +359,8 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
         trace_path=str(trace_path),
         workspace_path=str(workspace_path),
         steps=steps,
+        context_summary=context_summary,
+        evolution_summary=evolution_summary,
     )
 
 
@@ -359,36 +400,3 @@ def _handled_tool_rejection(
             observation=observation,
         ),
     )
-
-
-def _runtime_context_payload(
-    *,
-    base_context: str | None,
-    problem_statement: str,
-    memory_store: MemoryStore,
-) -> dict[str, object]:
-    payload: dict[str, object] = {}
-    if base_context:
-        try:
-            parsed_context = json.loads(base_context)
-        except json.JSONDecodeError:
-            payload["base_context"] = base_context
-        else:
-            payload["base_context"] = parsed_context
-    matches = memory_store.search(
-        query=problem_statement,
-        kinds={"project_fact", "task_state", "failure_lesson", "trace_insight"},
-        limit=5,
-    )
-    payload["memory_recall"] = [
-        {
-            "id": result.record.id,
-            "kind": result.record.kind,
-            "title": result.record.title,
-            "content_excerpt": result.record.content[:1200],
-            "tags": result.record.tags,
-            "score": result.score,
-        }
-        for result in matches
-    ]
-    return payload
