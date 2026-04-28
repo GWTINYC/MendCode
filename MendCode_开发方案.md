@@ -42,8 +42,9 @@ User Message
 2. ToolRegistry 收敛：所有 provider-visible 工具都从注册表生成 schema、risk 和 executor
 3. PermissionPolicy 收敛：统一工具权限、shell 风险、allowed tools 和用户确认
 4. 会话日志、trace、compact context、resume 能力
-5. TUI 真实体验测试：用 PTY 启动真实 TUI 进程，覆盖真实 provider/tool-call 闭环和高频自然语言问题
-6. TUI 工作台体验：让 Textual UI 成为 runtime 的薄展示层
+5. Layered Memory 第一切片：本地记忆、文件摘要缓存、失败 trace 经验候选和可控 recall 工具
+6. TUI 真实体验测试：用 PTY 启动真实 TUI 进程，覆盖真实 provider/tool-call 闭环和高频自然语言问题
+7. TUI 工作台体验：让 Textual UI 成为 runtime 的薄展示层
 
 当前重构设计：
 
@@ -166,6 +167,11 @@ User Message
 | `todo_write` | 已完成 | 返回当前短期结构化 todo 列表 |
 | `tool_search` | 已完成 | 按名称和描述搜索可用工具 |
 | `session_status` | 已完成 | 返回当前权限、可见工具、验证命令、trace 和近期步骤 |
+| `memory_search` | 已完成 | 查询本地 layered memory，返回 compact matches |
+| `memory_write` | 已完成 | 写入本地 layered memory，受写权限裁剪 |
+| `file_summary_read` | 已完成 | 读取或构建 repo-relative 文件摘要，按内容 hash 校验缓存是否过期 |
+| `file_summary_refresh` | 已完成 | 刷新并写入文件摘要记忆，受写权限裁剪 |
+| `trace_analyze` | 已完成 | 只读分析 trace/conversation JSONL，生成失败经验候选 |
 | `process_start` / `process_poll` / `process_write` / `process_stop` / `process_list` | 已完成 | 管理本轮后台进程和增量日志；`process_start` 走 ShellPolicy，日志写入 `data/processes/` |
 | `lsp` | 已完成 | 返回语言服务诊断、定义、引用、hover、symbols 等结构化结果；不可用时明确 rejected |
 | `apply_patch_to_worktree` | legacy/builtin | 后续删除或迁移为 `apply_patch` 兼容别名 |
@@ -175,6 +181,7 @@ User Message
 - [ ] `write_file` / `edit_file` 的更细粒度确认和 diff preview
 - [ ] 文件系统元信息工具，例如 `stat` / `tree` 的受限版本
 - [ ] LSP transport 配置和多语言 server 管理
+- [ ] `memory_write` 的用户确认、去重和敏感内容过滤策略
 
 新增工具检查表：
 
@@ -242,7 +249,9 @@ User Message
 - [x] TUI scenario audit 默认覆盖 `tests/scenarios` 和 `tests/e2e`
 - [x] PTY live 场景扩展到多轮目录+Git、明确读文件、代码定位、危险自然语言 shell 不走本地 pending、路径查看、git diff、会话列表
 - [x] TUI 只读工具面加入 `session_status`、`tool_search`、基础 `lsp`，不暴露 `process_*`
+- [x] TUI 只读工具面加入 `memory_search`、`file_summary_read`，不暴露 `memory_write`
 - [x] PTY live 覆盖“现在你能用哪些工具”，并断言 `session_status` / `tool_search` 来自 `openai_tool_call`
+- [x] PTY live 对工具面断言要求 `session_status` 和 `tool_search` payload 都有非空证据，并检查只读工具面不暴露 `memory_write`
 - [x] 新增 `tests/scenarios/tool_parity_scenarios.json`，固定 read/rg/write/multi-tool/bash/permission 的核心工具闭环场景
 - [x] e2e 测试可自动读取项目根目录 `.env` 中的真实 provider 配置
 
@@ -284,6 +293,7 @@ User Message
 - [x] compact resume context 包含最终回答和工具摘要，不回灌完整文件内容
 - [x] `/resume [session_id]` 会把 compact context 注入后续 chat history
 - [x] trace viewer helper 能读取工具事件摘要并保留完整 payload 入口
+- [x] conversation compact `tool_result` 保留安全的 tool args 摘要、memory matches 样本和 session tool surface 样本，便于测试和复盘工具调用真实参数
 
 当前不足：
 
@@ -295,6 +305,37 @@ User Message
 
 - 对长会话生成跨轮 compact summary，保留关键工具结果和决策。
 - 把 trace viewer helper 接到 TUI 展开界面，用于查看 conversation log 中被压缩掉的完整工具 payload。
+
+### 3.7 Layered Memory
+
+已完成：
+
+- [x] `app/memory/models.py` 定义 `project_fact`、`task_state`、`file_summary`、`failure_lesson`、`trace_insight` 等记录类型
+- [x] `MemoryStore` 使用 `data/memory/memories.jsonl` 作为本地 JSONL 存储，支持 append、search、list 和 update
+- [x] update 保留无法解析或未来 schema 的原始 JSONL 行，避免重写时丢失未知记录
+- [x] 文件摘要缓存按 repo-relative path、content sha256、mtime、size、line count 和 symbols 存储
+- [x] `file_summary_read` 会校验当前文件 hash，缓存过期时重建摘要
+- [x] `memory_search` / `memory_write` / `file_summary_read` / `file_summary_refresh` / `trace_analyze` 已通过 ToolRegistry 暴露
+- [x] AgentLoop/runtime 创建并传递 `MemoryStore(settings.data_dir / "memory")`
+- [x] `trace_analyze` 默认只读，`write_memory=True` 会拒绝，避免只读工具绕过写权限
+- [x] trace analyzer 能把失败或 rejected observation 转成 `failure_lesson` 候选，并忽略最终已 completed 的恢复 trace
+- [x] TUI scenario 覆盖记忆召回问题，断言 `memory_search` 的真实 compact args 和 payload
+
+当前不足：
+
+- [ ] 记忆召回还没有进入 system prompt 的自动 recall 阶段，当前由模型显式调用 `memory_search`
+- [ ] `memory_write` 还缺少用户确认、重复记忆合并、敏感信息过滤和人工审查界面
+- [ ] 文件摘要缓存没有批量 repo map，也没有和 prompt context 的重复读文件统计联动
+- [ ] trace failure lesson 仍是候选生成，尚未形成“失败归因 -> prompt/skill/memory 更新”的闭环
+- [ ] 还没有 SKILL.md-compatible skill 系统
+
+下一步：
+
+- 为 `memory_search` 增加更稳定的 ranking、recency 和 kind/tag 组合测试。
+- 设计 `memory_write` 的 confirm-on-write 和去重策略，避免模型静默写入错误长期记忆。
+- 将文件摘要缓存接入长会话 context compaction，减少重复读取大文件。
+- 基于 trace analyzer 生成可审查的 failure lesson 列表，并在 TUI 中提供采纳/忽略入口。
+- 在 memory 和 trace 稳定后，再启动 SKILL.md 系统计划。
 
 ## 4. 当前重点任务队列
 
@@ -449,6 +490,21 @@ export MENDCODE_API_KEY=<api-key>
 - 把 action parsing、tool invocation handling 从 `app.agent.loop` 拆到 runtime 内部模块。
 - 拆分后补 provider loop/request/observation 的更细粒度单测。
 
+### 任务 7：Layered Memory 继续演进
+
+目标：
+
+把当前“可显式调用的本地记忆工具”推进到“可控召回、可审查写入、可度量压缩效果”的 Runtime 能力。
+
+验收：
+
+- [x] 第一切片：JSONL store、file summary cache、memory tools、trace analyzer、runtime wiring、TUI 只读召回工具面
+- [ ] `memory_write` 需要确认和去重
+- [ ] 长会话开始前可按任务自动 recall 少量相关 memory
+- [ ] prompt context 中记录 memory recall 命中和文件重复读取指标
+- [ ] trace failure lesson 可在 TUI 中审查后写入 memory
+- [ ] 建立 memory 相关 PTY/scenario 测试集：召回已记录事实、拒绝写入、摘要缓存过期、trace 失败归因
+
 ## 5. 测试策略
 
 基础验证命令：
@@ -469,6 +525,7 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 - TUI 体验场景测试：`tests/scenarios/` 覆盖常见用户问题，断言 route、tool evidence、简洁输出和 no-fabrication。
 - TUI 真实终端测试：`tests/e2e/` 使用 PTY 启动真实 TUI 进程；默认要求真实 OpenAI-compatible provider 环境变量，缺失时应明确失败。
 - TUI 巡检：`python -m app.runtime.tui_scenario_audit --report-dir data/tui-scenario-reports` 默认同时运行 `tests/scenarios` 和 `tests/e2e`。
+- Memory 改动：`tests/unit/test_memory_store.py`、`tests/unit/test_file_summary_cache.py`、`tests/unit/test_memory_tools.py`、`tests/unit/test_trace_analyzer.py`、`tests/scenarios/test_tui_repository_inspection_scenarios.py::test_memory_recall_question_uses_memory_search`
 - CLI 改动：`tests/integration/test_cli.py`
 
 测试原则：
@@ -493,11 +550,12 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 
 ## 7. 当前已验证命令
 
-最近一次文档整理前，以下命令通过：
+2026-04-28 本轮 Layered Memory 第一切片和 TUI/PTY 工具面更新后，以下命令通过：
 
 ```bash
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest tests/e2e/test_tui_pty_live.py -q
 ```
 
 每轮代码变更后必须重新运行，不能直接沿用本节历史记录。

@@ -115,6 +115,7 @@ class OpenAIChatCompletionsClient:
         }
         if tools is not None:
             request_kwargs["tools"] = tools
+            request_kwargs["tool_choice"] = "required"
         response = self._client.chat.completions.create(**request_kwargs)
         message = response.choices[0].message
         if tools is None:

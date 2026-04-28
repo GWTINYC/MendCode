@@ -26,6 +26,7 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 - 安全优先：工具执行前必须经过工具白名单、权限策略和路径边界检查。
 - 证据优先：修复完成必须有验证结果，回答本地事实必须有 observation。
 - 会话可复盘：用户输入、工具调用、结果、错误和最终答复都要落盘。
+- 记忆可审查：长期记忆必须可追溯来源、可压缩上下文、可被用户审查，不允许静默固化错误事实。
 - 主线清晰：TUI AgentLoop 是唯一产品主线，CLI repair 只是过渡入口。
 
 ## 3. 阶段规划
@@ -62,11 +63,13 @@ MendCode 的目标是成为本地仓库中的可验证 TUI Code Agent。
 
 目标：让每轮对话都能恢复、审计、调试和评估。
 
-状态：早期能力已完成；已有会话索引、`/sessions`、`/resume [session_id]`、compact resume context 和 trace 工具事件读取 API。
+状态：早期能力已完成；已有会话索引、`/sessions`、`/resume [session_id]`、compact resume context、trace 工具事件读取 API，以及 Layered Memory 第一切片。
 
 下一步重点：
 
 - compact summary
+- memory recall 和文件摘要缓存接入长会话压缩
+- trace failure lesson 的审查和采纳入口
 - trace viewer 的 TUI 展开界面
 - 长会话 session health / 压缩策略
 

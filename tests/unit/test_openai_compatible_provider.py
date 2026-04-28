@@ -538,6 +538,7 @@ def test_openai_chat_completions_client_parses_sdk_tool_calls() -> None:
         ],
     )
     assert sdk_client.completions.calls[0]["tools"] == default_tool_registry().openai_tools()
+    assert sdk_client.completions.calls[0]["tool_choice"] == "required"
 
 
 def test_openai_compatible_provider_uses_repair_contract_prompt() -> None:
