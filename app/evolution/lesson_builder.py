@@ -1,4 +1,11 @@
+import hashlib
+import json
+from datetime import datetime, timezone
+
 from app.evolution.models import EvolutionTurnInput, LessonCandidate
+from app.memory.models import MemoryKind
+
+_DETERMINISTIC_CREATED_AT = datetime.fromtimestamp(0, tz=timezone.utc)
 
 
 def build_lesson_candidates(
@@ -10,7 +17,7 @@ def build_lesson_candidates(
     if _has_rejected_tool(turn):
         signals.append("tool_rejected")
         candidates.append(
-            LessonCandidate(
+            _lesson_candidate(
                 kind="tool_policy_lesson",
                 summary="Tool rejected during turn",
                 evidence=_rejected_tool_evidence(turn),
@@ -23,7 +30,7 @@ def build_lesson_candidates(
     if _repeated_read_file_count(turn) > 0:
         signals.append("repeated_read_file")
         candidates.append(
-            LessonCandidate(
+            _lesson_candidate(
                 kind="context_lesson",
                 summary="Repeated file reads detected during context gathering",
                 evidence={
@@ -39,7 +46,7 @@ def build_lesson_candidates(
     if _verification_recovered(turn):
         signals.append("verification_recovered")
         candidates.append(
-            LessonCandidate(
+            _lesson_candidate(
                 kind="test_fix_lesson",
                 summary="Verification failed and later succeeded after a run_command",
                 evidence={"source": "run_command", "status_sequence": ["failed", "succeeded"]},
@@ -53,7 +60,7 @@ def build_lesson_candidates(
     if turn.turn_status != "completed":
         signals.append("turn_failed")
         candidates.append(
-            LessonCandidate(
+            _lesson_candidate(
                 kind="failure_lesson",
                 summary=f"Turn failed: {_summary_text(turn.final_response)}",
                 evidence={
@@ -67,6 +74,44 @@ def build_lesson_candidates(
         )
 
     return signals, candidates
+
+
+def _lesson_candidate(
+    *,
+    kind: str,
+    summary: str,
+    evidence: dict[str, object] | None = None,
+    source_trace_path: str | None = None,
+    suggested_memory_kind: MemoryKind = "failure_lesson",
+    suggested_skill: str | None = None,
+    confidence: float = 0.5,
+) -> LessonCandidate:
+    evidence = evidence or {}
+    payload = {
+        "kind": kind,
+        "summary": summary,
+        "evidence": evidence,
+        "source_trace_path": source_trace_path,
+        "suggested_memory_kind": suggested_memory_kind,
+        "suggested_skill": suggested_skill,
+    }
+    candidate_id = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode(
+            "utf-8"
+        )
+    ).hexdigest()[:32]
+    return LessonCandidate(
+        id=candidate_id,
+        kind=kind,
+        summary=summary,
+        evidence=evidence,
+        source_trace_path=source_trace_path,
+        suggested_memory_kind=suggested_memory_kind,
+        suggested_skill=suggested_skill,
+        confidence=confidence,
+        created_at=_DETERMINISTIC_CREATED_AT,
+        updated_at=_DETERMINISTIC_CREATED_AT,
+    )
 
 
 def _summary_text(value: str | None) -> str:

@@ -1,3 +1,4 @@
+from app.evolution.lesson_builder import build_lesson_candidates
 from app.evolution.models import EvolutionTurnInput
 from app.evolution.runtime import EvolutionRuntime
 from app.memory.runtime import MemoryRuntime
@@ -121,3 +122,28 @@ def test_evolution_runtime_skips_ordinary_success(tmp_path) -> None:
     assert result.generated_candidates == []
     assert result.skipped_reason == "no evolution signals"
     assert memory_runtime.list_candidates() == []
+
+
+def test_lesson_builder_is_deterministic_for_identical_turn_input() -> None:
+    turn = EvolutionTurnInput(
+        user_message="修复测试",
+        turn_status="failed",
+        final_response="Provider failed",
+        trace_path="trace.jsonl",
+        tool_steps=[
+            {
+                "index": 1,
+                "action": {"type": "tool_call", "action": "apply_patch"},
+                "observation": {"status": "rejected", "summary": "tool rejected"},
+            }
+        ],
+        context_metrics={"repeated_read_file_count": 1, "read_file_count": 2},
+    )
+
+    first_signals, first_candidates = build_lesson_candidates(turn)
+    second_signals, second_candidates = build_lesson_candidates(turn)
+
+    assert second_signals == first_signals
+    assert [candidate.model_dump(mode="json") for candidate in second_candidates] == [
+        candidate.model_dump(mode="json") for candidate in first_candidates
+    ]
