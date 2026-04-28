@@ -30,6 +30,13 @@ _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
     "edit": ("edit_file",),
     "todo": ("todo_write",),
     "tools": ("tool_search",),
+    "memory": (
+        "memory_search",
+        "memory_write",
+        "file_summary_read",
+        "file_summary_refresh",
+        "trace_analyze",
+    ),
     "fs_read": ("read_file", "list_dir", "glob_file_search", "rg", "search_code"),
     "fs_write": ("apply_patch", "write_file", "edit_file"),
     "git_read": ("repo_status", "git", "show_diff"),
@@ -58,6 +65,7 @@ _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
         "planning",
         "introspection",
         "lsp_tools",
+        "memory",
     ),
     "full_coding_agent": ("coding_agent", "process"),
     "repair_agent": ("coding_agent",),
@@ -116,6 +124,7 @@ class ToolExecutionContext(BaseModel):
     pending_confirmation: dict[str, object] | None = None
     process_registry: Any | None = None
     lsp_client: Any | None = None
+    memory_store: Any | None = None
 
 
 ToolExecutor = Callable[[BaseModel, ToolExecutionContext], Observation]

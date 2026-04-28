@@ -190,6 +190,19 @@ def test_default_registry_contains_read_only_tools() -> None:
         assert tool_name in registry.names()
 
 
+def test_registry_contains_memory_tools() -> None:
+    registry = default_tool_registry()
+    names = set(registry.names(allowed_tools={"memory"}))
+
+    assert {
+        "memory_search",
+        "memory_write",
+        "file_summary_read",
+        "file_summary_refresh",
+        "trace_analyze",
+    } <= names
+
+
 def test_tool_result_to_observation_maps_passed_result(tmp_path: Path) -> None:
     result = ToolResult(
         tool_name="read_file",

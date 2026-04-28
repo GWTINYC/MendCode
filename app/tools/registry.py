@@ -8,10 +8,14 @@ from app.tools.arguments import (
     ApplyPatchArgs,
     EditFileArgs,
     EmptyToolArgs,
+    FileSummaryReadArgs,
+    FileSummaryRefreshArgs,
     GitArgs,
     GlobFileSearchArgs,
     ListDirArgs,
     LspArgs,
+    MemorySearchArgs,
+    MemoryWriteArgs,
     ProcessPollArgs,
     ProcessStartArgs,
     ProcessStopArgs,
@@ -23,9 +27,17 @@ from app.tools.arguments import (
     SessionStatusArgs,
     TodoWriteArgs,
     ToolSearchArgs,
+    TraceAnalyzeArgs,
     WriteFileArgs,
 )
 from app.tools.lsp_tool import lsp
+from app.tools.memory_tools import (
+    file_summary_read,
+    file_summary_refresh,
+    memory_search,
+    memory_write,
+    trace_analyze,
+)
 from app.tools.observations import observation_from_tool_result, tool_observation
 from app.tools.process_tools import (
     process_list,
@@ -806,6 +818,44 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=ToolSearchArgs,
                 risk_level=ToolRisk.READ_ONLY,
                 executor=_tool_search,
+            ),
+            ToolSpec(
+                name="memory_search",
+                description="Search local layered memory records by query, kind, and tag.",
+                args_model=MemorySearchArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=memory_search,
+            ),
+            ToolSpec(
+                name="memory_write",
+                description="Write a local layered memory record for future recall.",
+                args_model=MemoryWriteArgs,
+                risk_level=ToolRisk.WRITE_WORKTREE,
+                executor=memory_write,
+            ),
+            ToolSpec(
+                name="file_summary_read",
+                description="Read or build a compact summary for a repo-relative file.",
+                args_model=FileSummaryReadArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=file_summary_read,
+            ),
+            ToolSpec(
+                name="file_summary_refresh",
+                description="Refresh and store a compact summary for a repo-relative file.",
+                args_model=FileSummaryRefreshArgs,
+                risk_level=ToolRisk.WRITE_WORKTREE,
+                executor=file_summary_refresh,
+            ),
+            ToolSpec(
+                name="trace_analyze",
+                description=(
+                    "Analyze a MendCode JSONL trace and optionally persist a failure "
+                    "lesson memory."
+                ),
+                args_model=TraceAnalyzeArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=trace_analyze,
             ),
             ToolSpec(
                 name="process_start",

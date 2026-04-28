@@ -129,6 +129,45 @@ class ToolSearchArgs(BaseModel):
     max_results: int = Field(default=10, ge=1, le=50)
 
 
+class MemorySearchArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    query: str = ""
+    kinds: list[str] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
+    limit: int = Field(default=10, ge=1, le=25)
+
+
+class MemoryWriteArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: str
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=12000)
+    tags: list[str] = Field(default_factory=list)
+    source: str = "agent"
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class FileSummaryReadArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+
+
+class FileSummaryRefreshArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+
+
+class TraceAnalyzeArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trace_path: str
+    write_memory: bool = False
+
+
 class SessionStatusArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
