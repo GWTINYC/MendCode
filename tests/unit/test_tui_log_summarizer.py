@@ -193,6 +193,38 @@ def test_compact_agent_loop_result_keeps_session_status_tool_surface() -> None:
     assert step["payload"]["denied_tools"] == ["write_file"]
 
 
+def test_compact_agent_loop_result_keeps_runtime_summaries() -> None:
+    result = AgentLoopResult(
+        run_id="agent-context",
+        status="completed",
+        summary="done",
+        trace_path="/tmp/trace.jsonl",
+        context_summary={
+            "metrics": {
+                "context_chars": 100,
+                "memory_recall_hits": 1,
+                "observation_count": 2,
+                "read_file_count": 1,
+                "repeated_read_file_count": 0,
+            },
+            "memory_recall_hits": 1,
+            "warnings": [],
+        },
+        evolution_summary={
+            "generated_candidates": [],
+            "generated_candidate_count": 0,
+            "signals": [],
+            "skipped_reason": "no evolution signals",
+        },
+        steps=[],
+    )
+
+    compact = compact_agent_loop_result(result)
+
+    assert compact["context_summary"]["metrics"]["memory_recall_hits"] == 1
+    assert compact["evolution_summary"]["generated_candidate_count"] == 0
+
+
 def test_compact_agent_session_turn_does_not_embed_full_nested_result() -> None:
     full_content = "readme\n" * 1000
     result = AgentLoopResult(

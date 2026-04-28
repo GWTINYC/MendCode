@@ -308,6 +308,13 @@ async def test_memory_recall_question_uses_memory_search(tmp_path):
         "Use python -m pytest -q."
     )
     assert memory_step["payload"]["matches_sample"][0]["title"] == "pytest command"
+    assert any(
+        record.get("event_type") == "tool_result"
+        and isinstance(record.get("payload"), dict)
+        and isinstance(record["payload"].get("context_summary"), dict)
+        and record["payload"]["context_summary"]["metrics"]["observation_count"] >= 1
+        for record in transcript.jsonl_records
+    )
     assert_visible_answer_contains(transcript, "python -m pytest -q")
     assert_answer_is_concise(transcript, max_lines=8, max_chars=500)
 

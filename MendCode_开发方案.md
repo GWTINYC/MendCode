@@ -77,6 +77,8 @@ User Message
 - [x] 重复等价只读工具调用检测，第三次重复调用返回结构化 rejected observation
 - [x] deterministic mock provider harness 覆盖 native tool-call 闭环
 - [x] read/list/rg/multi-tool/shell/error/allowed-tools/confirmation stop 场景测试
+- [x] AgentLoop 主路径通过 `ContextManager` 构建 provider context，不再直接拼接 memory recall payload
+- [x] turn 结束后调用 `EvolutionRuntime` 生成可审查 lesson candidate，写入失败不会破坏用户最终回答
 
 当前不足：
 
@@ -317,9 +319,11 @@ User Message
 - [x] `file_summary_read` 会校验当前文件 hash，缓存过期时重建摘要
 - [x] `memory_search` / `memory_write` / `file_summary_read` / `file_summary_refresh` / `trace_analyze` 已通过 ToolRegistry 暴露
 - [x] `memory_write` / `file_summary_refresh` 按高风险工具处理，默认/guided 工具池不暴露，避免模型静默写长期状态
-- [x] AgentLoop/runtime 创建并传递 `MemoryStore(settings.data_dir / "memory")`
-- [x] AgentLoop 在 provider 调用前按 `problem_statement` 自动召回少量相关 memory，并通过 `provider_context` 注入模型上下文
+- [x] `MemoryRuntime` 包装 `MemoryStore`，提供自动 recall、文件摘要入口和 review queue 入口
+- [x] AgentLoop/runtime 创建 `MemoryStore(settings.data_dir / "memory")` 后交给 `MemoryRuntime`
+- [x] AgentLoop 在 provider 调用前通过 `ContextManager -> MemoryRuntime.recall_for_turn()` 自动召回少量相关 memory，并注入模型上下文
 - [x] prompt context 记录 observation 数量、memory recall 命中数、read_file 次数、重复 read_file 次数和 context 字符量
+- [x] `data/memory/review_queue.jsonl` 保存待审查 lesson candidate，只有显式 accept 才会提升为长期 memory
 - [x] `trace_analyze` 默认只读，`write_memory=True` 会拒绝，避免只读工具绕过写权限
 - [x] `trace_analyze` 只能读取 `settings.traces_dir` 内的 JSONL 路径
 - [x] trace analyzer 能把失败或 rejected observation 转成 `failure_lesson` 候选，并忽略最终已 completed 的恢复 trace
@@ -329,6 +333,7 @@ User Message
 当前不足：
 
 - [ ] `memory_write` 还缺少用户确认、重复记忆合并、敏感信息过滤和人工审查界面
+- [ ] review queue 还没有 TUI 审查入口
 - [ ] 文件摘要缓存没有批量 repo map，也没有和 prompt context 的重复读文件统计联动
 - [ ] trace failure lesson 仍是候选生成，尚未形成“失败归因 -> prompt/skill/memory 更新”的闭环
 - [ ] 还没有 SKILL.md-compatible skill 系统
@@ -340,6 +345,31 @@ User Message
 - 将文件摘要缓存接入长会话 context compaction，减少重复读取大文件。
 - 基于 trace analyzer 生成可审查的 failure lesson 列表，并在 TUI 中提供采纳/忽略入口。
 - 在 memory 和 trace 稳定后，再启动 SKILL.md 系统计划。
+
+### 3.8 Context / Evolution Runtime
+
+已完成：
+
+- [x] `ContextManager` 统一构建 provider context，并记录 memory recall、observation、`read_file` 和重复 `read_file` 指标。
+- [x] `ContextManager` 的运行摘要进入 trace 和 conversation compact payload，但不会把完整大段 base context 复制到摘要里。
+- [x] `MemoryRuntime` 包装 `MemoryStore`，提供自动 recall、显式 memory promotion 和 review queue 入口。
+- [x] `EvolutionRuntime` 在 turn 结束后根据失败、rejected tool、重复读取和验证恢复生成 lesson candidate。
+- [x] `EvolutionRuntime.after_turn()` 是 best-effort；review queue 写入失败会进入 `evolution_summary.error`，不会覆盖已完成的用户回答。
+
+当前不足：
+
+- [ ] Context budget 仍以字符估算为主，尚未接入真实 tokenizer。
+- [ ] Context compaction 还没有按任务类型区分策略，文件摘要尚未替代重复全文读取。
+- [ ] review queue 还没有 TUI 审查入口。
+- [ ] lesson candidate 不会自动更新 SKILL、prompt 或长期 memory。
+- [ ] `EvolutionRuntime` 仍是轻量规则，不做跨 trace 聚合和收益验证。
+
+下一步：
+
+- 将 `ContextManager` 接入长会话 compact summary 和文件摘要缓存。
+- 为 review queue 增加 TUI list / accept / reject 入口。
+- 建立 lesson candidate 到 SKILL 更新建议的中间层，但保持人工审查。
+- 用 benchmark report 验证 repeated read、context size 和 token-ish 指标是否真实下降。
 
 ## 4. 当前重点任务队列
 

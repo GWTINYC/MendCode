@@ -189,6 +189,26 @@ class FakeToolAgentRunner:
             trace_path=str(self.repo_path / "data" / "traces" / "scenario.jsonl"),
             workspace_path=str(self.repo_path),
             steps=steps,
+            context_summary={
+                "metrics": {
+                    "context_chars": 0,
+                    "memory_recall_hits": 0,
+                    "observation_count": len(self.scenario.tool_steps),
+                    "read_file_count": sum(
+                        1 for item in self.scenario.tool_steps if item.action == "read_file"
+                    ),
+                    "repeated_read_file_count": 0,
+                },
+                "memory_recall_hits": 0,
+                "warnings": [],
+                "items": [],
+            },
+            evolution_summary={
+                "generated_candidates": [],
+                "generated_candidate_count": 0,
+                "signals": [],
+                "skipped_reason": "no evolution signals",
+            },
         )
 
 

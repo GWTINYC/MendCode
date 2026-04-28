@@ -153,7 +153,7 @@ def _compact_step(step: AgentStep) -> dict[str, object]:
 
 
 def compact_agent_loop_result(result: AgentLoopResult) -> dict[str, object]:
-    return {
+    compact: dict[str, object] = {
         "run_id": result.run_id,
         "status": result.status,
         "summary": result.summary,
@@ -162,6 +162,11 @@ def compact_agent_loop_result(result: AgentLoopResult) -> dict[str, object]:
         "step_count": len(result.steps),
         "steps": [_compact_step(step) for step in result.steps],
     }
+    if result.context_summary is not None:
+        compact["context_summary"] = result.context_summary
+    if result.evolution_summary is not None:
+        compact["evolution_summary"] = result.evolution_summary
+    return compact
 
 
 def compact_agent_session_turn(turn: AgentSessionTurn) -> dict[str, object]:
