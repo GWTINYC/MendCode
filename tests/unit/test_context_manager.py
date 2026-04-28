@@ -1,9 +1,12 @@
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from app.agent.provider import AgentObservationRecord
 from app.context.manager import ContextManager
-from app.context.models import ContextBudget
+from app.context.models import ContextBudget, ContextMetrics
 from app.memory.models import MemoryRecord
 from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
@@ -81,3 +84,46 @@ def test_context_manager_records_read_file_repetition(tmp_path: Path) -> None:
     assert json.loads(bundle.provider_context)["context_metrics"][
         "repeated_read_file_count"
     ] == 1
+
+
+def test_context_models_reject_scalar_coercion() -> None:
+    with pytest.raises(ValidationError):
+        ContextBudget(max_memory_items="3")
+
+    with pytest.raises(ValidationError):
+        ContextMetrics(read_file_count="2")
+
+
+def test_context_manager_normalizes_simple_repeated_read_file_paths(
+    tmp_path: Path,
+) -> None:
+    manager = ContextManager(memory_runtime=_memory_runtime(tmp_path))
+    manager.begin_turn(user_message="read equivalent paths", repo_path=tmp_path)
+
+    for index, path in enumerate(("README.md", "./README.md")):
+        manager.record_observation(
+            AgentObservationRecord(
+                action=ToolCallAction(
+                    type="tool_call",
+                    action="read_file",
+                    reason="inspect",
+                    args={"path": path},
+                ),
+                tool_invocation=ToolInvocation(
+                    id=f"call_{index}",
+                    name="read_file",
+                    args={"path": path},
+                    source="openai_tool_call",
+                ),
+                observation=Observation(
+                    status="succeeded",
+                    summary=f"Read {path}",
+                    payload={"relative_path": path, "content": "demo"},
+                ),
+            )
+        )
+
+    bundle = manager.build_provider_context()
+
+    assert bundle.metrics.read_file_count == 2
+    assert bundle.metrics.repeated_read_file_count == 1

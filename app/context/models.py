@@ -10,8 +10,11 @@ ContextItemKind = Literal[
 ]
 
 
-class ContextItem(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class StrictContextModel(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+
+class ContextItem(StrictContextModel):
 
     kind: ContextItemKind
     title: str
@@ -19,15 +22,11 @@ class ContextItem(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class ContextBudget(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ContextBudget(StrictContextModel):
     max_memory_items: int = Field(default=5, ge=0)
 
 
-class ContextMetrics(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ContextMetrics(StrictContextModel):
     context_chars: int = Field(default=0, ge=0)
     memory_recall_hits: int = Field(default=0, ge=0)
     observation_count: int = Field(default=0, ge=0)
@@ -35,17 +34,13 @@ class ContextMetrics(BaseModel):
     repeated_read_file_count: int = Field(default=0, ge=0)
 
 
-class ContextWarning(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ContextWarning(StrictContextModel):
     code: str
     message: str
     source: str | None = None
 
 
-class ContextBundle(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ContextBundle(StrictContextModel):
     provider_context: str
     metrics: ContextMetrics
     warnings: list[ContextWarning] = Field(default_factory=list)

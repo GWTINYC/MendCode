@@ -1,5 +1,6 @@
 from collections import Counter
 from collections.abc import Iterable
+from pathlib import PurePosixPath
 from typing import Any
 
 from app.agent.provider import AgentObservationRecord
@@ -11,11 +12,12 @@ def metrics_for_observations(
 ) -> ContextMetrics:
     observation_list = list(observations)
     read_file_paths = [
-        path
+        normalized_path
         for observation in observation_list
         if _is_read_file_observation(observation)
         for path in [_read_file_path(observation)]
-        if path is not None
+        for normalized_path in [_normalize_path(path)]
+        if normalized_path is not None
     ]
     path_counts = Counter(read_file_paths)
     repeated_read_file_count = sum(count - 1 for count in path_counts.values() if count > 1)
@@ -85,3 +87,14 @@ def _string_value(value: object) -> str | None:
     if isinstance(value, str) and value:
         return value
     return None
+
+
+def _normalize_path(path: str | None) -> str | None:
+    if path is None:
+        return None
+    stripped = path.strip()
+    if not stripped:
+        return None
+    while stripped.startswith("./"):
+        stripped = stripped[2:]
+    return PurePosixPath(stripped).as_posix()
