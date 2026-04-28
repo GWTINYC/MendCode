@@ -16,6 +16,7 @@ from app.agent.loop import (
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
 from app.config.settings import Settings
 from app.context.manager import ContextManager
+from app.context.models import ContextBundle
 from app.evolution.models import EvolutionTurnInput
 from app.evolution.runtime import EvolutionRuntime
 from app.memory.runtime import MemoryRuntime
@@ -52,7 +53,12 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                     run_id=run_id,
                     event_type="agent.run.completed",
                     message="Agent loop failed before start",
-                    payload={"status": "failed", "summary": detail.strip()},
+                    payload={
+                        "status": "failed",
+                        "summary": detail.strip(),
+                        "context_summary": None,
+                        "evolution_summary": None,
+                    },
                 )
             )
             return AgentLoopResult(
@@ -96,7 +102,6 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
         user_message=loop_input.problem_statement,
         repo_path=workspace_path,
     )
-    evolution_runtime = EvolutionRuntime(memory_runtime)
 
     def provider_context() -> str:
         return context_manager.build_provider_context().provider_context
@@ -315,19 +320,10 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
         process_registry.stop_all()
 
     context_bundle = context_manager.build_provider_context()
-    context_summary = {
-        "metrics": context_bundle.metrics.model_dump(mode="json"),
-        "warnings": [
-            warning.model_dump(mode="json", exclude_none=True)
-            for warning in context_bundle.warnings
-        ],
-        "items": [
-            item.model_dump(mode="json", exclude_none=True)
-            for item in context_bundle.items
-        ],
-    }
-    evolution_result = evolution_runtime.after_turn(
-        EvolutionTurnInput(
+    context_summary = _compact_context_summary(context_bundle)
+    evolution_summary = _evolution_summary_best_effort(
+        evolution_runtime=EvolutionRuntime(memory_runtime),
+        turn=EvolutionTurnInput(
             user_message=loop_input.problem_statement,
             final_response=summary,
             turn_status=status,
@@ -335,9 +331,8 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
             trace_path=str(trace_path) if trace_path is not None else None,
             verification_results=[],
             context_metrics=context_bundle.metrics.model_dump(mode="json"),
-        )
+        ),
     )
-    evolution_summary = evolution_result.model_dump(mode="json", exclude_none=True)
     trace_path = recorder.record(
         TraceEvent(
             run_id=run_id,
@@ -362,6 +357,57 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
         context_summary=context_summary,
         evolution_summary=evolution_summary,
     )
+
+
+def _compact_context_summary(context_bundle: ContextBundle) -> dict[str, object]:
+    return {
+        "metrics": context_bundle.metrics.model_dump(mode="json"),
+        "memory_recall_hits": context_bundle.metrics.memory_recall_hits,
+        "warnings": [
+            warning.model_dump(mode="json", exclude_none=True)
+            for warning in context_bundle.warnings
+        ],
+        "items": [
+            {
+                "kind": item.kind,
+                "title": item.title,
+                "metadata": item.metadata,
+                "content_excerpt": _content_excerpt(item.content),
+            }
+            for item in context_bundle.items
+        ],
+    }
+
+
+def _content_excerpt(content: str | None, max_chars: int = 240) -> str | None:
+    if content is None:
+        return None
+    if len(content) <= max_chars:
+        return content
+    return f"{content[:max_chars]}..."
+
+
+def _evolution_summary_best_effort(
+    *,
+    evolution_runtime: EvolutionRuntime,
+    turn: EvolutionTurnInput,
+) -> dict[str, object]:
+    try:
+        evolution_result = evolution_runtime.after_turn(turn)
+    except Exception as exc:  # pragma: no cover - exercised through integration.
+        return {
+            "generated_candidates": [],
+            "generated_candidate_count": 0,
+            "signals": [],
+            "skipped_reason": None,
+            "error": {
+                "type": type(exc).__name__,
+                "message": str(exc),
+            },
+        }
+    summary = evolution_result.model_dump(mode="json", exclude_none=True)
+    summary["generated_candidate_count"] = len(evolution_result.generated_candidates)
+    return summary
 
 
 def _handled_response(

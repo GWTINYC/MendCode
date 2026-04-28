@@ -1,3 +1,4 @@
+import json
 import shlex
 import subprocess
 import sys
@@ -52,6 +53,11 @@ def init_git_repo(path: Path) -> Path:
         text=True,
     )
     return repo_path
+
+
+def _last_trace_event(trace_path: Path) -> dict[str, object]:
+    lines = trace_path.read_text(encoding="utf-8").splitlines()
+    return json.loads(lines[-1])
 
 
 class RecordingProvider:
@@ -152,6 +158,36 @@ class RepeatingReadProvider:
                     "type": "final_response",
                     "status": "failed",
                     "summary": "stopped after repeated call rejection",
+                }
+            ],
+        )
+
+
+class TwoReadThenDoneProvider:
+    def __init__(self) -> None:
+        self.calls: list[AgentProviderStepInput] = []
+
+    def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
+        self.calls.append(step_input)
+        if len(self.calls) <= 2:
+            return ProviderResponse(
+                status="succeeded",
+                tool_invocations=[
+                    ToolInvocation(
+                        id=f"call_read_{len(self.calls)}",
+                        name="read_file",
+                        args={"path": "README.md"},
+                        source="openai_tool_call",
+                    )
+                ],
+            )
+        return ProviderResponse(
+            status="succeeded",
+            actions=[
+                {
+                    "type": "final_response",
+                    "status": "completed",
+                    "summary": "done after repeated reads",
                 }
             ],
         )
@@ -411,8 +447,112 @@ def test_agent_loop_generates_evolution_candidate_for_repeated_read_file(
     candidates_path = tmp_path / "data" / "memory" / "review_queue.jsonl"
     assert result.evolution_summary is not None
     assert "repeated_read_file" in result.evolution_summary["signals"]
+    assert any(
+        candidate["kind"] == "context_lesson"
+        for candidate in result.evolution_summary["generated_candidates"]
+    )
     assert candidates_path.exists()
-    assert "repeated read_file" in candidates_path.read_text(encoding="utf-8")
+
+
+def test_agent_loop_evolution_write_failure_keeps_completed_turn(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from app.memory.review_queue import MemoryReviewQueue
+
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "README.md").write_text("demo\n", encoding="utf-8")
+
+    def fail_append(self, candidate):
+        raise OSError("review queue unavailable")
+
+    monkeypatch.setattr(MemoryReviewQueue, "append", fail_append)
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="repeat read but finish",
+            provider=TwoReadThenDoneProvider(),
+            allowed_tools={"read_file"},
+            step_budget=5,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.summary == "done after repeated reads"
+    assert result.evolution_summary is not None
+    assert result.evolution_summary["generated_candidate_count"] == 0
+    assert result.evolution_summary["signals"] == []
+    assert result.evolution_summary["error"]["message"] == "review queue unavailable"
+    completed_event = _last_trace_event(Path(result.trace_path))
+    assert completed_event["payload"]["evolution_summary"]["error"]["message"] == (
+        "review queue unavailable"
+    )
+
+
+def test_agent_loop_context_summary_omits_full_large_base_context(
+    tmp_path: Path,
+) -> None:
+    large_base_context = "x" * 5000
+    provider = NativeToolProvider(
+        [
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="summarize context",
+            provider=provider,
+            provider_context=large_base_context,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert large_base_context in provider.calls[0].context
+    assert result.context_summary is not None
+    assert large_base_context not in json.dumps(
+        result.context_summary,
+        ensure_ascii=False,
+    )
+    completed_event = _last_trace_event(Path(result.trace_path))
+    assert large_base_context not in json.dumps(
+        completed_event["payload"]["context_summary"],
+        ensure_ascii=False,
+    )
+
+
+def test_agent_loop_workspace_setup_failure_trace_has_empty_summaries(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from app.runtime import agent_loop as runtime_agent_loop
+
+    def fail_prepare_worktree(**kwargs):
+        raise OSError("worktree unavailable")
+
+    monkeypatch.setattr(runtime_agent_loop, "prepare_worktree", fail_prepare_worktree)
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="start",
+            provider=NativeToolProvider([]),
+            use_worktree=True,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.context_summary is None
+    assert result.evolution_summary is None
+    completed_event = _last_trace_event(Path(result.trace_path))
+    assert completed_event["payload"]["context_summary"] is None
+    assert completed_event["payload"]["evolution_summary"] is None
 
 
 def test_agent_loop_openai_native_tool_call_roundtrip_grounds_final_text(
