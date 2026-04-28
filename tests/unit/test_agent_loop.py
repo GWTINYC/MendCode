@@ -454,7 +454,7 @@ def test_agent_loop_generates_evolution_candidate_for_repeated_read_file(
     assert candidates_path.exists()
 
 
-def test_agent_loop_evolution_write_failure_keeps_completed_turn(
+def test_agent_loop_evolution_failure_does_not_fail_completed_turn(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -483,8 +483,9 @@ def test_agent_loop_evolution_write_failure_keeps_completed_turn(
     assert result.status == "completed"
     assert result.summary == "done after repeated reads"
     assert result.evolution_summary is not None
-    assert result.evolution_summary["generated_candidate_count"] == 0
-    assert result.evolution_summary["signals"] == []
+    assert result.evolution_summary["generated_candidate_count"] == 1
+    assert "repeated_read_file" in result.evolution_summary["signals"]
+    assert result.evolution_summary["generated_candidates"][0]["kind"] == "context_lesson"
     assert result.evolution_summary["error"]["message"] == "review queue unavailable"
     completed_event = _last_trace_event(Path(result.trace_path))
     assert completed_event["payload"]["evolution_summary"]["error"]["message"] == (

@@ -13,11 +13,20 @@ class EvolutionRuntime:
 
     def after_turn(self, turn: EvolutionTurnInput) -> EvolutionTurnResult:
         signals, candidates = build_lesson_candidates(turn)
+        error: dict[str, str] | None = None
         for candidate in candidates:
-            self.memory_runtime.enqueue_candidate(candidate)
+            try:
+                self.memory_runtime.enqueue_candidate(candidate)
+            except Exception as exc:  # pragma: no cover - covered by integration/unit tests.
+                error = {
+                    "type": type(exc).__name__,
+                    "message": str(exc),
+                }
+                break
         skipped_reason = None if candidates else "no evolution signals"
         return EvolutionTurnResult(
             generated_candidates=candidates,
             skipped_reason=skipped_reason,
             signals=signals,
+            error=error,
         )

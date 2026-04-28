@@ -49,3 +49,4 @@ class EvolutionTurnResult(BaseModel):
     generated_candidates: list[LessonCandidate] = Field(default_factory=list)
     skipped_reason: str | None = None
     signals: list[str] = Field(default_factory=list)
+    error: dict[str, str] | None = None

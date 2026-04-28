@@ -73,6 +73,36 @@ def test_evolution_runtime_generates_repeated_read_candidate(tmp_path) -> None:
     assert result.generated_candidates[0].kind == "context_lesson"
 
 
+def test_evolution_runtime_preserves_candidates_when_enqueue_fails(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    memory_runtime = MemoryRuntime(MemoryStore(tmp_path / "memory"))
+    runtime = EvolutionRuntime(memory_runtime)
+
+    def fail_enqueue(candidate):
+        raise OSError("review queue unavailable")
+
+    monkeypatch.setattr(memory_runtime, "enqueue_candidate", fail_enqueue)
+
+    result = runtime.after_turn(
+        EvolutionTurnInput(
+            user_message="读文件",
+            turn_status="completed",
+            final_response="done",
+            trace_path="trace.jsonl",
+            tool_steps=[],
+            context_metrics={"repeated_read_file_count": 2, "read_file_count": 4},
+        )
+    )
+
+    assert "repeated_read_file" in result.signals
+    assert result.generated_candidates[0].kind == "context_lesson"
+    assert result.error is not None
+    assert result.error["type"] == "OSError"
+    assert result.error["message"] == "review queue unavailable"
+
+
 def test_evolution_runtime_generates_verification_recovered_candidate(tmp_path) -> None:
     memory_runtime = MemoryRuntime(MemoryStore(tmp_path / "memory"))
     runtime = EvolutionRuntime(memory_runtime)
