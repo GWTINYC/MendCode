@@ -322,6 +322,40 @@ def test_agent_loop_executes_memory_search_with_runtime_store(tmp_path: Path) ->
     assert result.steps[0].observation.payload["total_matches"] == 1
 
 
+def test_agent_loop_injects_memory_recall_context_before_first_tool_call(
+    tmp_path: Path,
+) -> None:
+    settings = settings_for(tmp_path)
+    MemoryStore(settings.data_dir / "memory").append(
+        MemoryRecord(
+            kind="project_fact",
+            title="pytest command",
+            content="Use python -m pytest -q.",
+            source="test",
+            tags=["pytest"],
+        )
+    )
+    provider = NativeToolProvider(
+        [
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="之前记录的 pytest 命令是什么",
+            provider=provider,
+        ),
+        settings,
+    )
+
+    assert result.status == "completed"
+    assert provider.calls[0].context is not None
+    assert "pytest command" in provider.calls[0].context
+    assert "memory_recall" in provider.calls[0].context
+
+
 def test_agent_loop_openai_native_tool_call_roundtrip_grounds_final_text(
     tmp_path: Path,
 ) -> None:

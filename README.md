@@ -65,11 +65,11 @@ MendCode 已经落地 Layered Memory 的第一切片：本地 JSONL 记忆库、
 - `failure_lesson`：失败任务中提炼出的经验候选。
 - `trace_insight`：从运行 trace 中分析出的结构化线索。
 
-这些信息不会直接无限塞进 prompt。模型需要时通过 `memory_search` 显式召回，文件摘要通过 `file_summary_read` 按 repo-relative path 和内容 hash 校验，conversation log 和 tool result 也会做 compact，避免把完整文件内容、长目录列表和重复 observation 反复塞回上下文。
+这些信息不会直接无限塞进 prompt。Agent Runtime 会在每轮任务开始时按用户问题召回少量相关 memory，并把召回结果作为 runtime context 交给模型；模型也可以在需要时继续通过 `memory_search` 显式查询。文件摘要通过 `file_summary_read` 按 repo-relative path 和内容 hash 校验，conversation log 和 tool result 也会做 compact，避免把完整文件内容、长目录列表和重复 observation 反复塞回上下文。
 
-目前记忆写入保持保守：`memory_write` 和 `file_summary_refresh` 属于长期状态写入能力，按高风险工具处理，默认/guided 工具池不暴露。`trace_analyze` 默认只读，只能分析 `data/traces/` 内的 trace 文件，并生成可审查的失败经验候选，不会静默写入长期记忆。
+目前记忆写入保持保守：`memory_write` 和 `file_summary_refresh` 属于长期状态写入能力，按高风险工具处理，默认/guided 工具池不暴露；即使显式调用，`memory_write` 也会拒绝重复记录。`trace_analyze` 默认只读，只能分析 `data/traces/` 内的 trace 文件，并生成可审查的失败经验候选，不会静默写入长期记忆。
 
-后续记忆系统会继续补齐自动相关性召回、长会话 compact、重复读文件统计和人工审查入口，让上下文压缩变成可度量的 Runtime 能力。
+后续记忆系统会继续补齐长会话 compact、文件摘要替代全文读取和人工审查入口。当前 prompt context 已开始记录 observation 数量、memory recall 命中数、read_file 次数和重复读文件次数，为后续量化 Token 降低和重复读取下降打基础。
 
 ## 自进化方向
 
@@ -89,13 +89,21 @@ MendCode 的长期方向是 `SKILL.md + JSONL Trace-driven Evolution`。
 
 这条路线的原则是保守演进：失败经验可以被分析，但不能自动固化；长期记忆和 Skill 更新必须可追溯、可审查、可回滚。
 
+MendCode 也提供了初版 benchmark report 入口，可以从固定任务集的 JSON 结果中统计 case 通过率、工具链路通过率、高风险命令拦截率、Token 降低比例和重复读文件次数。当前这些指标是目标和评估口径，只有接入固定 benchmark 后才会写成已验证成果。
+
 ## 快速开始
 
 安装依赖并运行测试：
 
 ```bash
-PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q --ignore=tests/e2e
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .
+```
+
+真实 TUI PTY 测试需要配置 OpenAI-compatible provider 环境变量后单独运行：
+
+```bash
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest tests/e2e/test_tui_pty_live.py -q
 ```
 
 在仓库中启动 TUI：

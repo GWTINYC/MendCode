@@ -1,3 +1,4 @@
+import json
 import subprocess
 from uuid import uuid4
 
@@ -82,6 +83,17 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
     repetition_tracker = RepetitionTracker()
     memory_store = MemoryStore(settings.data_dir / "memory")
 
+    def provider_context() -> str:
+        return json.dumps(
+            _runtime_context_payload(
+                base_context=loop_input.provider_context,
+                problem_statement=loop_input.problem_statement,
+                memory_store=memory_store,
+            ),
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
     def recent_step_payloads() -> list[dict[str, object]]:
         return [step.model_dump(mode="json") for step in steps]
 
@@ -119,7 +131,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                         step_index=index,
                         remaining_steps=loop_input.step_budget - index,
                         observations=observation_history,
-                        context=loop_input.provider_context,
+                        context=provider_context(),
                         allowed_tools=loop_input.allowed_tools,
                         permission_mode=loop_input.permission_mode,
                     )
@@ -347,3 +359,36 @@ def _handled_tool_rejection(
             observation=observation,
         ),
     )
+
+
+def _runtime_context_payload(
+    *,
+    base_context: str | None,
+    problem_statement: str,
+    memory_store: MemoryStore,
+) -> dict[str, object]:
+    payload: dict[str, object] = {}
+    if base_context:
+        try:
+            parsed_context = json.loads(base_context)
+        except json.JSONDecodeError:
+            payload["base_context"] = base_context
+        else:
+            payload["base_context"] = parsed_context
+    matches = memory_store.search(
+        query=problem_statement,
+        kinds={"project_fact", "task_state", "failure_lesson", "trace_insight"},
+        limit=5,
+    )
+    payload["memory_recall"] = [
+        {
+            "id": result.record.id,
+            "kind": result.record.kind,
+            "title": result.record.title,
+            "content_excerpt": result.record.content[:1200],
+            "tags": result.record.tags,
+            "score": result.score,
+        }
+        for result in matches
+    ]
+    return payload

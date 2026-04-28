@@ -160,6 +160,25 @@ def test_provider_messages_redact_secrets() -> None:
     assert "[REDACTED]" in combined
 
 
+def test_provider_messages_include_runtime_context_and_metrics() -> None:
+    messages = build_provider_messages(
+        AgentProviderStepInput(
+            problem_statement="fix",
+            verification_commands=[],
+            step_index=1,
+            remaining_steps=4,
+            observations=[],
+            context='{"memory_recall":[{"title":"pytest","content_excerpt":"use pytest"}]}',
+        )
+    )
+
+    user_context = json.loads(messages[1].content)
+
+    assert user_context["runtime_context"]["memory_recall"][0]["title"] == "pytest"
+    assert user_context["context_metrics"]["observation_count"] == 0
+    assert user_context["context_metrics"]["memory_recall_count"] == 1
+
+
 def test_provider_messages_include_openai_tool_result_messages() -> None:
     messages = build_provider_messages(
         AgentProviderStepInput(

@@ -318,14 +318,16 @@ User Message
 - [x] `memory_search` / `memory_write` / `file_summary_read` / `file_summary_refresh` / `trace_analyze` 已通过 ToolRegistry 暴露
 - [x] `memory_write` / `file_summary_refresh` 按高风险工具处理，默认/guided 工具池不暴露，避免模型静默写长期状态
 - [x] AgentLoop/runtime 创建并传递 `MemoryStore(settings.data_dir / "memory")`
+- [x] AgentLoop 在 provider 调用前按 `problem_statement` 自动召回少量相关 memory，并通过 `provider_context` 注入模型上下文
+- [x] prompt context 记录 observation 数量、memory recall 命中数、read_file 次数、重复 read_file 次数和 context 字符量
 - [x] `trace_analyze` 默认只读，`write_memory=True` 会拒绝，避免只读工具绕过写权限
 - [x] `trace_analyze` 只能读取 `settings.traces_dir` 内的 JSONL 路径
 - [x] trace analyzer 能把失败或 rejected observation 转成 `failure_lesson` 候选，并忽略最终已 completed 的恢复 trace
+- [x] `memory_write` 拒绝 exact duplicate 记忆记录，避免重复沉淀同一事实
 - [x] TUI scenario 覆盖记忆召回问题，断言 `memory_search` 的真实 compact args 和 payload
 
 当前不足：
 
-- [ ] 记忆召回还没有进入 system prompt 的自动 recall 阶段，当前由模型显式调用 `memory_search`
 - [ ] `memory_write` 还缺少用户确认、重复记忆合并、敏感信息过滤和人工审查界面
 - [ ] 文件摘要缓存没有批量 repo map，也没有和 prompt context 的重复读文件统计联动
 - [ ] trace failure lesson 仍是候选生成，尚未形成“失败归因 -> prompt/skill/memory 更新”的闭环
@@ -333,7 +335,7 @@ User Message
 
 下一步：
 
-- 为 `memory_search` 增加更稳定的 ranking、recency 和 kind/tag 组合测试。
+- 为自动 memory recall 增加更稳定的 ranking、recency、kind/tag 组合测试和 token budget 限制。
 - 设计 `memory_write` 的 confirm-on-write 和去重策略，避免模型静默写入错误长期记忆。
 - 将文件摘要缓存接入长会话 context compaction，减少重复读取大文件。
 - 基于 trace analyzer 生成可审查的 failure lesson 列表，并在 TUI 中提供采纳/忽略入口。
@@ -501,11 +503,28 @@ export MENDCODE_API_KEY=<api-key>
 验收：
 
 - [x] 第一切片：JSONL store、file summary cache、memory tools、trace analyzer、runtime wiring、TUI 只读召回工具面
-- [ ] `memory_write` 需要确认和去重
-- [ ] 长会话开始前可按任务自动 recall 少量相关 memory
-- [ ] prompt context 中记录 memory recall 命中和文件重复读取指标
+- [x] `memory_write` 拒绝 exact duplicate；后续仍需要确认、合并和敏感过滤
+- [x] 长会话开始前可按任务自动 recall 少量相关 memory
+- [x] prompt context 中记录 memory recall 命中和文件重复读取指标
 - [ ] trace failure lesson 可在 TUI 中审查后写入 memory
 - [ ] 建立 memory 相关 PTY/scenario 测试集：召回已记录事实、拒绝写入、摘要缓存过期、trace 失败归因
+
+### 任务 8：Benchmark 指标入口
+
+目标：
+
+为工具链路通过率、高风险命令拦截率、Token 降低和重复读文件下降建立统一统计入口，避免成果指标停留在不可验证表述。
+
+状态：
+
+- [x] 新增 `app.runtime.benchmark`，可从 benchmark JSON cases 计算 case pass rate、tool chain pass rate、dangerous command block rate、token reduction rate 和 repeated file reads
+- [x] 支持输出 Markdown report，后续可由固定任务集或 TUI audit 产物生成输入
+
+下一步：
+
+- 定义 6 类本地任务 benchmark manifest，并把现有 `tests/scenarios` / `tests/e2e` 映射到 case result。
+- 在 benchmark case 中记录 baseline token、actual token、工具证据和危险命令断言。
+- 将 benchmark report 写入 `data/benchmark-reports/`，并在文档中只引用已跑出的真实指标。
 
 ## 5. 测试策略
 
@@ -528,6 +547,7 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 - TUI 真实终端测试：`tests/e2e/` 使用 PTY 启动真实 TUI 进程；默认要求真实 OpenAI-compatible provider 环境变量，缺失时应明确失败。
 - TUI 巡检：`python -m app.runtime.tui_scenario_audit --report-dir data/tui-scenario-reports` 默认同时运行 `tests/scenarios` 和 `tests/e2e`。
 - Memory 改动：`tests/unit/test_memory_store.py`、`tests/unit/test_file_summary_cache.py`、`tests/unit/test_memory_tools.py`、`tests/unit/test_trace_analyzer.py`、`tests/scenarios/test_tui_repository_inspection_scenarios.py::test_memory_recall_question_uses_memory_search`
+- Benchmark 改动：`tests/unit/test_benchmark_report.py`
 - CLI 改动：`tests/integration/test_cli.py`
 
 测试原则：
@@ -555,7 +575,7 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 2026-04-28 本轮 Layered Memory 第一切片和 TUI/PTY 工具面更新后，以下命令通过：
 
 ```bash
-PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q --ignore=tests/e2e
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest tests/e2e/test_tui_pty_live.py -q
 ```

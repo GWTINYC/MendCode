@@ -67,6 +67,20 @@ def memory_search(args: MemorySearchArgs, context: ToolExecutionContext) -> Obse
 
 def memory_write(args: MemoryWriteArgs, context: ToolExecutionContext) -> Observation:
     store = _memory_store(context)
+    duplicate = _duplicate_memory_record(
+        store,
+        kind=args.kind,
+        title=args.title,
+        content=args.content,
+    )
+    if duplicate is not None:
+        return tool_observation(
+            tool_name="memory_write",
+            status="rejected",
+            summary="Duplicate memory record",
+            payload={"existing_id": duplicate.id, "kind": duplicate.kind, "title": duplicate.title},
+            error_message="duplicate memory record already exists",
+        )
     try:
         record = MemoryRecord(
             kind=args.kind,  # type: ignore[arg-type]
@@ -204,3 +218,23 @@ def _memory_store(context: ToolExecutionContext) -> MemoryStore:
     if isinstance(context.memory_store, MemoryStore):
         return context.memory_store
     return MemoryStore(context.settings.data_dir / "memory")
+
+
+def _duplicate_memory_record(
+    store: MemoryStore,
+    *,
+    kind: str,
+    title: str,
+    content: str,
+) -> MemoryRecord | None:
+    normalized_title = " ".join(title.casefold().split())
+    normalized_content = " ".join(content.casefold().split())
+    for record in store.list_records():
+        if record.kind != kind:
+            continue
+        if " ".join(record.title.casefold().split()) != normalized_title:
+            continue
+        if " ".join(record.content.casefold().split()) != normalized_content:
+            continue
+        return record
+    return None

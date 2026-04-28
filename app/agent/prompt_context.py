@@ -172,6 +172,81 @@ def _without_none_values(payload: dict[str, object]) -> dict[str, object]:
     return {key: value for key, value in payload.items() if value is not None}
 
 
+def _runtime_context(
+    context: str | None,
+    *,
+    limits: PromptContextLimits,
+    secret_values: list[str],
+) -> object | None:
+    if context is None:
+        return None
+    try:
+        parsed = json.loads(context)
+    except json.JSONDecodeError:
+        return {"text": _trim_text(context, limits=limits, secret_values=secret_values)}
+    return _sanitize_context_value(parsed, limits=limits, secret_values=secret_values)
+
+
+def _sanitize_context_value(
+    value: object,
+    *,
+    limits: PromptContextLimits,
+    secret_values: list[str],
+) -> object:
+    if isinstance(value, dict):
+        return {
+            str(key): _sanitize_context_value(
+                item,
+                limits=limits,
+                secret_values=secret_values,
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _sanitize_context_value(item, limits=limits, secret_values=secret_values)
+            for item in value[: limits.max_search_matches]
+        ]
+    if isinstance(value, str):
+        return _trim_text(value, limits=limits, secret_values=secret_values)
+    if value is None or isinstance(value, bool | int | float):
+        return value
+    return _trim_text(value, limits=limits, secret_values=secret_values)
+
+
+def _context_metrics(
+    *,
+    observations: list[AgentObservationRecord],
+    runtime_context: object | None,
+    user_context: dict[str, object],
+) -> dict[str, object]:
+    read_paths: list[str] = []
+    for record in observations:
+        tool_name = (
+            record.tool_invocation.name
+            if record.tool_invocation is not None
+            else getattr(record.action, "action", None)
+        )
+        if tool_name != "read_file":
+            continue
+        path = record.observation.payload.get("relative_path")
+        if isinstance(path, str):
+            read_paths.append(path)
+    memory_recall_count = 0
+    if isinstance(runtime_context, dict):
+        memory_recall = runtime_context.get("memory_recall")
+        if isinstance(memory_recall, list):
+            memory_recall_count = len(memory_recall)
+    encoded = json.dumps(user_context, ensure_ascii=False, sort_keys=True)
+    return {
+        "observation_count": len(observations),
+        "memory_recall_count": memory_recall_count,
+        "read_file_count": len(read_paths),
+        "repeated_read_file_count": len(read_paths) - len(set(read_paths)),
+        "user_context_chars": len(encoded),
+    }
+
+
 def _is_native_tool_result_record(record: AgentObservationRecord) -> bool:
     invocation = record.tool_invocation
     return (
@@ -350,6 +425,11 @@ def build_provider_messages(
         )
         for record in user_context_records
     ]
+    runtime_context = _runtime_context(
+        step_input.context,
+        limits=context_limits,
+        secret_values=secrets,
+    )
     user_context = {
         "problem_statement": _trim_text(
             step_input.problem_statement,
@@ -364,6 +444,13 @@ def build_provider_messages(
         "remaining_steps": step_input.remaining_steps,
         "observations": observations,
     }
+    if runtime_context is not None:
+        user_context["runtime_context"] = runtime_context
+    user_context["context_metrics"] = _context_metrics(
+        observations=recent_records,
+        runtime_context=runtime_context,
+        user_context=user_context,
+    )
     messages = [
         ChatMessage(
             role="system",

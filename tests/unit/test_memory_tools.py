@@ -54,6 +54,26 @@ def test_memory_write_and_search_roundtrip(tmp_path: Path) -> None:
     assert search_result.payload["matches"][0]["title"] == "pytest command"
 
 
+def test_memory_write_rejects_duplicate_record(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+    payload = {
+        "kind": "project_fact",
+        "title": "pytest command",
+        "content": "Use python -m pytest -q for full verification.",
+        "tags": ["verification"],
+    }
+
+    first = registry.get("memory_write").execute(payload, context)
+    second = registry.get("memory_write").execute(payload, context)
+
+    assert first.status == "succeeded"
+    assert second.status == "rejected"
+    assert "duplicate" in (second.error_message or "")
+    assert context.memory_store is not None
+    assert len(context.memory_store.list_records()) == 1
+
+
 def test_file_summary_refresh_and_read(tmp_path: Path) -> None:
     (tmp_path / "app.py").write_text("def run():\n    return 1\n", encoding="utf-8")
     registry = default_tool_registry()
