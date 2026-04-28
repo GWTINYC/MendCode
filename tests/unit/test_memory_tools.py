@@ -112,3 +112,18 @@ def test_trace_analyze_rejects_write_memory_in_read_only_tool(
     assert "write_memory" in (result.error_message or "")
     assert context.memory_store is not None
     assert context.memory_store.list_records() == []
+
+
+def test_trace_analyze_returns_failed_observation_for_missing_trace(
+    tmp_path: Path,
+) -> None:
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+
+    result = registry.get("trace_analyze").execute(
+        {"trace_path": str(tmp_path / "missing.jsonl")},
+        context,
+    )
+
+    assert result.status == "failed"
+    assert "missing.jsonl" in (result.error_message or "")

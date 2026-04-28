@@ -850,8 +850,8 @@ def default_tool_registry() -> ToolRegistry:
             ToolSpec(
                 name="trace_analyze",
                 description=(
-                    "Analyze a MendCode JSONL trace and optionally persist a failure "
-                    "lesson memory."
+                    "Analyze a MendCode JSONL trace and return a failure lesson candidate. "
+                    "This read-only tool rejects persistent memory updates."
                 ),
                 args_model=TraceAnalyzeArgs,
                 risk_level=ToolRisk.READ_ONLY,

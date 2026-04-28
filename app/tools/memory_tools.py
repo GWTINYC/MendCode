@@ -167,7 +167,16 @@ def trace_analyze(args: TraceAnalyzeArgs, context: ToolExecutionContext) -> Obse
             error_message="write_memory is not allowed on read-only trace_analyze",
         )
     store = _memory_store(context)
-    insight = analyze_trace(Path(args.trace_path))
+    try:
+        insight = analyze_trace(Path(args.trace_path))
+    except OSError as exc:
+        return tool_observation(
+            tool_name="trace_analyze",
+            status="failed",
+            summary="Unable to analyze trace",
+            payload={"trace_path": args.trace_path},
+            error_message=str(exc),
+        )
     memory_id = None
     if args.write_memory and insight is not None:
         memory_id = store.append(insight).id

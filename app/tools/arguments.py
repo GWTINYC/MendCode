@@ -165,7 +165,10 @@ class TraceAnalyzeArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     trace_path: str
-    write_memory: bool = False
+    write_memory: bool = Field(
+        default=False,
+        description="Reserved for a future persistent mode; true is rejected by trace_analyze.",
+    )
 
 
 class SessionStatusArgs(BaseModel):
