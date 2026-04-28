@@ -830,7 +830,7 @@ def default_tool_registry() -> ToolRegistry:
                 name="memory_write",
                 description="Write a local layered memory record for future recall.",
                 args_model=MemoryWriteArgs,
-                risk_level=ToolRisk.WRITE_WORKTREE,
+                risk_level=ToolRisk.DANGEROUS,
                 executor=memory_write,
             ),
             ToolSpec(
@@ -844,7 +844,7 @@ def default_tool_registry() -> ToolRegistry:
                 name="file_summary_refresh",
                 description="Refresh and store a compact summary for a repo-relative file.",
                 args_model=FileSummaryRefreshArgs,
-                risk_level=ToolRisk.WRITE_WORKTREE,
+                risk_level=ToolRisk.DANGEROUS,
                 executor=file_summary_refresh,
             ),
             ToolSpec(

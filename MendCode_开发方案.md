@@ -316,8 +316,10 @@ User Message
 - [x] 文件摘要缓存按 repo-relative path、content sha256、mtime、size、line count 和 symbols 存储
 - [x] `file_summary_read` 会校验当前文件 hash，缓存过期时重建摘要
 - [x] `memory_search` / `memory_write` / `file_summary_read` / `file_summary_refresh` / `trace_analyze` 已通过 ToolRegistry 暴露
+- [x] `memory_write` / `file_summary_refresh` 按高风险工具处理，默认/guided 工具池不暴露，避免模型静默写长期状态
 - [x] AgentLoop/runtime 创建并传递 `MemoryStore(settings.data_dir / "memory")`
 - [x] `trace_analyze` 默认只读，`write_memory=True` 会拒绝，避免只读工具绕过写权限
+- [x] `trace_analyze` 只能读取 `settings.traces_dir` 内的 JSONL 路径
 - [x] trace analyzer 能把失败或 rejected observation 转成 `failure_lesson` 候选，并忽略最终已 completed 的恢复 trace
 - [x] TUI scenario 覆盖记忆召回问题，断言 `memory_search` 的真实 compact args 和 payload
 

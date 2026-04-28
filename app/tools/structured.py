@@ -199,6 +199,12 @@ _SIMPLE_MODE_TOOLS = frozenset(
         "session_status",
     }
 )
+_DEFAULT_EXCLUDED_TOOLS = frozenset(
+    {
+        "memory_write",
+        "file_summary_refresh",
+    }
+)
 
 
 class ToolPool:
@@ -299,6 +305,8 @@ class ToolRegistry:
         for name in sorted(self._specs):
             spec = self._specs[name]
             include = True
+            if allowed_names is None and name in _DEFAULT_EXCLUDED_TOOLS:
+                include = False
             if allowed_names is not None and name not in allowed_names:
                 include = False
             if name in denied_names:

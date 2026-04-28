@@ -167,7 +167,12 @@ def test_openai_compatible_provider_sends_registered_tools_to_client() -> None:
     provider.next_action(step_input())
 
     assert [tool["function"]["name"] for tool in client.calls[0]["tools"]] == [
-        *[tool["function"]["name"] for tool in default_tool_registry().openai_tools()],
+        *[
+            tool["function"]["name"]
+            for tool in default_tool_registry()
+            .tool_pool(permission_mode="guided")
+            .openai_tools()
+        ],
         "final_response",
     ]
 

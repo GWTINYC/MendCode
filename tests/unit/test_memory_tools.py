@@ -84,6 +84,23 @@ def test_file_summary_read_rebuilds_stale_cached_summary(tmp_path: Path) -> None
     assert "old" not in read.payload["summary"]
 
 
+def test_file_summary_read_does_not_reuse_cache_for_different_path(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "app.py").write_text("def run():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("def run():\n    return 1\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+
+    refresh = registry.get("file_summary_refresh").execute({"path": "pkg/app.py"}, context)
+    read = registry.get("file_summary_read").execute({"path": "app.py"}, context)
+
+    assert refresh.status == "succeeded"
+    assert read.status == "succeeded"
+    assert read.payload["path"] == "app.py"
+
+
 def test_trace_analyze_rejects_write_memory_in_read_only_tool(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -114,6 +131,18 @@ def test_trace_analyze_rejects_write_memory_in_read_only_tool(
     assert context.memory_store.list_records() == []
 
 
+def test_trace_analyze_rejects_path_outside_trace_dir(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.jsonl"
+    outside.write_text("{}", encoding="utf-8")
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+
+    result = registry.get("trace_analyze").execute({"trace_path": str(outside)}, context)
+
+    assert result.status == "rejected"
+    assert "traces_dir" in (result.error_message or "")
+
+
 def test_trace_analyze_returns_failed_observation_for_missing_trace(
     tmp_path: Path,
 ) -> None:
@@ -121,7 +150,7 @@ def test_trace_analyze_returns_failed_observation_for_missing_trace(
     context = context_for(tmp_path)
 
     result = registry.get("trace_analyze").execute(
-        {"trace_path": str(tmp_path / "missing.jsonl")},
+        {"trace_path": str(context.settings.traces_dir / "missing.jsonl")},
         context,
     )
 

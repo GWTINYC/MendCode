@@ -28,6 +28,7 @@ MendCode 目前已经支持 schema tool-call 主线：
 - 权限策略正在收敛到 `read-only`、`workspace-write`、`danger-full-access` 三档；旧的 safe/guided/full 作为兼容别名保留。
 - `run_command` 只用于验证命令，与普通 shell 执行分离。
 - TUI 只读自然语言对话默认可见 `read_file`、`list_dir`、`glob_file_search`、`rg`、`search_code`、只读 `git`、`lsp`、`session_status`、`tool_search`、`memory_search` 和 `file_summary_read`；写入记忆、文件写入、patch、后台进程工具不在只读聊天默认工具面中。
+- `memory_write` 和 `file_summary_refresh` 作为长期状态写入能力按高风险处理，默认/guided 工具池不暴露，后续需要确认、去重和审查界面后再进入常规工作流。
 - AgentLoop 会识别等价只读工具的重复调用，第三次重复返回结构化 rejected observation，提示模型使用已有结果收尾。
 - `read_file` / `edit_file` 拒绝二进制文本误读，`write_file` / `edit_file` 有文本大小上限。
 - `ShellPolicy` 已覆盖只读 `sed`、`rg` 路径逃逸、重定向写入、危险 Git/安装/网络命令。

@@ -118,29 +118,8 @@ def file_summary_refresh(
 
 def file_summary_read(args: FileSummaryReadArgs, context: ToolExecutionContext) -> Observation:
     store = _memory_store(context)
-    results = store.search(query=args.path, kinds={"file_summary"}, limit=1)
-    current_summary = None
-    if results:
-        record = results[0].record
-        try:
-            current_summary = build_file_summary(context.workspace_path, args.path)
-        except (OSError, ValueError) as exc:
-            return tool_observation(
-                tool_name="file_summary_read",
-                status="failed",
-                summary=f"Unable to validate file summary for {args.path}",
-                payload={"path": args.path},
-                error_message=str(exc),
-            )
-        if record.metadata.get("content_sha256") == current_summary.content_sha256:
-            return tool_observation(
-                tool_name="file_summary_read",
-                status="succeeded",
-                summary=f"Read cached file summary for {args.path}",
-                payload={**record.metadata, "summary": record.content},
-            )
     try:
-        summary = current_summary or build_file_summary(context.workspace_path, args.path)
+        current_summary = build_file_summary(context.workspace_path, args.path)
     except (OSError, ValueError) as exc:
         return tool_observation(
             tool_name="file_summary_read",
@@ -149,11 +128,25 @@ def file_summary_read(args: FileSummaryReadArgs, context: ToolExecutionContext) 
             payload={"path": args.path},
             error_message=str(exc),
         )
+    results = [
+        record
+        for record in store.list_records()
+        if record.kind == "file_summary" and record.metadata.get("path") == current_summary.path
+    ]
+    if results:
+        record = results[-1]
+        if record.metadata.get("content_sha256") == current_summary.content_sha256:
+            return tool_observation(
+                tool_name="file_summary_read",
+                status="succeeded",
+                summary=f"Read cached file summary for {args.path}",
+                payload={**record.metadata, "summary": record.content},
+            )
     return tool_observation(
         tool_name="file_summary_read",
         status="succeeded",
         summary=f"Built file summary for {args.path}",
-        payload=summary.model_dump(mode="json"),
+        payload=current_summary.model_dump(mode="json"),
     )
 
 
@@ -167,8 +160,23 @@ def trace_analyze(args: TraceAnalyzeArgs, context: ToolExecutionContext) -> Obse
             error_message="write_memory is not allowed on read-only trace_analyze",
         )
     store = _memory_store(context)
+    trace_path = Path(args.trace_path)
+    if not trace_path.is_absolute():
+        trace_path = context.settings.traces_dir / trace_path
     try:
-        insight = analyze_trace(Path(args.trace_path))
+        resolved_trace_path = trace_path.resolve()
+        resolved_traces_dir = context.settings.traces_dir.resolve()
+        resolved_trace_path.relative_to(resolved_traces_dir)
+    except ValueError:
+        return tool_observation(
+            tool_name="trace_analyze",
+            status="rejected",
+            summary="trace_analyze path must stay inside traces_dir",
+            payload={"trace_path": args.trace_path},
+            error_message="trace_path must stay inside settings.traces_dir",
+        )
+    try:
+        insight = analyze_trace(resolved_trace_path)
     except OSError as exc:
         return tool_observation(
             tool_name="trace_analyze",

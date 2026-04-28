@@ -271,6 +271,20 @@ def test_registry_builds_permission_scoped_tool_pool() -> None:
     assert "write_file" in manifest["excluded_tools"]
 
 
+def test_registry_default_pool_does_not_expose_memory_write() -> None:
+    registry = default_tool_registry()
+
+    pool = registry.tool_pool(permission_mode="guided")
+    coding_pool = registry.tool_pool(permission_mode="guided", allowed_tools={"coding_agent"})
+
+    assert "memory_search" in pool.names()
+    assert "file_summary_read" in pool.names()
+    assert "memory_write" not in pool.names()
+    assert "file_summary_refresh" not in pool.names()
+    assert "memory_write" not in coding_pool.names()
+    assert "file_summary_refresh" not in coding_pool.names()
+
+
 def test_registry_expands_tool_groups() -> None:
     registry = default_tool_registry()
     names = set(registry.names(allowed_tools={"fs_read", "introspection"}))
