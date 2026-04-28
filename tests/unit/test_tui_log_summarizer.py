@@ -141,8 +141,56 @@ def test_compact_agent_loop_result_summarizes_memory_matches() -> None:
 
     compact = compact_agent_loop_result(result)
 
+    assert compact["steps"][0]["args"]["query"] == "pytest"
     assert compact["steps"][0]["payload"]["total_matches"] == 1
     assert compact["steps"][0]["payload"]["matches_count"] == 1
+
+
+def test_compact_agent_loop_result_keeps_session_status_tool_surface() -> None:
+    result = AgentLoopResult(
+        run_id="agent-status",
+        status="completed",
+        summary="done",
+        trace_path="/tmp/trace.jsonl",
+        steps=[
+            AgentStep(
+                index=1,
+                action=ToolCallAction(
+                    type="tool_call",
+                    action="session_status",
+                    reason="inspect tools",
+                    args={"include_tools": True, "include_recent_steps": False},
+                ),
+                observation=Observation(
+                    status="succeeded",
+                    summary="Read session status",
+                    payload={
+                        "available_tools": ["read_file", "session_status", "tool_search"],
+                        "allowed_tools": [
+                            "read_file",
+                            "session_status",
+                            "tool_search",
+                            "write_file",
+                        ],
+                        "denied_tools": ["write_file"],
+                    },
+                ),
+            )
+        ],
+    )
+
+    compact = compact_agent_loop_result(result)
+    step = compact["steps"][0]
+
+    assert step["args"]["include_tools"] is True
+    assert step["args"]["include_recent_steps"] is False
+    assert step["payload"]["available_tools"] == [
+        "read_file",
+        "session_status",
+        "tool_search",
+    ]
+    assert step["payload"]["allowed_tools_count"] == 4
+    assert step["payload"]["denied_tools"] == ["write_file"]
 
 
 def test_compact_agent_session_turn_does_not_embed_full_nested_result() -> None:

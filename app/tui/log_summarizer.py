@@ -62,12 +62,32 @@ def _compact_payload(payload: dict[str, Any]) -> dict[str, object]:
         "kind",
         "title",
         "path",
+        "query",
+        "glob",
+        "operation",
+        "limit",
+        "max_results",
+        "tail_lines",
+        "start_line",
+        "end_line",
+        "include_tools",
+        "include_recent_steps",
+        "permission_mode",
+        "repo_path",
+        "workspace_path",
         "content_sha256",
         "line_count",
         "size_bytes",
     ]:
         if key in payload:
             compact[key] = payload[key]
+
+    for key in ["available_tools", "allowed_tools", "denied_tools"]:
+        values = payload.get(key)
+        if isinstance(values, list) and all(isinstance(item, str) for item in values):
+            compact[key] = values[:_MAX_COLLECTION_ITEMS]
+            compact[f"{key}_count"] = len(values)
+            compact[f"{key}_truncated"] = len(values) > _MAX_COLLECTION_ITEMS
 
     if "content" in payload:
         excerpt = _text_excerpt(payload["content"])
@@ -119,6 +139,11 @@ def _compact_step(step: AgentStep) -> dict[str, object]:
     if step.tool_invocation is not None:
         compact["tool_invocation_id"] = step.tool_invocation.id
         compact["tool_invocation_source"] = step.tool_invocation.source
+    action_args = getattr(step.action, "args", None)
+    if isinstance(action_args, dict):
+        args = _compact_payload(action_args)
+        if args:
+            compact["args"] = args
     if step.observation.error_message is not None:
         compact["error_message"] = step.observation.error_message
     payload = _compact_payload(step.observation.payload)

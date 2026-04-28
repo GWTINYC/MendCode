@@ -179,6 +179,7 @@ def test_live_tui_reports_available_tools_with_session_status(live_repo: Path) -
     assert_conversation_has_tool_evidence(result, "tool_search")
     assert_conversation_has_native_tool_evidence(result, "session_status")
     assert_conversation_has_native_tool_evidence(result, "tool_search")
+    assert_tool_surface_excludes(result, "memory_write")
     assert_response_evidence_contains(result, "read_file")
 
 
@@ -502,11 +503,77 @@ def assert_conversation_has_native_tool_evidence(
     )
 
 
+def assert_tool_surface_excludes(result: LiveTuiResult, tool_name: str) -> None:
+    session_status_tools = _session_status_tools(result)
+    if not session_status_tools:
+        raise AssertionError(
+            f"missing session_status tool surface evidence: {_conversation_evidence(result)}"
+        )
+    tool_search_names = _tool_search_match_names(result)
+    if not tool_search_names:
+        raise AssertionError(
+            f"missing tool_search tool surface evidence: {_conversation_evidence(result)}"
+        )
+    exposed = set(session_status_tools)
+    exposed.update(tool_search_names)
+    if tool_name in exposed:
+        raise AssertionError(
+            f"{tool_name} unexpectedly exposed in tool surface: {_conversation_evidence(result)}"
+        )
+
+
 def _has_tool_result_action(result: LiveTuiResult, tool_name: str) -> bool:
     return any(
         isinstance(step, dict) and step.get("action") == tool_name
         for step in _tool_result_steps(result)
     )
+
+
+def _session_status_tools(result: LiveTuiResult) -> list[str]:
+    tools: list[str] = []
+    for step in _tool_result_steps(result):
+        if not isinstance(step, dict) or step.get("action") != "session_status":
+            continue
+        payload = step.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        tools.extend(_string_list(payload.get("available_tools")))
+        tools.extend(_string_list(payload.get("allowed_tools")))
+        nested_payload = payload.get("payload")
+        if isinstance(nested_payload, dict):
+            tools.extend(_string_list(nested_payload.get("available_tools")))
+            tools.extend(_string_list(nested_payload.get("allowed_tools")))
+    return tools
+
+
+def _tool_search_match_names(result: LiveTuiResult) -> list[str]:
+    names: list[str] = []
+    for step in _tool_result_steps(result):
+        if not isinstance(step, dict) or step.get("action") != "tool_search":
+            continue
+        payload = step.get("payload", {})
+        if not isinstance(payload, dict):
+            continue
+        matches = payload.get("matches_sample", payload.get("matches", []))
+        if not isinstance(matches, list):
+            continue
+        for match in matches:
+            if isinstance(match, dict) and isinstance(match.get("name"), str):
+                names.append(match["name"])
+        nested_payload = payload.get("payload")
+        if isinstance(nested_payload, dict):
+            nested_matches = nested_payload.get("matches_sample", nested_payload.get("matches", []))
+            if isinstance(nested_matches, list):
+                for match in nested_matches:
+                    if isinstance(match, dict) and isinstance(match.get("name"), str):
+                        names.append(match["name"])
+    return names
+
+
+def _string_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
 
 
 def _has_native_tool_result_action(result: LiveTuiResult, tool_name: str) -> bool:

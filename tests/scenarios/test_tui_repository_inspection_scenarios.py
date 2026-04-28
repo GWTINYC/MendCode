@@ -268,6 +268,58 @@ async def test_tool_availability_question_uses_session_status(tmp_path):
     assert_no_raw_trace_or_large_json_dump(transcript)
 
 
+async def test_memory_recall_question_uses_memory_search(tmp_path):
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="memory recall",
+            repo_files={"README.md": "Demo\n"},
+            user_inputs=["之前记录的 pytest 命令是什么"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="memory_search",
+                    status="succeeded",
+                    summary="Found 1 memory records",
+                    payload={
+                        "total_matches": 1,
+                        "matches": [
+                            {
+                                "id": "m1",
+                                "kind": "project_fact",
+                                "title": "pytest command",
+                                "content_excerpt": "Use python -m pytest -q.",
+                                "tags": ["verification"],
+                                "score": 3,
+                            }
+                        ],
+                    },
+                    args={"query": "pytest", "limit": 5},
+                )
+            ],
+            final_summary="之前记录的 pytest 命令是 python -m pytest -q。",
+        )
+    )
+
+    assert_used_tool_path(transcript)
+    assert_has_evidence_from_observation(transcript, "memory_search")
+    memory_step = _tool_step(transcript, "memory_search")
+    assert memory_step["args"]["query"] == "pytest"
+    assert memory_step["args"]["limit"] == 5
+    assert memory_step["payload"]["matches_sample"][0]["content_excerpt"] == (
+        "Use python -m pytest -q."
+    )
+    assert memory_step["payload"]["matches_sample"][0]["title"] == "pytest command"
+    assert_visible_answer_contains(transcript, "python -m pytest -q")
+    assert_answer_is_concise(transcript, max_lines=8, max_chars=500)
+
+
+def _tool_step(transcript: ScenarioTranscript, tool_name: str) -> dict[str, object]:
+    for result in transcript.tool_results:
+        for step in result.get("steps", []):
+            if isinstance(step, dict) and step.get("action") == tool_name:
+                return step
+    raise AssertionError(f"missing tool step {tool_name}: {transcript.debug_text()}")
+
+
 async def test_symbol_definition_question_uses_lsp_or_explicit_fallback(tmp_path):
     transcript = await TuiScenarioRunner(tmp_path).run(
         TuiScenario(

@@ -36,8 +36,10 @@ from app.workspace.shell_policy import ShellPolicy
 READ_ONLY_TOOL_AGENT_TOOLS = {
     "glob_file_search",
     "git",
+    "file_summary_read",
     "list_dir",
     "lsp",
+    "memory_search",
     "read_file",
     "rg",
     "search_code",
@@ -88,7 +90,7 @@ class ToolAvailabilityProvider:
                     ToolInvocation(
                         id="tui_tool_search",
                         name="tool_search",
-                        args={"query": "read", "max_results": 10},
+                        args={"query": "memory", "max_results": 10},
                         source="openai_tool_call",
                     )
                 ],
