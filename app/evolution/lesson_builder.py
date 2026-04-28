@@ -6,6 +6,7 @@ from app.evolution.models import EvolutionTurnInput, LessonCandidate
 from app.memory.models import MemoryKind
 
 _DETERMINISTIC_CREATED_AT = datetime.fromtimestamp(0, tz=timezone.utc)
+_MAX_EVIDENCE_TEXT_CHARS = 240
 
 
 def build_lesson_candidates(
@@ -65,7 +66,7 @@ def build_lesson_candidates(
                 summary=f"Turn failed: {_summary_text(turn.final_response)}",
                 evidence={
                     "turn_status": turn.turn_status,
-                    "final_response": turn.final_response,
+                    "final_response": _bounded_text(turn.final_response),
                 },
                 source_trace_path=turn.trace_path,
                 suggested_memory_kind="failure_lesson",
@@ -117,7 +118,7 @@ def _lesson_candidate(
 def _summary_text(value: str | None) -> str:
     if value is None or not value.strip():
         return "no final response"
-    return value.strip()[:180]
+    return _bounded_text(value, max_chars=180) or "no final response"
 
 
 def _has_rejected_tool(turn: EvolutionTurnInput) -> bool:
@@ -130,12 +131,47 @@ def _rejected_tool_evidence(turn: EvolutionTurnInput) -> dict[str, object]:
             continue
         action = step.get("action")
         observation = step.get("observation")
+        action_payload = action if isinstance(action, dict) else {}
+        observation_payload = observation if isinstance(observation, dict) else {}
         return {
             "index": step.get("index"),
-            "action": action if isinstance(action, dict) else {},
-            "observation": observation if isinstance(observation, dict) else {},
+            "action": _compact_action_evidence(action_payload),
+            "observation": _compact_observation_evidence(observation_payload),
         }
     return {}
+
+
+def _compact_action_evidence(action: dict[str, object]) -> dict[str, object]:
+    compact: dict[str, object] = {}
+    for key in ["type", "action", "reason"]:
+        value = action.get(key)
+        if isinstance(value, str):
+            compact[key] = _bounded_text(value)
+    args = action.get("args")
+    if isinstance(args, dict):
+        compact["arg_keys"] = sorted(str(key) for key in args.keys())[:20]
+    return compact
+
+
+def _compact_observation_evidence(observation: dict[str, object]) -> dict[str, object]:
+    compact: dict[str, object] = {}
+    for key in ["status", "summary", "error_message"]:
+        value = observation.get(key)
+        if isinstance(value, str):
+            compact[key] = _bounded_text(value)
+    payload = observation.get("payload")
+    if isinstance(payload, dict):
+        compact["payload_keys"] = sorted(str(key) for key in payload.keys())[:20]
+    return compact
+
+
+def _bounded_text(value: str | None, max_chars: int = _MAX_EVIDENCE_TEXT_CHARS) -> str | None:
+    if value is None:
+        return None
+    text = value.strip()
+    if len(text) <= max_chars:
+        return text
+    return f"{text[:max_chars]}..."
 
 
 def _observation_status(step: dict[str, object]) -> str | None:

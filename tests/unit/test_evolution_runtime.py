@@ -54,6 +54,43 @@ def test_evolution_runtime_generates_rejected_tool_candidate(tmp_path) -> None:
     assert result.generated_candidates[0].kind == "tool_policy_lesson"
 
 
+def test_lesson_builder_compacts_rejected_tool_evidence() -> None:
+    large_patch = "diff --git a/secret.py b/secret.py\n" + "secret_value = 'token'\n" * 500
+    turn = EvolutionTurnInput(
+        user_message="apply unsafe patch",
+        turn_status="failed",
+        final_response="tool rejected",
+        trace_path="trace.jsonl",
+        tool_steps=[
+            {
+                "index": 1,
+                "action": {
+                    "type": "tool_call",
+                    "action": "apply_patch",
+                    "reason": "unsafe write",
+                    "args": {"patch": large_patch, "path": "secret.py"},
+                },
+                "observation": {
+                    "status": "rejected",
+                    "summary": "tool is not allowed",
+                    "error_message": "permission denied",
+                    "payload": {"patch": large_patch, "content": large_patch},
+                },
+            }
+        ],
+        context_metrics={},
+    )
+
+    signals, candidates = build_lesson_candidates(turn)
+    evidence = candidates[0].evidence
+
+    assert "tool_rejected" in signals
+    assert candidates[0].kind == "tool_policy_lesson"
+    assert "secret_value" not in str(evidence)
+    assert evidence["action"]["arg_keys"] == ["patch", "path"]
+    assert evidence["observation"]["payload_keys"] == ["content", "patch"]
+
+
 def test_evolution_runtime_generates_repeated_read_candidate(tmp_path) -> None:
     memory_runtime = MemoryRuntime(MemoryStore(tmp_path / "memory"))
     runtime = EvolutionRuntime(memory_runtime)
