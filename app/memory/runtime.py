@@ -2,7 +2,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict
 
-from app.evolution.models import LessonCandidate
+from app.evolution.models import LessonCandidate, LessonCandidateStatus
 from app.memory.file_summary import build_file_summary
 from app.memory.models import FileSummary, MemoryKind, MemoryRecord
 from app.memory.recall import MemoryRecallHit, MemoryRecallResult
@@ -14,7 +14,7 @@ class ReviewQueueResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidate_id: str
-    status: str
+    status: LessonCandidateStatus
 
 
 class MemoryRuntime:
@@ -75,26 +75,65 @@ class MemoryRuntime:
         return self.review_queue.list_candidates()
 
     def accept_candidate(self, candidate_id: str) -> MemoryRecord:
-        candidate = self.review_queue.update_status(candidate_id, "accepted")
-        record = MemoryRecord(
-            kind=candidate.suggested_memory_kind,
-            title=candidate.summary,
-            content=_candidate_content(candidate),
-            source=f"lesson_candidate:{candidate.id}",
-            tags=["lesson", candidate.kind],
-            metadata={
-                "candidate_id": candidate.id,
-                "candidate_kind": candidate.kind,
-                "source_trace_path": candidate.source_trace_path,
-                "confidence": candidate.confidence,
-                "evidence": candidate.evidence,
-            },
-        )
-        return self.store.append(record)
+        candidate = self._candidate_for_id(candidate_id)
+        existing = self._memory_for_candidate(candidate.id)
+        if candidate.status == "accepted":
+            if existing is None:
+                raise ValueError(f"accepted lesson candidate has no memory: {candidate_id}")
+            return existing
+        if candidate.status == "rejected":
+            raise ValueError(f"cannot accept rejected lesson candidate: {candidate_id}")
+        if existing is not None:
+            self.review_queue.update_status(candidate.id, "accepted")
+            return existing
+
+        record = self.store.append(_memory_record_from_candidate(candidate))
+        self.review_queue.update_status(candidate.id, "accepted")
+        return record
 
     def reject_candidate(self, candidate_id: str) -> ReviewQueueResult:
-        candidate = self.review_queue.update_status(candidate_id, "rejected")
+        candidate = self._candidate_for_id(candidate_id)
+        if candidate.status == "accepted":
+            raise ValueError(f"cannot reject accepted lesson candidate: {candidate_id}")
+        if candidate.status == "rejected":
+            return ReviewQueueResult(candidate_id=candidate.id, status=candidate.status)
+        candidate = self.review_queue.update_status(candidate.id, "rejected")
         return ReviewQueueResult(candidate_id=candidate.id, status=candidate.status)
+
+    def _candidate_for_id(self, candidate_id: str) -> LessonCandidate:
+        for candidate in self.review_queue.list_candidates():
+            if candidate.id == candidate_id:
+                return candidate
+        raise KeyError(f"unknown lesson candidate: {candidate_id}")
+
+    def _memory_for_candidate(self, candidate_id: str) -> MemoryRecord | None:
+        for record in self.store.list_records():
+            if record.metadata.get("candidate_id") == candidate_id:
+                return record
+        return None
+
+
+def _memory_record_from_candidate(candidate: LessonCandidate) -> MemoryRecord:
+    return MemoryRecord(
+        kind=candidate.suggested_memory_kind,
+        title=_candidate_title(candidate),
+        content=_candidate_content(candidate),
+        source=f"lesson_candidate:{candidate.id}",
+        tags=["lesson", candidate.kind],
+        metadata={
+            "candidate_id": candidate.id,
+            "candidate_kind": candidate.kind,
+            "source_trace_path": candidate.source_trace_path,
+            "confidence": candidate.confidence,
+            "evidence": candidate.evidence,
+        },
+    )
+
+
+def _candidate_title(candidate: LessonCandidate) -> str:
+    if len(candidate.summary) <= 160:
+        return candidate.summary
+    return f"{candidate.summary[:157]}..."
 
 
 def _candidate_content(candidate: LessonCandidate) -> str:

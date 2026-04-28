@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from app.evolution.models import LessonCandidate
 from app.memory.models import MemoryRecord
 from app.memory.runtime import MemoryRuntime
@@ -69,3 +71,95 @@ def test_memory_runtime_review_queue_append_list_accept_reject(tmp_path: Path) -
 
     statuses = {candidate.id: candidate.status for candidate in runtime.list_candidates()}
     assert statuses[second.id] == "rejected"
+
+
+def test_enqueue_candidate_leaves_long_term_memory_untouched(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    candidate = LessonCandidate(
+        kind="context_lesson",
+        summary="Queue only.",
+        suggested_memory_kind="failure_lesson",
+    )
+
+    runtime.enqueue_candidate(candidate)
+
+    assert runtime.store.list_records() == []
+    assert not runtime.store.path.exists()
+
+
+def test_accept_candidate_handles_long_summary_before_marking_accepted(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    candidate = LessonCandidate(
+        kind="context_lesson",
+        summary="x" * 240,
+        suggested_memory_kind="failure_lesson",
+    )
+    runtime.enqueue_candidate(candidate)
+
+    accepted = runtime.accept_candidate(candidate.id)
+
+    assert accepted.title == ("x" * 157) + "..."
+    assert len(accepted.title) == 160
+    assert runtime.list_candidates()[0].status == "accepted"
+
+
+def test_accept_candidate_is_idempotent_without_duplicate_memory(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    candidate = LessonCandidate(
+        kind="context_lesson",
+        summary="Accept once.",
+        suggested_memory_kind="failure_lesson",
+    )
+    runtime.enqueue_candidate(candidate)
+
+    first = runtime.accept_candidate(candidate.id)
+    second = runtime.accept_candidate(candidate.id)
+
+    assert second.id == first.id
+    records = runtime.store.list_records()
+    assert len(records) == 1
+    assert records[0].metadata["candidate_id"] == candidate.id
+
+
+def test_rejected_candidate_cannot_be_accepted(tmp_path: Path) -> None:
+    runtime = _runtime(tmp_path)
+    candidate = LessonCandidate(
+        kind="context_lesson",
+        summary="Reject first.",
+        suggested_memory_kind="failure_lesson",
+    )
+    runtime.enqueue_candidate(candidate)
+    runtime.reject_candidate(candidate.id)
+
+    with pytest.raises(ValueError, match="cannot accept rejected lesson candidate"):
+        runtime.accept_candidate(candidate.id)
+
+    assert runtime.store.list_records() == []
+    assert runtime.list_candidates()[0].status == "rejected"
+
+
+def test_review_queue_ignores_invalid_rows_and_preserves_them_on_rewrite(
+    tmp_path: Path,
+) -> None:
+    runtime = _runtime(tmp_path)
+    invalid_row = '{"kind":"future_candidate","summary":"future"}'
+    candidate = LessonCandidate(
+        kind="context_lesson",
+        summary="Valid row.",
+        suggested_memory_kind="failure_lesson",
+    )
+    runtime.enqueue_candidate(candidate)
+    with runtime.review_queue.path.open("a", encoding="utf-8") as handle:
+        handle.write(invalid_row)
+        handle.write("\n")
+
+    listed = runtime.list_candidates()
+    runtime.reject_candidate(candidate.id)
+
+    assert [candidate.id for candidate in listed] == [candidate.id]
+    lines = runtime.review_queue.path.read_text(encoding="utf-8").splitlines()
+    assert invalid_row in lines
