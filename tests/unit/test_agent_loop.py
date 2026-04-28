@@ -13,6 +13,8 @@ from app.agent.openai_compatible import (
 from app.agent.provider import AgentProviderStepInput, ProviderResponse
 from app.agent.provider_factory import build_agent_provider
 from app.config.settings import Settings
+from app.memory.models import MemoryRecord
+from app.memory.store import MemoryStore
 from app.tools.structured import ToolInvocation
 
 PYTHON = shlex.quote(sys.executable)
@@ -278,6 +280,46 @@ def test_agent_loop_tool_request_passes_allowed_tools_and_grounds_final_answer(
         entry["relative_path"] == "README.md"
         for entry in result.steps[0].observation.payload["entries"]
     )
+
+
+def test_agent_loop_executes_memory_search_with_runtime_store(tmp_path: Path) -> None:
+    settings = settings_for(tmp_path)
+    memory_store = MemoryStore(settings.data_dir / "memory")
+    memory_store.append(
+        MemoryRecord(
+            kind="project_fact",
+            title="test command",
+            content="Use python -m pytest -q.",
+            source="test",
+            tags=["verification"],
+        )
+    )
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_memory",
+                    name="memory_search",
+                    args={"query": "pytest", "limit": 5},
+                    source="openai_tool_call",
+                )
+            ],
+            {
+                "type": "final_response",
+                "status": "completed",
+                "summary": "Memory recalled pytest command.",
+            },
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(repo_path=tmp_path, problem_statement="recall pytest", provider=provider),
+        settings,
+    )
+
+    assert result.status == "completed"
+    assert result.steps[0].action.action == "memory_search"
+    assert result.steps[0].observation.payload["total_matches"] == 1
 
 
 def test_agent_loop_openai_native_tool_call_roundtrip_grounds_final_text(

@@ -58,6 +58,13 @@ def _compact_payload(payload: dict[str, Any]) -> dict[str, object]:
         "truncated",
         "stdout_excerpt",
         "stderr_excerpt",
+        "memory_id",
+        "kind",
+        "title",
+        "path",
+        "content_sha256",
+        "line_count",
+        "size_bytes",
     ]:
         if key in payload:
             compact[key] = payload[key]

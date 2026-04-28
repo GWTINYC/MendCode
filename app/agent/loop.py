@@ -13,6 +13,7 @@ from app.agent.permission import (
     decide_permission,
 )
 from app.config.settings import Settings
+from app.memory.store import MemoryStore
 from app.schemas.agent_action import (
     FinalResponseAction,
     MendCodeAction,
@@ -391,6 +392,7 @@ def _tool_execution_context(
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
     process_registry: Any | None = None,
+    memory_store: MemoryStore | None = None,
 ) -> ToolExecutionContext:
     return ToolExecutionContext(
         workspace_path=repo_path,
@@ -404,6 +406,7 @@ def _tool_execution_context(
         trace_path=trace_path,
         recent_steps=recent_steps or [],
         process_registry=process_registry,
+        memory_store=memory_store,
     )
 
 
@@ -428,6 +431,7 @@ def _execute_tool_invocation(
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
     process_registry: Any | None = None,
+    memory_store: MemoryStore | None = None,
 ) -> Observation:
     registry = default_tool_registry()
     try:
@@ -459,6 +463,7 @@ def _execute_tool_invocation(
             trace_path=trace_path,
             recent_steps=recent_steps,
             process_registry=process_registry,
+            memory_store=memory_store,
         ),
     )
 
@@ -475,6 +480,7 @@ def _execute_tool_call(
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
     process_registry: Any | None = None,
+    memory_store: MemoryStore | None = None,
     allow_legacy_git: bool = True,
 ) -> Observation:
     if (
@@ -505,6 +511,7 @@ def _execute_tool_call(
             trace_path=trace_path,
             recent_steps=recent_steps,
             process_registry=process_registry,
+            memory_store=memory_store,
         )
 
     if action.action == "repo_status":
@@ -652,6 +659,7 @@ def _handle_tool_call_action(
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
     process_registry: Any | None = None,
+    memory_store: MemoryStore | None = None,
     allow_legacy_git: bool = True,
 ) -> _HandledAction:
     shell_policy_command = (
@@ -711,6 +719,7 @@ def _handle_tool_call_action(
             trace_path=trace_path,
             recent_steps=recent_steps,
             process_registry=process_registry,
+            memory_store=memory_store,
             allow_legacy_git=allow_legacy_git,
         )
     return _HandledAction(
@@ -772,6 +781,7 @@ def _handle_tool_invocation(
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
     process_registry: Any | None = None,
+    memory_store: MemoryStore | None = None,
 ) -> _HandledAction:
     action = _tool_call_action_for_invocation(invocation)
     if action is None:
@@ -821,6 +831,7 @@ def _handle_tool_invocation(
         trace_path=trace_path,
         recent_steps=recent_steps,
         process_registry=process_registry,
+        memory_store=memory_store,
         allow_legacy_git=False,
     )
 
@@ -838,6 +849,7 @@ def _handle_action_payload(
     trace_path: str | None = None,
     recent_steps: list[dict[str, object]] | None = None,
     process_registry: Any | None = None,
+    memory_store: MemoryStore | None = None,
 ) -> _HandledAction:
     try:
         action = parse_mendcode_action(payload)
@@ -871,6 +883,7 @@ def _handle_action_payload(
             trace_path=trace_path,
             recent_steps=recent_steps,
             process_registry=process_registry,
+            memory_store=memory_store,
         )
 
     if isinstance(action, PatchProposalAction):

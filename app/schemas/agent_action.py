@@ -34,6 +34,11 @@ ToolName = Literal[
     "process_stop",
     "process_list",
     "lsp",
+    "memory_search",
+    "memory_write",
+    "file_summary_read",
+    "file_summary_refresh",
+    "trace_analyze",
 ]
 ObservationStatus = Literal["succeeded", "failed", "rejected"]
 RiskLevel = Literal["low", "medium", "high", "critical"]

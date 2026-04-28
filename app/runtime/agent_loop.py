@@ -15,6 +15,7 @@ from app.agent.loop import (
 )
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput
 from app.config.settings import Settings
+from app.memory.store import MemoryStore
 from app.runtime.final_response_gate import apply_final_response_gate
 from app.runtime.process_registry import ProcessRegistry
 from app.runtime.tool_repetition import RepetitionTracker
@@ -79,6 +80,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
     summary = "Agent loop ended without final response"
     observation_history: list[AgentObservationRecord] = []
     repetition_tracker = RepetitionTracker()
+    memory_store = MemoryStore(settings.data_dir / "memory")
 
     def recent_step_payloads() -> list[dict[str, object]]:
         return [step.model_dump(mode="json") for step in steps]
@@ -172,6 +174,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                                 trace_path=str(trace_path),
                                 recent_steps=recent_step_payloads(),
                                 process_registry=process_registry,
+                                memory_store=memory_store,
                             )
                         else:
                             handled = _handled_tool_rejection(index, invocation, rejection)
@@ -254,6 +257,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                     trace_path=str(trace_path),
                     recent_steps=recent_step_payloads(),
                     process_registry=process_registry,
+                    memory_store=memory_store,
                 )
                 record_handled_action(handled)
                 if handled.stop:
@@ -281,6 +285,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                     trace_path=str(trace_path),
                     recent_steps=recent_step_payloads(),
                     process_registry=process_registry,
+                    memory_store=memory_store,
                 )
                 record_handled_action(handled)
                 if handled.stop:

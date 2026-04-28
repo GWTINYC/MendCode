@@ -106,6 +106,45 @@ def test_compact_agent_loop_result_samples_large_directory_entries() -> None:
     assert payload["entries_sample"][0]["relative_path"] == "file_0.txt"
 
 
+def test_compact_agent_loop_result_summarizes_memory_matches() -> None:
+    result = AgentLoopResult(
+        run_id="agent-memory",
+        status="completed",
+        summary="done",
+        trace_path="/tmp/trace.jsonl",
+        steps=[
+            AgentStep(
+                index=1,
+                action=ToolCallAction(
+                    type="tool_call",
+                    action="memory_search",
+                    reason="recall",
+                    args={"query": "pytest"},
+                ),
+                observation=Observation(
+                    status="succeeded",
+                    summary="Found 1 memory records",
+                    payload={
+                        "total_matches": 1,
+                        "matches": [
+                            {
+                                "id": "m1",
+                                "title": "pytest command",
+                                "content_excerpt": "Use python -m pytest -q.",
+                            }
+                        ],
+                    },
+                ),
+            )
+        ],
+    )
+
+    compact = compact_agent_loop_result(result)
+
+    assert compact["steps"][0]["payload"]["total_matches"] == 1
+    assert compact["steps"][0]["payload"]["matches_count"] == 1
+
+
 def test_compact_agent_session_turn_does_not_embed_full_nested_result() -> None:
     full_content = "readme\n" * 1000
     result = AgentLoopResult(
