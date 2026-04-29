@@ -5,6 +5,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.agent.provider import AgentObservationRecord
+from app.context.compaction import compact_observation_record
 from app.context.manager import ContextManager
 from app.context.models import ContextBudget, ContextMetrics
 from app.memory.models import MemoryRecord
@@ -94,6 +95,40 @@ def test_context_models_reject_scalar_coercion() -> None:
         ContextMetrics(read_file_count="2")
 
 
+def test_context_budget_exposes_compaction_limits() -> None:
+    budget = ContextBudget(
+        max_memory_items=3,
+        max_context_chars=5000,
+        max_memory_chars=900,
+        max_observation_chars=1200,
+        max_file_summary_chars=800,
+        max_observation_items=4,
+    )
+
+    assert budget.max_context_chars == 5000
+    assert budget.max_memory_chars == 900
+    assert budget.max_observation_chars == 1200
+    assert budget.max_file_summary_chars == 800
+    assert budget.max_observation_items == 4
+
+
+def test_context_metrics_exposes_compaction_counters() -> None:
+    metrics = ContextMetrics(
+        context_chars=100,
+        raw_context_chars=300,
+        compacted_context_chars=100,
+        compacted_item_count=2,
+        file_summary_hit_count=1,
+        observation_chars_saved=200,
+    )
+
+    assert metrics.raw_context_chars == 300
+    assert metrics.compacted_context_chars == 100
+    assert metrics.compacted_item_count == 2
+    assert metrics.file_summary_hit_count == 1
+    assert metrics.observation_chars_saved == 200
+
+
 def test_context_manager_normalizes_simple_repeated_read_file_paths(
     tmp_path: Path,
 ) -> None:
@@ -127,3 +162,71 @@ def test_context_manager_normalizes_simple_repeated_read_file_paths(
 
     assert bundle.metrics.read_file_count == 2
     assert bundle.metrics.repeated_read_file_count == 1
+
+
+def test_compact_observation_record_truncates_read_file_content() -> None:
+    record = AgentObservationRecord(
+        action=ToolCallAction(
+            type="tool_call",
+            action="read_file",
+            reason="inspect",
+            args={"path": "README.md"},
+        ),
+        tool_invocation=ToolInvocation(
+            id="call_read",
+            name="read_file",
+            args={"path": "README.md"},
+            source="openai_tool_call",
+        ),
+        observation=Observation(
+            status="succeeded",
+            summary="Read README.md",
+            payload={
+                "relative_path": "README.md",
+                "content": "x" * 5000,
+                "truncated": False,
+            },
+        ),
+    )
+
+    item = compact_observation_record(record, max_chars=300)
+
+    assert item.kind == "observation"
+    assert item.title == "read_file: succeeded"
+    assert item.metadata["tool_name"] == "read_file"
+    assert item.metadata["relative_path"] == "README.md"
+    assert item.metadata["content_length"] == 5000
+    assert item.metadata["content_truncated"] is True
+    assert len(item.content or "") <= 320
+    assert "x" * 1000 not in item.model_dump_json()
+
+
+def test_compact_observation_record_samples_search_matches() -> None:
+    matches = [
+        {
+            "relative_path": f"file_{index}.py",
+            "line_number": index,
+            "line": "def target(): pass",
+        }
+        for index in range(40)
+    ]
+    record = AgentObservationRecord(
+        action=ToolCallAction(
+            type="tool_call",
+            action="rg",
+            reason="search",
+            args={"pattern": "target"},
+        ),
+        observation=Observation(
+            status="succeeded",
+            summary="Found matches",
+            payload={"pattern": "target", "matches": matches, "total_matches": 40},
+        ),
+    )
+
+    item = compact_observation_record(record, max_chars=500, max_collection_items=5)
+
+    assert item.metadata["tool_name"] == "rg"
+    assert item.metadata["matches_count"] == 40
+    assert item.metadata["matches_truncated"] is True
+    assert len(item.metadata["matches_sample"]) == 5
