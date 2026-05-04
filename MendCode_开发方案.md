@@ -352,21 +352,25 @@ User Message
 
 - [x] `ContextManager` 统一构建 provider context，并记录 memory recall、observation、`read_file` 和重复 `read_file` 指标。
 - [x] `ContextManager` 的运行摘要进入 trace 和 conversation compact payload，但不会把完整大段 base context 复制到摘要里。
+- [x] `ContextManager` 对 observation、memory recall 和重复读取文件的 file summary 做第一版 compaction。
+- [x] compact context 记录 raw / compacted 字符量、压缩 item 数、file summary 命中数和 observation 字符节省量。
 - [x] `MemoryRuntime` 包装 `MemoryStore`，提供自动 recall、显式 memory promotion 和 review queue 入口。
 - [x] `EvolutionRuntime` 在 turn 结束后根据失败、rejected tool、重复读取和验证恢复生成 lesson candidate。
 - [x] `EvolutionRuntime.after_turn()` 是 best-effort；review queue 写入失败会进入 `evolution_summary.error`，不会覆盖已完成的用户回答。
 
 当前不足：
 
-- [ ] Context budget 仍以字符估算为主，尚未接入真实 tokenizer。
-- [ ] Context compaction 还没有按任务类型区分策略，文件摘要尚未替代重复全文读取。
+- [ ] Context compaction 仍是启发式字符预算，尚未接入真实 tokenizer 和模型窗口。
+- [ ] file summary 只覆盖重复读取场景，尚未形成 repo map 或跨轮缓存策略。
+- [ ] Context compaction 还没有按任务类型区分策略。
 - [ ] review queue 还没有 TUI 审查入口。
 - [ ] lesson candidate 不会自动更新 SKILL、prompt 或长期 memory。
 - [ ] `EvolutionRuntime` 仍是轻量规则，不做跨 trace 聚合和收益验证。
 
 下一步：
 
-- 将 `ContextManager` 接入长会话 compact summary 和文件摘要缓存。
+- 将 context budget 接入真实 tokenizer，并基于模型窗口动态裁剪 runtime context。
+- 在 file summary 基础上继续扩展 repo map 和跨轮摘要缓存。
 - 为 review queue 增加 TUI list / accept / reject 入口。
 - 建立 lesson candidate 到 SKILL 更新建议的中间层，但保持人工审查。
 - 用 benchmark report 验证 repeated read、context size 和 token-ish 指标是否真实下降。

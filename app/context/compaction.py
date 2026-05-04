@@ -1,3 +1,4 @@
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from app.agent.provider import AgentObservationRecord
@@ -33,7 +34,7 @@ def compact_observation_record(
         "truncated",
     ]:
         if key in payload:
-            metadata[key] = payload[key]
+            metadata[key] = _compact_value(payload[key], max_chars=max_chars)
 
     if isinstance(payload.get("content"), str):
         content = str(payload["content"])
@@ -65,7 +66,14 @@ def compact_memory_hit(hit: Any, *, max_chars: int) -> dict[str, object]:
     dump = hit.model_dump(mode="json", exclude_none=True)
     if isinstance(dump.get("content_excerpt"), str):
         dump["content_excerpt"] = _excerpt(str(dump["content_excerpt"]), max_chars=max_chars)
-    return dump
+    return {
+        str(key): _compact_value(value, max_chars=max_chars)
+        for key, value in dump.items()
+    }
+
+
+def compact_text(value: str, *, max_chars: int) -> str:
+    return _excerpt(value, max_chars=max_chars)
 
 
 def _tool_name(record: AgentObservationRecord) -> str | None:
@@ -82,16 +90,29 @@ def _tool_name(record: AgentObservationRecord) -> str | None:
 def _compact_mapping(value: dict[str, object], *, max_chars: int) -> dict[str, object]:
     compact: dict[str, object] = {}
     for key, item in value.items():
-        if isinstance(item, str):
-            compact[str(key)] = _excerpt(item, max_chars=max_chars)
-        elif item is None or isinstance(item, (bool, int, float)):
-            compact[str(key)] = item
-        else:
-            compact[str(key)] = _excerpt(str(item), max_chars=max_chars)
+        compact[str(key)] = _compact_value(item, max_chars=max_chars)
     return compact
+
+
+def _compact_value(value: object, *, max_chars: int) -> object:
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, str):
+        return _excerpt(value, max_chars=max_chars)
+    if isinstance(value, Mapping):
+        return {
+            str(key): _compact_value(item, max_chars=max_chars)
+            for key, item in value.items()
+        }
+    if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+        return [_compact_value(item, max_chars=max_chars) for item in value[:8]]
+    return _excerpt(str(value), max_chars=max_chars)
 
 
 def _excerpt(value: str, *, max_chars: int) -> str:
     if len(value) <= max_chars:
         return value
-    return value[:max_chars] + "...[truncated]"
+    marker = "...[truncated]"
+    if max_chars <= len(marker):
+        return marker[:max_chars]
+    return value[: max_chars - len(marker)] + marker

@@ -1,9 +1,19 @@
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 from app.agent.provider import AgentObservationRecord
-from app.context.metrics import merge_context_metrics, metrics_for_observations
+from app.context.compaction import (
+    compact_memory_hit,
+    compact_observation_record,
+    compact_text,
+)
+from app.context.metrics import (
+    merge_context_metrics,
+    metrics_for_observations,
+    normalized_read_file_paths,
+)
 from app.context.models import (
     ContextBudget,
     ContextBundle,
@@ -30,11 +40,13 @@ class ContextManager:
         self._memory_recall: list[MemoryRecallHit] = []
         self._warnings: list[ContextWarning] = []
         self._latest_bundle: ContextBundle | None = None
+        self._repo_path: Path | None = None
 
     def begin_turn(self, *, user_message: str, repo_path: Path) -> ContextBundle:
         self._observations = []
         self._memory_recall = []
         self._warnings = []
+        self._repo_path = repo_path
         try:
             recall = self.memory_runtime.recall_for_turn(
                 user_message=user_message,
@@ -60,12 +72,26 @@ class ContextManager:
         memory_metrics = ContextMetrics(memory_recall_hits=len(self._memory_recall))
         observation_metrics = metrics_for_observations(self._observations)
         metrics = merge_context_metrics(memory_metrics, observation_metrics)
-        items = self._context_items()
+        observation_items = self._observation_items()
+        file_summary_items = self._file_summary_items()
+        metrics = self._with_compaction_metrics(
+            metrics,
+            observation_items=observation_items,
+            file_summary_items=file_summary_items,
+        )
+        items = self._context_items(
+            observation_items=observation_items,
+            file_summary_items=file_summary_items,
+        )
         provider_context = self._provider_context_json(metrics)
         metrics.context_chars = len(provider_context)
 
         while True:
-            provider_context = self._provider_context_json(metrics)
+            provider_context = self._provider_context_json(
+                metrics,
+                observation_items=observation_items,
+                file_summary_items=file_summary_items,
+            )
             context_chars = len(provider_context)
             if context_chars == metrics.context_chars:
                 break
@@ -83,12 +109,28 @@ class ContextManager:
     def latest_bundle(self) -> ContextBundle | None:
         return self._latest_bundle
 
-    def _provider_context_json(self, metrics: ContextMetrics) -> str:
+    def _provider_context_json(
+        self,
+        metrics: ContextMetrics,
+        *,
+        observation_items: list[ContextItem] | None = None,
+        file_summary_items: list[ContextItem] | None = None,
+    ) -> str:
+        observation_items = observation_items if observation_items is not None else []
+        file_summary_items = file_summary_items if file_summary_items is not None else []
         payload: dict[str, Any] = {
             "base_context": self._parsed_base_context(),
             "memory_recall": [
-                hit.model_dump(mode="json", exclude_none=True)
+                compact_memory_hit(hit, max_chars=self.budget.max_memory_chars)
                 for hit in self._memory_recall
+            ],
+            "observations": [
+                item.model_dump(mode="json", exclude_none=True)
+                for item in observation_items
+            ],
+            "file_summaries": [
+                item.model_dump(mode="json", exclude_none=True)
+                for item in file_summary_items
             ],
             "context_metrics": metrics.model_dump(mode="json"),
         }
@@ -109,7 +151,12 @@ class ContextManager:
                 return self.base_context
         return self.base_context
 
-    def _context_items(self) -> list[ContextItem]:
+    def _context_items(
+        self,
+        *,
+        observation_items: list[ContextItem],
+        file_summary_items: list[ContextItem],
+    ) -> list[ContextItem]:
         items: list[ContextItem] = []
         if self.base_context is not None:
             items.append(
@@ -127,11 +174,19 @@ class ContextManager:
             ContextItem(
                 kind="memory_recall",
                 title=hit.title,
-                content=hit.content_excerpt,
+                content=str(
+                    compact_memory_hit(
+                        hit,
+                        max_chars=self.budget.max_memory_chars,
+                    ).get("content_excerpt")
+                    or ""
+                ),
                 metadata={"id": hit.id, "kind": hit.kind, "score": hit.score},
             )
             for hit in self._memory_recall
         )
+        items.extend(observation_items)
+        items.extend(file_summary_items)
         items.extend(
             ContextItem(
                 kind="context_warning",
@@ -142,3 +197,102 @@ class ContextManager:
             for warning in self._warnings
         )
         return items
+
+    def _observation_items(self) -> list[ContextItem]:
+        items = [
+            compact_observation_record(
+                observation,
+                max_chars=self.budget.max_item_excerpt_chars,
+            )
+            for observation in self._observations[-self.budget.max_observation_items :]
+        ]
+        if self.budget.max_observation_chars <= 0:
+            return []
+        bounded: list[ContextItem] = []
+        total_chars = 0
+        for item in reversed(items):
+            item_chars = len(item.model_dump_json())
+            if bounded and total_chars + item_chars > self.budget.max_observation_chars:
+                break
+            bounded.append(item)
+            total_chars += item_chars
+        return list(reversed(bounded))
+
+    def _file_summary_items(self) -> list[ContextItem]:
+        if self._repo_path is None or self.budget.max_file_summary_chars <= 0:
+            return []
+        items: list[ContextItem] = []
+        for path in self._repeated_read_paths():
+            try:
+                summary = self.memory_runtime.get_file_summary(self._repo_path, path)
+            except (OSError, ValueError) as exc:
+                self._append_warning_once(
+                    ContextWarning(
+                        code="file_summary_failed",
+                        message=f"{path}: {exc}",
+                        source="memory_runtime",
+                    )
+                )
+                continue
+            items.append(
+                ContextItem(
+                    kind="file_summary",
+                    title=f"File summary: {summary.path}",
+                    content=compact_text(
+                        summary.summary,
+                        max_chars=self.budget.max_file_summary_chars,
+                    ),
+                    metadata={
+                        "path": summary.path,
+                        "content_sha256": summary.content_sha256,
+                        "line_count": summary.line_count,
+                        "size_bytes": summary.size_bytes,
+                        "symbols": summary.symbols[:20],
+                    },
+                )
+            )
+        return items
+
+    def _repeated_read_paths(self) -> list[str]:
+        counts = Counter(normalized_read_file_paths(self._observations))
+        repeated: list[str] = []
+        for path in normalized_read_file_paths(self._observations):
+            if counts[path] > 1 and path not in repeated:
+                repeated.append(path)
+        return repeated
+
+    def _with_compaction_metrics(
+        self,
+        metrics: ContextMetrics,
+        *,
+        observation_items: list[ContextItem],
+        file_summary_items: list[ContextItem],
+    ) -> ContextMetrics:
+        raw_observation_chars = sum(
+            len(record.observation.model_dump_json()) for record in self._observations
+        )
+        compact_observation_chars = sum(
+            len(item.model_dump_json()) for item in observation_items
+        )
+        return metrics.model_copy(
+            update={
+                "raw_context_chars": raw_observation_chars,
+                "compacted_context_chars": compact_observation_chars,
+                "compacted_item_count": len(observation_items) + len(file_summary_items),
+                "file_summary_hit_count": len(file_summary_items),
+                "observation_chars_saved": max(
+                    0,
+                    raw_observation_chars - compact_observation_chars,
+                ),
+            }
+        )
+
+    def _append_warning_once(self, warning: ContextWarning) -> None:
+        for existing in self._warnings:
+            if (
+                existing.code == warning.code
+                and existing.message == warning.message
+                and existing.source == warning.source
+            ):
+                return
+        self._warnings.append(warning)

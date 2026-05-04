@@ -179,6 +179,48 @@ def test_provider_messages_include_runtime_context_and_metrics() -> None:
     assert user_context["context_metrics"]["memory_recall_count"] == 1
 
 
+def test_provider_messages_preserve_compact_runtime_context_without_reexpanding_content() -> None:
+    large_content = "x" * 5000
+    compact_runtime_context = {
+        "observations": [
+            {
+                "kind": "observation",
+                "title": "read_file: succeeded",
+                "content": "x" * 200 + "...[truncated]",
+                "metadata": {
+                    "tool_name": "read_file",
+                    "relative_path": "README.md",
+                    "content_length": len(large_content),
+                    "content_truncated": True,
+                },
+            }
+        ],
+        "context_metrics": {
+            "raw_context_chars": len(large_content),
+            "compacted_context_chars": 300,
+            "observation_chars_saved": 4700,
+        },
+    }
+
+    messages = build_provider_messages(
+        AgentProviderStepInput(
+            problem_statement="inspect",
+            verification_commands=[],
+            step_index=2,
+            remaining_steps=4,
+            observations=[],
+            context=json.dumps(compact_runtime_context),
+        ),
+        limits=PromptContextLimits(max_text_chars=1000, max_observations=5),
+    )
+
+    content = messages[1].content
+
+    assert "content_length" in content
+    assert "observation_chars_saved" in content
+    assert large_content not in content
+
+
 def test_provider_messages_include_openai_tool_result_messages() -> None:
     messages = build_provider_messages(
         AgentProviderStepInput(

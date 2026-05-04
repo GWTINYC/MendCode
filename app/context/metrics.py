@@ -11,14 +11,7 @@ def metrics_for_observations(
     observations: Iterable[AgentObservationRecord],
 ) -> ContextMetrics:
     observation_list = list(observations)
-    read_file_paths = [
-        normalized_path
-        for observation in observation_list
-        if _is_read_file_observation(observation)
-        for path in [_read_file_path(observation)]
-        for normalized_path in [_normalize_path(path)]
-        if normalized_path is not None
-    ]
+    read_file_paths = normalized_read_file_paths(observation_list)
     path_counts = Counter(read_file_paths)
     repeated_read_file_count = sum(count - 1 for count in path_counts.values() if count > 1)
 
@@ -29,16 +22,40 @@ def metrics_for_observations(
     )
 
 
+def normalized_read_file_paths(
+    observations: Iterable[AgentObservationRecord],
+) -> list[str]:
+    return [
+        normalized_path
+        for observation in observations
+        if _is_read_file_observation(observation)
+        for path in [_read_file_path(observation)]
+        for normalized_path in [_normalize_path(path)]
+        if normalized_path is not None
+    ]
+
+
 def merge_context_metrics(*metrics: ContextMetrics) -> ContextMetrics:
     merged = ContextMetrics()
     for metric in metrics:
         merged = ContextMetrics(
             context_chars=merged.context_chars + metric.context_chars,
+            raw_context_chars=merged.raw_context_chars + metric.raw_context_chars,
+            compacted_context_chars=(
+                merged.compacted_context_chars + metric.compacted_context_chars
+            ),
             memory_recall_hits=merged.memory_recall_hits + metric.memory_recall_hits,
             observation_count=merged.observation_count + metric.observation_count,
             read_file_count=merged.read_file_count + metric.read_file_count,
             repeated_read_file_count=(
                 merged.repeated_read_file_count + metric.repeated_read_file_count
+            ),
+            compacted_item_count=merged.compacted_item_count + metric.compacted_item_count,
+            file_summary_hit_count=(
+                merged.file_summary_hit_count + metric.file_summary_hit_count
+            ),
+            observation_chars_saved=(
+                merged.observation_chars_saved + metric.observation_chars_saved
             ),
         )
     return merged

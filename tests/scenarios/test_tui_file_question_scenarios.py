@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from tests.scenarios.tui_scenario_runner import (
@@ -105,6 +107,44 @@ async def test_document_last_sentence_question_does_not_dump_file_content(tmp_pa
     if "第一段说明这个文档记录工程问题" in transcript.visible_text:
         pytest.fail(transcript.debug_text())
     assert_no_fabricated_command_claims(transcript)
+    assert_no_raw_trace_or_large_json_dump(transcript)
+    assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
+
+
+async def test_large_file_read_keeps_conversation_log_compact(tmp_path):
+    large_content = "large README content\n" * 500
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="large file compact log",
+            repo_files={"README.md": large_content},
+            user_inputs=["README 的主要内容是什么"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="read_file",
+                    status="succeeded",
+                    summary="Read README.md",
+                    payload={
+                        "relative_path": "README.md",
+                        "content": large_content,
+                        "content_length": len(large_content),
+                        "content_truncated": False,
+                    },
+                    args={"path": "README.md"},
+                )
+            ],
+            final_summary="README 主要包含重复的 large README content 内容。",
+        )
+    )
+
+    records_text = "\n".join(
+        json.dumps(record, ensure_ascii=False) for record in transcript.jsonl_records
+    )
+
+    assert_used_tool_path(transcript)
+    assert_did_not_use_chat(transcript)
+    assert_has_evidence_from_observation(transcript, "read_file")
+    assert "content_length" in records_text
+    assert "large README content\n" * 20 not in records_text
     assert_no_raw_trace_or_large_json_dump(transcript)
     assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
 
