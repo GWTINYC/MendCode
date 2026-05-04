@@ -203,6 +203,47 @@ async def test_chinese_git_state_request_uses_safe_shell_not_chat(tmp_path):
     assert_no_raw_trace_or_large_json_dump(transcript)
 
 
+async def test_review_queue_question_uses_review_queue_tool(tmp_path):
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="review queue list",
+            repo_files={"README.md": "MendCode\n"},
+            user_inputs=["列出待审查的经验候选"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="review_queue_list",
+                    status="succeeded",
+                    summary="Found 1 review candidates",
+                    payload={
+                        "status": "pending",
+                        "total_candidates": 1,
+                        "candidates": [
+                            {
+                                "id": "candidate-1",
+                                "kind": "context_lesson",
+                                "summary": "Use tail_lines for final-line questions.",
+                                "suggested_memory_kind": "failure_lesson",
+                                "confidence": 0.8,
+                                "status": "pending",
+                            }
+                        ],
+                    },
+                    args={"status": "pending"},
+                )
+            ],
+            final_summary="当前有 1 条待审查经验候选：Use tail_lines for final-line questions。",
+        )
+    )
+
+    assert_used_tool_path(transcript)
+    assert_did_not_use_chat(transcript)
+    assert_has_evidence_from_observation(transcript, "review_queue_list")
+    assert_visible_answer_contains(transcript, "待审查")
+    assert_visible_answer_contains(transcript, "tail_lines")
+    assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
+    assert_no_raw_trace_or_large_json_dump(transcript)
+
+
 async def test_project_stack_question_is_tool_backed(tmp_path):
     transcript = await TuiScenarioRunner(tmp_path).run(
         TuiScenario(

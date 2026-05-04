@@ -171,6 +171,25 @@ class TraceAnalyzeArgs(BaseModel):
     )
 
 
+class ReviewQueueListArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["pending", "accepted", "rejected", "all"] = "pending"
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class ReviewQueueViewArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=1)
+
+
+class ReviewQueueActionArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=1)
+
+
 class SessionStatusArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

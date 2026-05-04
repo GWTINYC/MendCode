@@ -39,6 +39,10 @@ ToolName = Literal[
     "file_summary_read",
     "file_summary_refresh",
     "trace_analyze",
+    "review_queue_list",
+    "review_queue_view",
+    "review_queue_accept",
+    "review_queue_reject",
 ]
 ObservationStatus = Literal["succeeded", "failed", "rejected"]
 RiskLevel = Literal["low", "medium", "high", "critical"]

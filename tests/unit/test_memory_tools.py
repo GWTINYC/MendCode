@@ -4,7 +4,9 @@ import pytest
 
 import app.tools.memory_tools as memory_tools
 from app.config.settings import Settings
+from app.evolution.models import LessonCandidate
 from app.memory.models import MemoryRecord
+from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
 from app.tools.registry import default_tool_registry
 from app.tools.structured import ToolExecutionContext
@@ -176,3 +178,57 @@ def test_trace_analyze_returns_failed_observation_for_missing_trace(
 
     assert result.status == "failed"
     assert "missing.jsonl" in (result.error_message or "")
+
+
+def test_review_queue_tools_list_view_accept_and_reject_candidates(
+    tmp_path: Path,
+) -> None:
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+    assert context.memory_store is not None
+    runtime = MemoryRuntime(context.memory_store)
+    first = LessonCandidate(
+        kind="context_lesson",
+        summary="Use tail_lines for final-line questions.",
+        evidence={"tool": "read_file", "path": "README.md"},
+        source_trace_path="trace.jsonl",
+        suggested_memory_kind="failure_lesson",
+        confidence=0.8,
+    )
+    second = LessonCandidate(
+        kind="tool_policy_lesson",
+        summary="Review rejected tool calls.",
+        evidence={"status": "rejected"},
+        source_trace_path="trace.jsonl",
+        suggested_memory_kind="trace_insight",
+        confidence=0.7,
+    )
+    runtime.enqueue_candidate(first)
+    runtime.enqueue_candidate(second)
+
+    listed = registry.get("review_queue_list").execute({"status": "pending"}, context)
+    viewed = registry.get("review_queue_view").execute({"candidate_id": first.id}, context)
+    accepted = registry.get("review_queue_accept").execute({"candidate_id": first.id}, context)
+    rejected = registry.get("review_queue_reject").execute({"candidate_id": second.id}, context)
+
+    assert listed.status == "succeeded"
+    assert listed.payload["total_candidates"] == 2
+    assert listed.payload["candidates"][0]["id"] == first.id
+    assert "evidence" not in listed.payload["candidates"][0]
+    assert viewed.status == "succeeded"
+    assert viewed.payload["candidate"]["evidence"] == first.evidence
+    assert accepted.status == "succeeded"
+    assert accepted.payload["memory_record"]["kind"] == "failure_lesson"
+    assert rejected.status == "succeeded"
+    assert rejected.payload["candidate"]["status"] == "rejected"
+    assert context.memory_store.list_records()[0].metadata["candidate_id"] == first.id
+
+
+def test_review_queue_tools_reject_unknown_candidate(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+
+    result = registry.get("review_queue_view").execute({"candidate_id": "missing"}, context)
+
+    assert result.status == "rejected"
+    assert "unknown lesson candidate" in (result.error_message or "")

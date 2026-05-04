@@ -174,6 +174,8 @@ User Message
 | `file_summary_read` | 已完成 | 读取或构建 repo-relative 文件摘要，按内容 hash 校验缓存是否过期 |
 | `file_summary_refresh` | 已完成 | 刷新并写入文件摘要记忆，受写权限裁剪 |
 | `trace_analyze` | 已完成 | 只读分析 trace/conversation JSONL，生成失败经验候选 |
+| `review_queue_list` / `review_queue_view` | 已完成 | 读取待审查经验候选；list 返回 compact 摘要，view 返回 evidence |
+| `review_queue_accept` / `review_queue_reject` | 已完成 | 显式采纳或拒绝候选；accept 才提升为长期 memory，默认工具池不暴露 |
 | `process_start` / `process_poll` / `process_write` / `process_stop` / `process_list` | 已完成 | 管理本轮后台进程和增量日志；`process_start` 走 ShellPolicy，日志写入 `data/processes/` |
 | `lsp` | 已完成 | 返回语言服务诊断、定义、引用、hover、symbols 等结构化结果；不可用时明确 rejected |
 | `apply_patch_to_worktree` | legacy/builtin | 后续删除或迁移为 `apply_patch` 兼容别名 |
@@ -324,6 +326,7 @@ User Message
 - [x] AgentLoop 在 provider 调用前通过 `ContextManager -> MemoryRuntime.recall_for_turn()` 自动召回少量相关 memory，并注入模型上下文
 - [x] prompt context 记录 observation 数量、memory recall 命中数、read_file 次数、重复 read_file 次数和 context 字符量
 - [x] `data/memory/review_queue.jsonl` 保存待审查 lesson candidate，只有显式 accept 才会提升为长期 memory
+- [x] `review_queue_list` / `review_queue_view` / `review_queue_accept` / `review_queue_reject` 已通过 ToolRegistry 暴露；读操作低风险可见，accept/reject 按高风险工具处理
 - [x] `trace_analyze` 默认只读，`write_memory=True` 会拒绝，避免只读工具绕过写权限
 - [x] `trace_analyze` 只能读取 `settings.traces_dir` 内的 JSONL 路径
 - [x] trace analyzer 能把失败或 rejected observation 转成 `failure_lesson` 候选，并忽略最终已 completed 的恢复 trace
@@ -333,7 +336,7 @@ User Message
 当前不足：
 
 - [ ] `memory_write` 还缺少用户确认、重复记忆合并、敏感信息过滤和人工审查界面
-- [ ] review queue 还没有 TUI 审查入口
+- [ ] review queue 还没有专用 TUI 审查面板；当前先通过 schema 工具在对话流中 list/view/accept/reject
 - [ ] 文件摘要缓存没有批量 repo map，也没有和 prompt context 的重复读文件统计联动
 - [ ] trace failure lesson 仍是候选生成，尚未形成“失败归因 -> prompt/skill/memory 更新”的闭环
 - [ ] 还没有 SKILL.md-compatible skill 系统
@@ -343,7 +346,7 @@ User Message
 - 为自动 memory recall 增加更稳定的 ranking、recency、kind/tag 组合测试和 token budget 限制。
 - 设计 `memory_write` 的 confirm-on-write 和去重策略，避免模型静默写入错误长期记忆。
 - 将文件摘要缓存接入长会话 context compaction，减少重复读取大文件。
-- 基于 trace analyzer 生成可审查的 failure lesson 列表，并在 TUI 中提供采纳/忽略入口。
+- 为 review queue 增加专用 TUI 面板、筛选和批量操作。
 - 在 memory 和 trace 稳定后，再启动 SKILL.md 系统计划。
 
 ### 3.8 Context / Evolution Runtime
@@ -363,7 +366,7 @@ User Message
 - [ ] Context compaction 仍是启发式字符预算，尚未接入真实 tokenizer 和模型窗口。
 - [ ] file summary 只覆盖重复读取场景，尚未形成 repo map 或跨轮缓存策略。
 - [ ] Context compaction 还没有按任务类型区分策略。
-- [ ] review queue 还没有 TUI 审查入口。
+- [ ] review queue 还没有专用 TUI 审查面板。
 - [ ] lesson candidate 不会自动更新 SKILL、prompt 或长期 memory。
 - [ ] `EvolutionRuntime` 仍是轻量规则，不做跨 trace 聚合和收益验证。
 
@@ -371,7 +374,7 @@ User Message
 
 - 将 context budget 接入真实 tokenizer，并基于模型窗口动态裁剪 runtime context。
 - 在 file summary 基础上继续扩展 repo map 和跨轮摘要缓存。
-- 为 review queue 增加 TUI list / accept / reject 入口。
+- 为 review queue 增加专用 TUI 面板、筛选和批量操作。
 - 建立 lesson candidate 到 SKILL 更新建议的中间层，但保持人工审查。
 - 用 benchmark report 验证 repeated read、context size 和 token-ish 指标是否真实下降。
 

@@ -4,6 +4,7 @@ from pydantic import ValidationError
 
 from app.memory.file_summary import build_file_summary, summary_record_for_file
 from app.memory.models import MemoryKind, MemoryRecord
+from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
 from app.runtime.trace_analyzer import analyze_trace
 from app.schemas.agent_action import Observation
@@ -12,6 +13,9 @@ from app.tools.arguments import (
     FileSummaryRefreshArgs,
     MemorySearchArgs,
     MemoryWriteArgs,
+    ReviewQueueActionArgs,
+    ReviewQueueListArgs,
+    ReviewQueueViewArgs,
     TraceAnalyzeArgs,
 )
 from app.tools.observations import tool_observation
@@ -214,10 +218,139 @@ def trace_analyze(args: TraceAnalyzeArgs, context: ToolExecutionContext) -> Obse
     )
 
 
+def review_queue_list(
+    args: ReviewQueueListArgs,
+    context: ToolExecutionContext,
+) -> Observation:
+    runtime = _memory_runtime(context)
+    candidates = runtime.list_candidates()
+    if args.status != "all":
+        candidates = [candidate for candidate in candidates if candidate.status == args.status]
+    limited = candidates[: args.limit]
+    return tool_observation(
+        tool_name="review_queue_list",
+        status="succeeded",
+        summary=f"Found {len(limited)} review candidates",
+        payload={
+            "status": args.status,
+            "total_candidates": len(candidates),
+            "candidates": [_compact_candidate(candidate) for candidate in limited],
+        },
+    )
+
+
+def review_queue_view(
+    args: ReviewQueueViewArgs,
+    context: ToolExecutionContext,
+) -> Observation:
+    runtime = _memory_runtime(context)
+    try:
+        candidate = _candidate_for_id(runtime, args.candidate_id)
+    except KeyError as exc:
+        return tool_observation(
+            tool_name="review_queue_view",
+            status="rejected",
+            summary="Unknown review candidate",
+            payload={"candidate_id": args.candidate_id},
+            error_message=str(exc),
+        )
+    return tool_observation(
+        tool_name="review_queue_view",
+        status="succeeded",
+        summary=f"Read review candidate {candidate.id}",
+        payload={"candidate": candidate.model_dump(mode="json")},
+    )
+
+
+def review_queue_accept(
+    args: ReviewQueueActionArgs,
+    context: ToolExecutionContext,
+) -> Observation:
+    runtime = _memory_runtime(context)
+    try:
+        record = runtime.accept_candidate(args.candidate_id)
+    except (KeyError, ValueError) as exc:
+        return tool_observation(
+            tool_name="review_queue_accept",
+            status="rejected",
+            summary="Unable to accept review candidate",
+            payload={"candidate_id": args.candidate_id},
+            error_message=str(exc),
+        )
+    return tool_observation(
+        tool_name="review_queue_accept",
+        status="succeeded",
+        summary=f"Accepted review candidate {args.candidate_id}",
+        payload={
+            "candidate_id": args.candidate_id,
+            "memory_record": {
+                "id": record.id,
+                "kind": record.kind,
+                "title": record.title,
+                "source": record.source,
+                "tags": record.tags,
+            },
+        },
+    )
+
+
+def review_queue_reject(
+    args: ReviewQueueActionArgs,
+    context: ToolExecutionContext,
+) -> Observation:
+    runtime = _memory_runtime(context)
+    try:
+        result = runtime.reject_candidate(args.candidate_id)
+        candidate = _candidate_for_id(runtime, args.candidate_id)
+    except (KeyError, ValueError) as exc:
+        return tool_observation(
+            tool_name="review_queue_reject",
+            status="rejected",
+            summary="Unable to reject review candidate",
+            payload={"candidate_id": args.candidate_id},
+            error_message=str(exc),
+        )
+    return tool_observation(
+        tool_name="review_queue_reject",
+        status="succeeded",
+        summary=f"Rejected review candidate {args.candidate_id}",
+        payload={
+            "candidate_id": result.candidate_id,
+            "candidate": _compact_candidate(candidate),
+        },
+    )
+
+
 def _memory_store(context: ToolExecutionContext) -> MemoryStore:
     if isinstance(context.memory_store, MemoryStore):
         return context.memory_store
     return MemoryStore(context.settings.data_dir / "memory")
+
+
+def _memory_runtime(context: ToolExecutionContext) -> MemoryRuntime:
+    return MemoryRuntime(_memory_store(context))
+
+
+def _candidate_for_id(runtime: MemoryRuntime, candidate_id: str):
+    for candidate in runtime.list_candidates():
+        if candidate.id == candidate_id:
+            return candidate
+    raise KeyError(f"unknown lesson candidate: {candidate_id}")
+
+
+def _compact_candidate(candidate) -> dict[str, object]:
+    return {
+        "id": candidate.id,
+        "kind": candidate.kind,
+        "summary": candidate.summary,
+        "suggested_memory_kind": candidate.suggested_memory_kind,
+        "suggested_skill": candidate.suggested_skill,
+        "confidence": candidate.confidence,
+        "status": candidate.status,
+        "source_trace_path": candidate.source_trace_path,
+        "created_at": candidate.created_at.isoformat(),
+        "updated_at": candidate.updated_at.isoformat(),
+    }
 
 
 def _duplicate_memory_record(

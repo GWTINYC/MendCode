@@ -21,6 +21,9 @@ from app.tools.arguments import (
     ProcessStopArgs,
     ProcessWriteArgs,
     ReadFileArgs,
+    ReviewQueueActionArgs,
+    ReviewQueueListArgs,
+    ReviewQueueViewArgs,
     RgArgs,
     RunCommandArgs,
     RunShellCommandArgs,
@@ -36,6 +39,10 @@ from app.tools.memory_tools import (
     file_summary_refresh,
     memory_search,
     memory_write,
+    review_queue_accept,
+    review_queue_list,
+    review_queue_reject,
+    review_queue_view,
     trace_analyze,
 )
 from app.tools.observations import observation_from_tool_result, tool_observation
@@ -856,6 +863,40 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=TraceAnalyzeArgs,
                 risk_level=ToolRisk.READ_ONLY,
                 executor=trace_analyze,
+            ),
+            ToolSpec(
+                name="review_queue_list",
+                description=(
+                    "List compact pending, accepted, rejected, or all memory/skill "
+                    "review candidates."
+                ),
+                args_model=ReviewQueueListArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=review_queue_list,
+            ),
+            ToolSpec(
+                name="review_queue_view",
+                description=(
+                    "Read one review candidate with evidence before accepting or "
+                    "rejecting it."
+                ),
+                args_model=ReviewQueueViewArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=review_queue_view,
+            ),
+            ToolSpec(
+                name="review_queue_accept",
+                description="Accept a review candidate and promote it to long-term memory.",
+                args_model=ReviewQueueActionArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=review_queue_accept,
+            ),
+            ToolSpec(
+                name="review_queue_reject",
+                description="Reject a review candidate without writing long-term memory.",
+                args_model=ReviewQueueActionArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=review_queue_reject,
             ),
             ToolSpec(
                 name="process_start",
