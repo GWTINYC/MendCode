@@ -214,7 +214,10 @@ User Message
 - [x] shell low-risk 自动执行
 - [x] shell 写入/安装/网络/git mutate 确认
 - [x] critical destructive 和 path escape 拒绝
-- [x] TUI pending shell confirmation
+- [x] TUI pending shell confirmation 已升级为 generic pending tool confirmation
+- [x] `needs_user_confirmation` 会携带 `pending_confirmation`，TUI 可确认或取消任意待确认工具
+- [x] 用户确认后按 allow-once 执行一次工具，并把 observation 回传后续 AgentLoop
+- [x] 用户取消后记录 rejected observation，避免模型假装工具已经执行
 - [x] stdout-only `printf` 低风险允许，重定向仍需确认
 - [x] `sed -n` 只读查看允许，`sed -i` 要求确认
 - [x] `rg` / `sed` 的显式读取路径逃逸会要求确认，写入路径逃逸会拒绝
@@ -222,15 +225,13 @@ User Message
 当前不足：
 
 - [ ] ToolPool 还未贯穿所有 legacy JSON action 调试入口
-- [ ] 工具确认和 TUI pending confirmation 还没有完全统一为 allow once / deny / change mode
-- [ ] allow once / deny / change mode 回写不完整
+- [ ] change mode 回写尚未接入 TUI，当前只完成 allow once / deny
 - [ ] Custom mode 未配置化
 
 下一步：
 
 - 所有 Provider 和 prompt contract 都必须通过 ToolPool 获取当前可见工具。
-- 把 TUI pending shell confirmation 和通用 tool confirmation 合并。
-- 确认或拒绝结果要形成 observation 并回传模型。
+- 把 change mode 作为 pending confirmation 的第三种选择接入 TUI 和 AgentLoop。
 - 所有写主工作区、安装、网络、commit、push、reset、checkout 都必须有测试覆盖。
 
 ### 3.5 TUI

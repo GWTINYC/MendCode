@@ -1066,6 +1066,70 @@ def test_agent_loop_confirmation_payload_contains_pending_tool(tmp_path: Path) -
     assert pending["preview"]["title"] == "lesson"
 
 
+def test_low_risk_read_tool_still_auto_runs_without_confirmation(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("hello\n", encoding="utf-8")
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_read",
+                    name="read_file",
+                    args={"path": "README.md"},
+                    source="openai_tool_call",
+                )
+            ],
+            {"type": "final_response", "status": "completed", "summary": "README was read"},
+        ],
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="read README",
+            provider=provider,
+            permission_mode="guided",
+            step_budget=3,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert all(step.action.type != "user_confirmation_request" for step in result.steps)
+
+
+def test_critical_shell_still_denied_without_confirmation(tmp_path: Path) -> None:
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_shell",
+                    name="run_shell_command",
+                    args={"command": "rm -rf /"},
+                    source="openai_tool_call",
+                )
+            ]
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="run dangerous command",
+            provider=provider,
+            permission_mode="danger-full-access",
+            step_budget=2,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.steps[0].observation.status == "rejected"
+    assert result.steps[0].action.type != "user_confirmation_request"
+    assert "pending_confirmation" not in result.steps[0].observation.payload
+
+
 def test_agent_loop_run_command_rejects_undeclared_verification_command(
     tmp_path: Path,
 ) -> None:
