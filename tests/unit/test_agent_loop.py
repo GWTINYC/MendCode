@@ -1214,6 +1214,111 @@ def test_agent_loop_can_resume_after_confirmed_tool_observation(tmp_path: Path) 
     assert result.steps[0].observation.summary == "Listed directory"
 
 
+def test_agent_loop_accepts_serialized_initial_observation(tmp_path: Path) -> None:
+    invocation = ToolInvocation(
+        id="call_ls",
+        name="list_dir",
+        args={"path": "."},
+        source="openai_tool_call",
+        group_id="provider-1",
+    )
+    record = AgentObservationRecord(
+        action=ToolCallAction(
+            type="tool_call",
+            action="list_dir",
+            reason="confirmed by user",
+            args={"path": "."},
+        ),
+        tool_invocation=invocation,
+        observation=Observation(
+            status="succeeded",
+            summary="Listed directory",
+            payload={"entries": [{"relative_path": "README.md", "type": "file"}]},
+        ),
+    )
+    provider = RecordingProvider(
+        [
+            {
+                "type": "final_response",
+                "status": "completed",
+                "summary": "README.md is present",
+            }
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="list files",
+            provider=provider,
+            permission_mode="guided",
+            initial_observations=[record.model_dump(mode="json")],
+            step_budget=2,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert provider.calls[0].observations[0].tool_invocation == invocation
+
+
+def test_agent_loop_resume_advances_native_tool_group_id(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
+    seed_invocation = ToolInvocation(
+        id="call_ls",
+        name="list_dir",
+        args={"path": "."},
+        source="openai_tool_call",
+        group_id="provider-1",
+    )
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_read",
+                    name="read_file",
+                    args={"path": "README.md"},
+                    source="openai_tool_call",
+                )
+            ],
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="continue after confirmed list",
+            provider=provider,
+            permission_mode="guided",
+            initial_observations=[
+                AgentObservationRecord(
+                    action=ToolCallAction(
+                        type="tool_call",
+                        action="list_dir",
+                        reason="confirmed by user",
+                        args={"path": "."},
+                    ),
+                    tool_invocation=seed_invocation,
+                    observation=Observation(
+                        status="succeeded",
+                        summary="Listed directory",
+                        payload={"entries": [{"relative_path": "README.md", "type": "file"}]},
+                    ),
+                )
+            ],
+            step_budget=3,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.steps[1].tool_invocation is not None
+    assert result.steps[1].tool_invocation.group_id == "provider-2"
+
+
 def test_agent_loop_executes_native_tool_invocation(tmp_path: Path) -> None:
     (tmp_path / "README.md").write_text("demo\n", encoding="utf-8")
     provider = NativeToolProvider(

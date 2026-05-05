@@ -12,6 +12,7 @@ from app.agent.permission import (
     build_confirmation_request,
     decide_permission,
 )
+from app.agent.provider import AgentObservationRecord
 from app.config.settings import Settings
 from app.memory.store import MemoryStore
 from app.runtime.tool_confirmation import build_pending_tool_confirmation
@@ -52,7 +53,7 @@ class AgentLoopInput(BaseModel):
     provider: Any | None = None
     verification_commands: list[str] = Field(default_factory=list)
     provider_context: str | None = None
-    initial_observations: list[Any] = Field(default_factory=list)
+    initial_observations: list[AgentObservationRecord] = Field(default_factory=list)
     allowed_tools: set[str] | None = None
     permission_mode: PermissionMode = "guided"
     step_budget: int = Field(default=12, ge=1)

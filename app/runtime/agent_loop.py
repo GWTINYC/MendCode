@@ -90,11 +90,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
     steps: list[AgentStep] = []
     status = "failed"
     summary = "Agent loop ended without final response"
-    observation_history: list[AgentObservationRecord] = [
-        record
-        for record in loop_input.initial_observations
-        if isinstance(record, AgentObservationRecord)
-    ]
+    observation_history: list[AgentObservationRecord] = list(loop_input.initial_observations)
     for seed_index, record in enumerate(observation_history, start=1):
         if record.action is None:
             continue
@@ -151,7 +147,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
     try:
         if loop_input.provider is not None:
             index = len(steps) + 1
-            provider_turn = 0
+            provider_turn = _initial_provider_turn(observation_history)
             while index <= loop_input.step_budget:
                 provider_turn += 1
                 provider_response = loop_input.provider.next_action(
@@ -463,3 +459,16 @@ def _handled_tool_rejection(
             observation=observation,
         ),
     )
+
+
+def _initial_provider_turn(observations: list[AgentObservationRecord]) -> int:
+    max_turn = 0
+    for record in observations:
+        invocation = record.tool_invocation
+        if invocation is None or invocation.group_id is None:
+            continue
+        prefix, _, raw_index = invocation.group_id.partition("-")
+        if prefix != "provider" or not raw_index.isdecimal():
+            continue
+        max_turn = max(max_turn, int(raw_index))
+    return max_turn
