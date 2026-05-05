@@ -835,6 +835,7 @@ async def test_confirmed_tool_result_is_passed_back_to_agent_loop(tmp_path: Path
         required_mode="workspace-write",
         preview={"title": "lesson"},
         tool_call_id="call_memory",
+        tool_call_group_id="provider-1",
     )
 
     async with app.run_test() as pilot:
@@ -858,6 +859,7 @@ async def test_confirmed_tool_result_is_passed_back_to_agent_loop(tmp_path: Path
     assert record.tool_invocation.name == "memory_write"
     assert record.tool_invocation.args == record.action.args
     assert record.tool_invocation.source == "openai_tool_call"
+    assert record.tool_invocation.group_id == "provider-1"
     assert record.observation.status == "succeeded"
     assert record.observation.payload["kind"] == "failure_lesson"
     assert record.observation.payload["title"] == "lesson"

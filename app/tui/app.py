@@ -707,6 +707,7 @@ class MendCodeTextualApp(App[None]):
             name=pending.tool_name,
             args=pending.arguments,
             source="openai_tool_call" if pending.tool_call_id is not None else "json_action",
+            group_id=pending.tool_call_group_id,
         )
         spec = default_tool_registry().get(pending.tool_name)
         observation = spec.execute(
@@ -881,6 +882,7 @@ class MendCodeTextualApp(App[None]):
                 required_mode=pending_confirmation.required_mode,
                 preview=pending_confirmation.preview,
                 tool_call_id=pending_confirmation.tool_call_id,
+                tool_call_group_id=pending_confirmation.tool_call_group_id,
                 confirmation_id=pending_confirmation.id,
             )
             self.append_message(

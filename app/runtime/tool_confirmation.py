@@ -19,6 +19,7 @@ class PendingToolConfirmation(BaseModel):
 
     id: str = Field(default_factory=lambda: f"confirm-{uuid4().hex[:12]}")
     tool_call_id: str | None = None
+    tool_call_group_id: str | None = None
     tool_name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
     reason: str
@@ -45,6 +46,7 @@ def build_pending_tool_confirmation(
 ) -> PendingToolConfirmation:
     return PendingToolConfirmation(
         tool_call_id=tool_invocation.id if tool_invocation is not None else None,
+        tool_call_group_id=tool_invocation.group_id if tool_invocation is not None else None,
         tool_name=action.action,
         arguments=dict(action.args),
         reason=decision.reason,
@@ -66,6 +68,7 @@ def build_tool_rejected_observation(
         payload={
             "confirmation_id": pending.id,
             "tool_call_id": pending.tool_call_id,
+            "tool_call_group_id": pending.tool_call_group_id,
             "tool_name": pending.tool_name,
             "risk_level": pending.risk_level,
             "required_mode": pending.required_mode,

@@ -79,10 +79,12 @@ class TuiSessionState:
         required_mode: str = "danger-full-access",
         preview: dict[str, object] | None = None,
         tool_call_id: str | None = None,
+        tool_call_group_id: str | None = None,
         confirmation_id: str | None = None,
     ) -> None:
         payload = {
             "tool_call_id": tool_call_id,
+            "tool_call_group_id": tool_call_group_id,
             "tool_name": tool_name,
             "arguments": arguments,
             "reason": reason,

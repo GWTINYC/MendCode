@@ -39,6 +39,7 @@ def test_build_pending_tool_confirmation_for_shell_command() -> None:
 
     assert pending.tool_name == "run_shell_command"
     assert pending.tool_call_id == "call_shell"
+    assert pending.tool_call_group_id == "provider-1"
     assert pending.arguments == {"command": "find . -maxdepth 2 -type f"}
     assert pending.preview["command_preview"] == "find . -maxdepth 2 -type f"
     assert pending.preview["command_chars"] == len("find . -maxdepth 2 -type f")
