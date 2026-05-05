@@ -1,4 +1,5 @@
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -95,6 +96,36 @@ def test_tool_spec_rejects_invalid_args(tmp_path: Path) -> None:
     assert observation.status == "rejected"
     assert observation.summary == "Invalid tool arguments"
     assert "greater than or equal to 0" in str(observation.error_message)
+
+
+def test_process_start_confirmed_call_allows_confirmation_required_command(
+    tmp_path: Path,
+) -> None:
+    spec = default_tool_registry().get("process_start")
+    command = f"{sys.executable} -c 'print(123)'"
+
+    rejected = spec.execute(
+        {"command": command},
+        ToolExecutionContext(
+            workspace_path=tmp_path,
+            settings=settings_for(tmp_path),
+            verification_commands=[],
+        ),
+    )
+    confirmed = spec.execute(
+        {"command": command},
+        ToolExecutionContext(
+            workspace_path=tmp_path,
+            settings=settings_for(tmp_path),
+            verification_commands=[],
+            pending_confirmation={"tool_name": "process_start"},
+        ),
+    )
+
+    assert rejected.status == "rejected"
+    assert rejected.payload["reason"] == "command is not in the low-risk allowlist"
+    assert confirmed.status == "succeeded"
+    assert confirmed.payload["command"] == command
 
 
 def test_tool_spec_generates_openai_tool_schema() -> None:

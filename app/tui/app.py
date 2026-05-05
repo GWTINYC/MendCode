@@ -16,7 +16,10 @@ from app.agent.provider_factory import ProviderConfigurationError, build_agent_p
 from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import Settings
 from app.runtime.session_store import SessionNotFoundError, SessionStore
-from app.runtime.tool_confirmation import PendingToolConfirmation
+from app.runtime.tool_confirmation import (
+    PendingToolConfirmation,
+    build_tool_rejected_observation,
+)
 from app.schemas.agent_action import ToolCallAction
 from app.tools.registry import default_tool_registry
 from app.tools.structured import ToolExecutionContext, ToolInvocation
@@ -71,6 +74,14 @@ _CANCEL_TERMS = {"cancel", "no", "n", "stop", "取消", "不用", "停止", "算
 def _is_tool_availability_question(message: str) -> bool:
     normalized = message.casefold()
     return any(term in normalized for term in _TOOL_AVAILABILITY_TERMS)
+
+
+def _pending_tool_arguments_from_step(step) -> dict[str, object]:
+    if step.tool_invocation is not None:
+        return dict(step.tool_invocation.args)
+    if isinstance(step.action, ToolCallAction):
+        return dict(step.action.args)
+    return {}
 
 
 class ToolAvailabilityProvider:
@@ -344,11 +355,16 @@ class MendCodeTextualApp(App[None]):
     def handle_user_input(self, raw_text: str) -> None:
         text = raw_text.strip()
         normalized = text.lower()
-        if text and normalized in _CONFIRM_TERMS | _CANCEL_TERMS:
-            if self.session_state.pending_tool is not None:
+        if text and self.session_state.pending_tool is not None:
+            if normalized in _CONFIRM_TERMS | _CANCEL_TERMS:
                 self.append_message("You", text)
                 self._handle_pending_tool_reply(text)
                 return
+            if normalized != "/status":
+                self.append_message("You", text)
+                self.append_message("System", "请先确认或取消待执行的工具调用。")
+                return
+        if text and normalized in _CONFIRM_TERMS | _CANCEL_TERMS:
             if self.session_state.pending_fix is not None:
                 self.append_message("You", text)
                 self._handle_pending_fix_reply(text)
@@ -583,16 +599,30 @@ class MendCodeTextualApp(App[None]):
             return False
         normalized = message.strip().lower()
         if normalized in _CANCEL_TERMS:
+            rejected_record = self._rejected_pending_tool_record(pending, user_reply=message)
             self._conversation_log.append_event(
                 "tool_confirmation_rejected",
-                pending.model_dump(mode="json"),
+                {
+                    "pending": pending.safe_payload(),
+                    "observation": rejected_record.observation.model_dump(mode="json"),
+                },
             )
             self.session_state.clear_pending_tool()
             self.append_message("System", "已取消待确认的工具调用。")
+            if pending.source == "agent_loop":
+                task = (
+                    self.session_state.recent_task
+                    or f"Continue after rejecting {pending.tool_name}"
+                )
+                self.session_state.mark_tool_started(task)
+                self._run_tool_worker(task, initial_observations=[rejected_record])
             return True
         if normalized in _CONFIRM_TERMS:
+            if self.session_state.running:
+                self.append_message("Error", "A request is already running.")
+                return True
             tool_name = pending.tool_name
-            if tool_name == "run_shell_command":
+            if tool_name == "run_shell_command" and pending.source != "agent_loop":
                 command = str(pending.arguments.get("command", ""))
                 self.session_state.clear_pending_tool()
                 self._start_shell_command(command, confirmed=True)
@@ -684,7 +714,7 @@ class MendCodeTextualApp(App[None]):
         self._conversation_log.append_event(
             "tool_confirmation_executed",
             {
-                "pending": pending.model_dump(mode="json"),
+                "pending": pending.safe_payload(),
                 "observation": confirmed_record.observation.model_dump(mode="json"),
             },
         )
@@ -717,13 +747,38 @@ class MendCodeTextualApp(App[None]):
                 settings=self.settings,
                 verification_commands=self.session_state.verification_commands,
                 permission_mode="danger-full-access",
-                pending_confirmation=pending.model_dump(mode="json"),
+                pending_confirmation=pending.safe_payload(),
             ),
         )
         return AgentObservationRecord(
             action=action,
             tool_invocation=invocation,
             observation=observation,
+        )
+
+    def _rejected_pending_tool_record(
+        self,
+        pending: PendingToolConfirmation,
+        *,
+        user_reply: str,
+    ) -> AgentObservationRecord:
+        action = ToolCallAction(
+            type="tool_call",
+            action=pending.tool_name,
+            reason=f"user rejected pending tool {pending.tool_name}",
+            args=pending.arguments,
+        )
+        invocation = ToolInvocation(
+            id=pending.tool_call_id,
+            name=pending.tool_name,
+            args=pending.arguments,
+            source="openai_tool_call" if pending.tool_call_id is not None else "json_action",
+            group_id=pending.tool_call_group_id,
+        )
+        return AgentObservationRecord(
+            action=action,
+            tool_invocation=invocation,
+            observation=build_tool_rejected_observation(pending, user_reply=user_reply),
         )
 
     def _start_chat(self, message: str) -> None:
@@ -875,7 +930,7 @@ class MendCodeTextualApp(App[None]):
                 return False
             self.session_state.set_pending_tool(
                 tool_name=pending_confirmation.tool_name,
-                arguments=pending_confirmation.arguments,
+                arguments=_pending_tool_arguments_from_step(step),
                 risk_level=pending_confirmation.risk_level,
                 reason=pending_confirmation.reason,
                 source=pending_confirmation.source,

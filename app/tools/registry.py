@@ -377,7 +377,12 @@ def _run_shell_command(args: RunShellCommandArgs, context: ToolExecutionContext)
         allowed_root=context.workspace_path,
         timeout_seconds=context.settings.verification_timeout_seconds,
     )
-    result = execute_shell_command(command=args.command, cwd=context.workspace_path, policy=policy)
+    result = execute_shell_command(
+        command=args.command,
+        cwd=context.workspace_path,
+        policy=policy,
+        confirmed=_is_confirmed_tool_call(context, "run_shell_command"),
+    )
     return _shell_result_to_observation(result)
 
 
@@ -413,6 +418,11 @@ def _run_command(args: RunCommandArgs, context: ToolExecutionContext) -> Observa
         stderr_excerpt=result.stderr_excerpt,
         duration_ms=result.duration_ms,
     )
+
+
+def _is_confirmed_tool_call(context: ToolExecutionContext, tool_name: str) -> bool:
+    pending = context.pending_confirmation
+    return isinstance(pending, dict) and pending.get("tool_name") == tool_name
 
 
 def _strip_patch_prefix(path: str) -> str:

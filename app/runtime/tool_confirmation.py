@@ -36,6 +36,9 @@ class PendingToolConfirmation(BaseModel):
             raise AttributeError("command is only available for pending shell commands")
         return str(self.arguments.get("command", ""))
 
+    def safe_payload(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude={"arguments"})
+
 
 def build_pending_tool_confirmation(
     *,

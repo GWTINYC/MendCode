@@ -1063,6 +1063,7 @@ def test_agent_loop_confirmation_payload_contains_pending_tool(tmp_path: Path) -
     pending = step.observation.payload["pending_confirmation"]
     assert pending["tool_name"] == "memory_write"
     assert pending["tool_call_id"] == "call_memory"
+    assert "arguments" not in pending
     assert pending["preview"]["title"] == "lesson"
 
 

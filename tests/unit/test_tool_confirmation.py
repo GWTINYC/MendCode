@@ -78,6 +78,33 @@ def test_build_pending_tool_confirmation_bounds_large_patch_preview() -> None:
     assert "patch" not in pending.preview
 
 
+def test_pending_confirmation_payload_omits_raw_arguments() -> None:
+    action = ToolCallAction(
+        type="tool_call",
+        action="write_file",
+        reason="Need to write file",
+        args={"path": "secret.txt", "content": "x" * 5000},
+    )
+    decision = PermissionDecision(
+        status="confirm",
+        reason="tool write_file requires confirmation",
+        risk_level="medium",
+        required_mode="workspace-write",
+    )
+
+    pending = build_pending_tool_confirmation(
+        action=action,
+        decision=decision,
+        tool_invocation=None,
+        source="agent_loop",
+    )
+    payload = pending.safe_payload()
+
+    assert "arguments" not in payload
+    assert payload["preview"]["content_chars"] == 5000
+    assert payload["preview"]["path"] == "secret.txt"
+
+
 def test_build_pending_tool_confirmation_bounds_shell_command_preview() -> None:
     command = "python -c " + "x" * 1000
     action = ToolCallAction(

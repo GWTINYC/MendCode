@@ -58,7 +58,9 @@ def process_start(args: ProcessStartArgs, context: ToolExecutionContext) -> Obse
         allowed_root=context.workspace_path,
         timeout_seconds=context.settings.verification_timeout_seconds,
     ).evaluate(args.command, cwd=cwd)
-    if not decision.allowed:
+    if not decision.allowed and not (
+        decision.requires_confirmation and _is_confirmed_tool_call(context, "process_start")
+    ):
         return tool_observation(
             tool_name="process_start",
             status="rejected",
@@ -131,6 +133,11 @@ def _registry(context: ToolExecutionContext) -> Any:
         registry = ProcessRegistry(log_dir=resolved_log_dir)
         _FALLBACK_REGISTRIES[resolved_log_dir] = registry
     return registry
+
+
+def _is_confirmed_tool_call(context: ToolExecutionContext, tool_name: str) -> bool:
+    pending = context.pending_confirmation
+    return isinstance(pending, dict) and pending.get("tool_name") == tool_name
 
 
 def _resolve_workspace_cwd(raw_cwd: str, workspace_path: Path) -> Path | None:

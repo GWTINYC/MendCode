@@ -644,7 +644,7 @@ def _confirmation_handled_action(
         source="agent_loop",
     )
     payload = dict(payload)
-    payload["pending_confirmation"] = pending.model_dump(mode="json")
+    payload["pending_confirmation"] = pending.safe_payload()
     confirmation = build_confirmation_request(
         action=action,
         decision=decision,
