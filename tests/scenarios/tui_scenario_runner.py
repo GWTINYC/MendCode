@@ -176,9 +176,10 @@ class FakeToolAgentRunner:
                             preview=pending["preview"],
                         ),
                         observation=Observation(
-                            status="succeeded",
+                            status="rejected",
                             summary="工具调用需要确认",
                             payload={"pending_confirmation": pending},
+                            error_message=str(pending["reason"]),
                         ),
                     )
                 ],

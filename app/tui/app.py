@@ -2,6 +2,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Protocol
 
+from pydantic import ValidationError
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
@@ -659,7 +660,7 @@ class MendCodeTextualApp(App[None]):
         self._run_shell_worker(command, confirmed)
 
     def _start_confirmed_tool(self, pending: PendingToolConfirmation) -> None:
-        self.append_message("System", f"已确认工具调用：{pending.tool_name}。")
+        self.append_message("System", f"已确认待执行工具调用：{pending.tool_name}。")
 
     def _start_chat(self, message: str) -> None:
         if self.session_state.running:
@@ -774,16 +775,28 @@ class MendCodeTextualApp(App[None]):
             pending = step.observation.payload.get("pending_confirmation")
             if not isinstance(pending, dict):
                 continue
+            try:
+                pending_confirmation = PendingToolConfirmation.model_validate(pending)
+            except ValidationError as exc:
+                self._conversation_log.append_event(
+                    "tool_confirmation_invalid",
+                    {
+                        "error": str(exc),
+                        "keys": sorted(str(key) for key in pending.keys()),
+                    },
+                )
+                self.append_message("Error", "pending confirmation is invalid.")
+                return False
             self.session_state.set_pending_tool(
-                tool_name=str(pending["tool_name"]),
-                arguments=dict(pending.get("arguments", {})),
-                risk_level=str(pending["risk_level"]),
-                reason=str(pending["reason"]),
-                source=str(pending.get("source", "agent_loop")),
-                required_mode=str(pending["required_mode"]),
-                preview=dict(pending.get("preview", {})),
-                tool_call_id=pending.get("tool_call_id"),
-                confirmation_id=pending.get("id"),
+                tool_name=pending_confirmation.tool_name,
+                arguments=pending_confirmation.arguments,
+                risk_level=pending_confirmation.risk_level,
+                reason=pending_confirmation.reason,
+                source=pending_confirmation.source,
+                required_mode=pending_confirmation.required_mode,
+                preview=pending_confirmation.preview,
+                tool_call_id=pending_confirmation.tool_call_id,
+                confirmation_id=pending_confirmation.id,
             )
             self.append_message(
                 "System",

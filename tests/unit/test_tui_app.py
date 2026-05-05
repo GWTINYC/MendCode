@@ -887,6 +887,40 @@ async def test_pending_shell_confirmation_still_runs_command(tmp_path: Path) -> 
         ]
 
 
+async def test_malformed_pending_tool_result_does_not_crash(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+    result = AgentLoopResult(
+        run_id="agent-test",
+        status="needs_user_confirmation",
+        summary="User confirmation required",
+        trace_path=None,
+        workspace_path=str(repo_path),
+        steps=[
+            AgentStep(
+                index=1,
+                action=FinalResponseAction(
+                    type="final_response",
+                    status="needs_user_confirmation",
+                    summary="User confirmation required",
+                ),
+                observation=Observation(
+                    status="rejected",
+                    summary="User confirmation required",
+                    payload={"pending_confirmation": {"tool_name": "memory_write"}},
+                    error_message="missing fields",
+                ),
+            )
+        ],
+    )
+
+    async with app.run_test():
+        app._complete_tool_request(result)
+
+    assert app.session_state.pending_tool is None
+    assert any("pending confirmation is invalid" in message for message in app.message_texts)
+
+
 async def test_status_displays_pending_tool(tmp_path: Path) -> None:
     repo_path = init_git_repo(tmp_path)
     app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
