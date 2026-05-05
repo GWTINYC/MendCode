@@ -132,6 +132,34 @@ def test_build_pending_tool_confirmation_bounds_shell_command_preview() -> None:
     assert "command" not in pending.preview
 
 
+def test_shell_confirmation_preview_omits_full_short_command() -> None:
+    command = "rm README.md"
+    action = ToolCallAction(
+        type="tool_call",
+        action="run_shell_command",
+        reason="Need to run shell",
+        args={"command": command},
+    )
+    decision = PermissionDecision(
+        status="confirm",
+        reason="shell command requires confirmation",
+        risk_level="high",
+        required_mode="danger-full-access",
+    )
+
+    pending = build_pending_tool_confirmation(
+        action=action,
+        decision=decision,
+        tool_invocation=None,
+        source="agent_loop",
+    )
+
+    assert pending.preview["command_chars"] == len(command)
+    assert pending.preview["command_preview"] == command
+    assert "command_preview" not in pending.safe_payload()["preview"]
+    assert command not in str(pending.safe_payload())
+
+
 def test_build_pending_tool_confirmation_bounds_process_start_preview() -> None:
     command = "python -c " + "x" * 1000
     action = ToolCallAction(
@@ -156,6 +184,7 @@ def test_build_pending_tool_confirmation_bounds_process_start_preview() -> None:
 
     assert pending.preview["command_chars"] == len(command)
     assert len(str(pending.preview["command_preview"])) < len(command)
+    assert "command_preview" not in pending.safe_payload()["preview"]
     assert pending.preview["cwd"] == "app"
     assert "command" not in pending.preview
 

@@ -37,7 +37,12 @@ class PendingToolConfirmation(BaseModel):
         return str(self.arguments.get("command", ""))
 
     def safe_payload(self) -> dict[str, Any]:
-        return self.model_dump(mode="json", exclude={"arguments"})
+        payload = self.model_dump(mode="json", exclude={"arguments"})
+        if self.tool_name in {"run_shell_command", "process_start"}:
+            preview = dict(payload.get("preview", {}))
+            preview.pop("command_preview", None)
+            payload["preview"] = preview
+        return payload
 
 
 def build_pending_tool_confirmation(

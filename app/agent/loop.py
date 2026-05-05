@@ -637,10 +637,17 @@ def _confirmation_handled_action(
     error_message: str | None,
     tool_invocation: ToolInvocation | None = None,
 ) -> _HandledAction:
+    effective_invocation = tool_invocation
+    if effective_invocation is None:
+        effective_invocation = ToolInvocation(
+            name=action.action,
+            args=_registry_args_for_json_action(action),
+            source="json_action",
+        )
     pending = build_pending_tool_confirmation(
         action=action,
         decision=decision,
-        tool_invocation=tool_invocation,
+        tool_invocation=effective_invocation,
         source="agent_loop",
     )
     payload = dict(payload)
@@ -661,7 +668,12 @@ def _confirmation_handled_action(
         stop=True,
         status="needs_user_confirmation",
         summary=observation.summary,
-        step=AgentStep(index=index, action=confirmation, observation=observation),
+        step=AgentStep(
+            index=index,
+            action=confirmation,
+            observation=observation,
+            tool_invocation=effective_invocation,
+        ),
     )
 
 

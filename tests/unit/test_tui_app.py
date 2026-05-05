@@ -982,6 +982,45 @@ async def test_pending_tool_blocks_new_task_until_resolved(tmp_path: Path) -> No
     assert "请先确认或取消待执行的工具调用" in "\n".join(app.message_texts)
 
 
+async def test_json_action_pending_confirmation_recovers_arguments(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="remember this",
+            actions=[
+                {
+                    "type": "tool_call",
+                    "action": "memory_write",
+                    "reason": "Store a lesson",
+                    "args": {
+                        "kind": "failure_lesson",
+                        "title": "lesson",
+                        "content": "body",
+                    },
+                }
+            ],
+            permission_mode="custom",
+            use_worktree=False,
+        ),
+        make_settings(tmp_path),
+    )
+
+    async with app.run_test():
+        assert app._store_pending_tool_from_result(result) is True
+
+    pending = app.session_state.pending_tool
+    assert pending is not None
+    assert pending.arguments == {
+        "kind": "failure_lesson",
+        "title": "lesson",
+        "content": "body",
+    }
+
+
 async def test_pending_shell_compatibility_exposes_command_and_bounded_preview(
     tmp_path: Path,
 ) -> None:
