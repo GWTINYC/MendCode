@@ -81,6 +81,11 @@ class UserConfirmationRequestAction(BaseModel):
     prompt: str
     risk_level: RiskLevel
     options: list[str]
+    tool_name: ToolName | None = None
+    required_mode: str | None = None
+    permission_reason: str | None = None
+    confirmation_id: str | None = None
+    preview: dict[str, Any] = Field(default_factory=dict)
 
 
 class FinalResponseAction(BaseModel):

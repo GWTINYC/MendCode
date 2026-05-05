@@ -96,6 +96,27 @@ def test_build_confirmation_request_includes_action_reason_and_risk():
     assert request.options == ["allow_once", "deny", "change_permission_mode"]
 
 
+def test_confirmation_request_includes_tool_metadata():
+    action = ToolCallAction(
+        type="tool_call",
+        action="memory_write",
+        reason="Store a lesson",
+        args={"kind": "failure_lesson", "title": "lesson", "content": "body"},
+    )
+    decision = PermissionDecision(
+        status="confirm",
+        reason="tool memory_write requires confirmation",
+        risk_level="medium",
+        required_mode="workspace-write",
+    )
+
+    request = build_confirmation_request(action=action, decision=decision)
+
+    assert request.tool_name == "memory_write"
+    assert request.required_mode == "workspace-write"
+    assert request.permission_reason == "tool memory_write requires confirmation"
+
+
 def test_read_only_allows_read_tools_and_denies_write_tools() -> None:
     policy = PermissionPolicy(active_mode="read-only")
 

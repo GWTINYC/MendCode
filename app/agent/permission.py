@@ -1,3 +1,5 @@
+from typing import Any
+
 from app.permissions.policy import (
     PermissionDecision,
     PermissionMode,
@@ -33,6 +35,8 @@ def build_confirmation_request(
     *,
     action: ToolCallAction,
     decision: PermissionDecision,
+    confirmation_id: str | None = None,
+    preview: dict[str, Any] | None = None,
 ) -> UserConfirmationRequestAction:
     return UserConfirmationRequestAction(
         type="user_confirmation_request",
@@ -43,4 +47,9 @@ def build_confirmation_request(
         ),
         risk_level=decision.risk_level,
         options=["allow_once", "deny", "change_permission_mode"],
+        tool_name=action.action,
+        required_mode=decision.required_mode,
+        permission_reason=decision.reason,
+        confirmation_id=confirmation_id,
+        preview=preview or {},
     )

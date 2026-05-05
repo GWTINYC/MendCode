@@ -14,6 +14,7 @@ from app.agent.permission import (
 )
 from app.config.settings import Settings
 from app.memory.store import MemoryStore
+from app.runtime.tool_confirmation import build_pending_tool_confirmation
 from app.schemas.agent_action import (
     FinalResponseAction,
     MendCodeAction,
@@ -632,8 +633,22 @@ def _confirmation_handled_action(
     index: int,
     payload: dict[str, Any],
     error_message: str | None,
+    tool_invocation: ToolInvocation | None = None,
 ) -> _HandledAction:
-    confirmation = build_confirmation_request(action=action, decision=decision)
+    pending = build_pending_tool_confirmation(
+        action=action,
+        decision=decision,
+        tool_invocation=tool_invocation,
+        source="agent_loop",
+    )
+    payload = dict(payload)
+    payload["pending_confirmation"] = pending.model_dump(mode="json")
+    confirmation = build_confirmation_request(
+        action=action,
+        decision=decision,
+        confirmation_id=pending.id,
+        preview=pending.preview,
+    )
     observation = Observation(
         status="rejected",
         summary="User confirmation required",
@@ -663,6 +678,7 @@ def _handle_tool_call_action(
     process_registry: Any | None = None,
     memory_store: MemoryStore | None = None,
     allow_legacy_git: bool = True,
+    tool_invocation: ToolInvocation | None = None,
 ) -> _HandledAction:
     shell_policy_command = (
         _shell_policy_command_for_action(action)
@@ -692,6 +708,7 @@ def _handle_tool_call_action(
             index=index,
             payload=payload,
             error_message=decision.reason,
+            tool_invocation=tool_invocation,
         )
     if decision.status == "deny":
         payload = {"permission_decision": decision.model_dump(mode="json")}
@@ -835,6 +852,7 @@ def _handle_tool_invocation(
         process_registry=process_registry,
         memory_store=memory_store,
         allow_legacy_git=False,
+        tool_invocation=invocation,
     )
 
 

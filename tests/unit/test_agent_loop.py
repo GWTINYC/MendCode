@@ -1029,6 +1029,42 @@ def test_agent_loop_structured_git_write_requires_confirmation(tmp_path: Path) -
     assert "git checkout requires confirmation" in str(result.steps[0].observation.error_message)
 
 
+def test_agent_loop_confirmation_payload_contains_pending_tool(tmp_path: Path) -> None:
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_memory",
+                    name="memory_write",
+                    args={"kind": "failure_lesson", "title": "lesson", "content": "body"},
+                    source="openai_tool_call",
+                )
+            ]
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="remember this lesson",
+            provider=provider,
+            permission_mode="custom",
+            step_budget=2,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "needs_user_confirmation"
+    step = result.steps[0]
+    assert step.action.type == "user_confirmation_request"
+    assert step.action.tool_name == "memory_write"
+    pending = step.observation.payload["pending_confirmation"]
+    assert pending["tool_name"] == "memory_write"
+    assert pending["tool_call_id"] == "call_memory"
+    assert pending["preview"]["title"] == "lesson"
+
+
 def test_agent_loop_run_command_rejects_undeclared_verification_command(
     tmp_path: Path,
 ) -> None:
