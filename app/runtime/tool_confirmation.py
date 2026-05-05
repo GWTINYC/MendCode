@@ -29,6 +29,12 @@ class PendingToolConfirmation(BaseModel):
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     consumed: bool = False
 
+    @property
+    def command(self) -> str:
+        if self.tool_name != "run_shell_command":
+            raise AttributeError("command is only available for pending shell commands")
+        return str(self.arguments.get("command", ""))
+
 
 def build_pending_tool_confirmation(
     *,

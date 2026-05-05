@@ -760,6 +760,32 @@ async def test_pending_shell_reply_can_cancel_without_agent_request(tmp_path: Pa
         assert app.session_state.pending_shell is None
 
 
+async def test_pending_shell_compatibility_exposes_command_and_bounded_preview(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    command = "python -c " + "x" * 1000
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+    )
+
+    async with app.run_test():
+        app.session_state.set_pending_shell(
+            command=command,
+            risk_level="high",
+            reason="test pending shell",
+            source="test",
+        )
+
+        pending_shell = app.session_state.pending_shell
+        assert pending_shell is not None
+        assert pending_shell.command == command
+        assert pending_shell.preview["command_chars"] == len(command)
+        assert len(str(pending_shell.preview["command_preview"])) < len(command)
+        assert "command" not in pending_shell.preview
+
+
 async def test_pending_shell_confirmation_runs_command(tmp_path: Path) -> None:
     repo_path = init_git_repo(tmp_path)
     shell_executor = FakeShellExecutor(

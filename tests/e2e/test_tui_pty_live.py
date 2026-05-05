@@ -218,12 +218,12 @@ def test_live_tui_status_stays_local_after_natural_shell_request(live_repo: Path
         live_repo,
         [
             LiveTuiStep("rm README.md", timeout_seconds=120),
-            LiveTuiStep("/status", "pending_shell: none", timeout_seconds=30),
+            LiveTuiStep("/status", "pending_tool: none", timeout_seconds=30),
         ],
     )
 
     assert (live_repo / "README.md").exists()
-    assert "pending_shell: none" in result.visible_text
+    assert "pending_tool: none" in result.visible_text
     assert_no_provider_failure_or_trace_exposed(result)
     assert_schema_tool_call_route(result)
     assert_dangerous_request_has_schema_or_refusal_evidence(result)

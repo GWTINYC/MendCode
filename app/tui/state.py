@@ -8,6 +8,7 @@ from app.runtime.tool_confirmation import PendingToolConfirmation
 from app.workspace.review_actions import ReviewActionResult
 
 RunningKind = Literal["agent", "chat", "shell", "tool"]
+_MAX_COMMAND_PREVIEW_CHARS = 240
 
 
 @dataclass
@@ -112,7 +113,11 @@ class TuiSessionState:
             reason=reason,
             source=source,
             required_mode="danger-full-access",
-            preview={"command": command, "reason": reason},
+            preview={
+                "command_preview": _bounded_command_preview(command),
+                "command_chars": len(command),
+                "reason": reason,
+            },
         )
 
     def clear_pending_shell(self) -> None:
@@ -190,3 +195,9 @@ class TuiSessionState:
         self.running = False
         self.running_kind = None
         self.last_turn_status = "tool_failed"
+
+
+def _bounded_command_preview(command: str) -> str:
+    if len(command) <= _MAX_COMMAND_PREVIEW_CHARS:
+        return command
+    return f"{command[:_MAX_COMMAND_PREVIEW_CHARS]}..."
