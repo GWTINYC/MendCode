@@ -40,7 +40,8 @@ def test_build_pending_tool_confirmation_for_shell_command() -> None:
     assert pending.tool_name == "run_shell_command"
     assert pending.tool_call_id == "call_shell"
     assert pending.arguments == {"command": "find . -maxdepth 2 -type f"}
-    assert pending.preview["command"] == "find . -maxdepth 2 -type f"
+    assert pending.preview["command_preview"] == "find . -maxdepth 2 -type f"
+    assert pending.preview["command_chars"] == len("find . -maxdepth 2 -type f")
     assert pending.preview["reason"] == "command is not in the low-risk allowlist"
     assert pending.risk_level == "medium"
     assert pending.required_mode == "danger-full-access"
@@ -74,6 +75,33 @@ def test_build_pending_tool_confirmation_bounds_large_patch_preview() -> None:
     assert pending.preview["patch_chars"] == 5000
     assert pending.preview["reason"] == "tool apply_patch requires confirmation"
     assert "patch" not in pending.preview
+
+
+def test_build_pending_tool_confirmation_bounds_shell_command_preview() -> None:
+    command = "python -c " + "x" * 1000
+    action = ToolCallAction(
+        type="tool_call",
+        action="run_shell_command",
+        reason="Need to run shell",
+        args={"command": command},
+    )
+    decision = PermissionDecision(
+        status="confirm",
+        reason="shell command requires confirmation",
+        risk_level="high",
+        required_mode="danger-full-access",
+    )
+
+    pending = build_pending_tool_confirmation(
+        action=action,
+        decision=decision,
+        tool_invocation=None,
+        source="agent_loop",
+    )
+
+    assert pending.preview["command_chars"] == len(command)
+    assert len(str(pending.preview["command_preview"])) < len(command)
+    assert "command" not in pending.preview
 
 
 def test_rejected_observation_mentions_tool_and_decision() -> None:

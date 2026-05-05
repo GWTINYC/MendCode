@@ -11,6 +11,7 @@ from app.schemas.agent_action import Observation, RiskLevel, ToolCallAction
 from app.tools.structured import ToolInvocation
 
 _MAX_PREVIEW_ITEMS = 20
+_MAX_PREVIEW_CHARS = 240
 
 
 class PendingToolConfirmation(BaseModel):
@@ -79,10 +80,17 @@ def _preview_for_tool(
     reason: str,
 ) -> dict[str, Any]:
     if tool_name == "run_shell_command":
-        return {"command": str(args.get("command", "")), "reason": reason}
-    if tool_name == "process_start":
+        command = str(args.get("command", ""))
         return {
-            "command": str(args.get("command", "")),
+            "command_preview": _bounded_string(command),
+            "command_chars": len(command),
+            "reason": reason,
+        }
+    if tool_name == "process_start":
+        command = str(args.get("command", ""))
+        return {
+            "command_preview": _bounded_string(command),
+            "command_chars": len(command),
             "cwd": str(args.get("cwd", ".")),
             "reason": reason,
         }
@@ -133,3 +141,9 @@ def _bounded_list(value: object) -> list[object]:
     if not isinstance(value, list):
         return []
     return value[:_MAX_PREVIEW_ITEMS]
+
+
+def _bounded_string(value: str) -> str:
+    if len(value) <= _MAX_PREVIEW_CHARS:
+        return value
+    return f"{value[:_MAX_PREVIEW_CHARS]}..."
