@@ -104,6 +104,34 @@ def test_build_pending_tool_confirmation_bounds_shell_command_preview() -> None:
     assert "command" not in pending.preview
 
 
+def test_build_pending_tool_confirmation_bounds_process_start_preview() -> None:
+    command = "python -c " + "x" * 1000
+    action = ToolCallAction(
+        type="tool_call",
+        action="process_start",
+        reason="Need to start process",
+        args={"command": command, "cwd": "app"},
+    )
+    decision = PermissionDecision(
+        status="confirm",
+        reason="process command requires confirmation",
+        risk_level="high",
+        required_mode="danger-full-access",
+    )
+
+    pending = build_pending_tool_confirmation(
+        action=action,
+        decision=decision,
+        tool_invocation=None,
+        source="agent_loop",
+    )
+
+    assert pending.preview["command_chars"] == len(command)
+    assert len(str(pending.preview["command_preview"])) < len(command)
+    assert pending.preview["cwd"] == "app"
+    assert "command" not in pending.preview
+
+
 def test_rejected_observation_mentions_tool_and_decision() -> None:
     pending = PendingToolConfirmation(
         id="confirm-123",
