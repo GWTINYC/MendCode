@@ -797,6 +797,72 @@ async def test_pending_tool_cancel_records_rejection(tmp_path: Path) -> None:
         )
 
 
+async def test_confirmed_tool_result_is_passed_back_to_agent_loop(tmp_path: Path) -> None:
+    calls: list[AgentLoopInput] = []
+
+    def runner(
+        *, problem_statement: str, initial_observations=None
+    ) -> AgentLoopResult:
+        calls.append(
+            AgentLoopInput(
+                repo_path=tmp_path,
+                problem_statement=problem_statement,
+                initial_observations=initial_observations or [],
+            )
+        )
+        return AgentLoopResult(
+            run_id="agent-test",
+            status="completed",
+            summary="工具已执行。",
+            trace_path=None,
+            workspace_path=str(tmp_path),
+            steps=[],
+        )
+
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=runner,
+    )
+    app.session_state.recent_task = "写入记忆"
+    app.session_state.set_pending_tool(
+        tool_name="memory_write",
+        arguments={"kind": "failure_lesson", "title": "lesson", "content": "body"},
+        risk_level="medium",
+        reason="tool memory_write requires confirmation",
+        source="agent_loop",
+        required_mode="workspace-write",
+        preview={"title": "lesson"},
+        tool_call_id="call_memory",
+    )
+
+    async with app.run_test() as pilot:
+        app.handle_user_input("确认")
+        await pilot.pause()
+
+    assert calls
+    assert calls[0].problem_statement == "写入记忆"
+    assert calls[0].initial_observations
+    record = calls[0].initial_observations[0]
+    assert record.action is not None
+    assert record.action.type == "tool_call"
+    assert record.action.action == "memory_write"
+    assert record.action.args == {
+        "kind": "failure_lesson",
+        "title": "lesson",
+        "content": "body",
+    }
+    assert record.tool_invocation is not None
+    assert record.tool_invocation.id == "call_memory"
+    assert record.tool_invocation.name == "memory_write"
+    assert record.tool_invocation.args == record.action.args
+    assert record.tool_invocation.source == "openai_tool_call"
+    assert record.observation.status == "succeeded"
+    assert record.observation.payload["kind"] == "failure_lesson"
+    assert record.observation.payload["title"] == "lesson"
+
+
 async def test_pending_shell_compatibility_exposes_command_and_bounded_preview(
     tmp_path: Path,
 ) -> None:

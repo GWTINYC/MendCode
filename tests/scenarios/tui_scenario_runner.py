@@ -150,9 +150,16 @@ class FakeToolAgentRunner:
         self.scenario = scenario
         self.repo_path = repo_path
         self.calls: list[str] = []
+        self.initial_observation_counts: list[int] = []
 
-    def __call__(self, *, problem_statement: str) -> AgentLoopResult:
+    def __call__(
+        self,
+        *,
+        problem_statement: str,
+        initial_observations=None,
+    ) -> AgentLoopResult:
         self.calls.append(problem_statement)
+        self.initial_observation_counts.append(len(initial_observations or []))
         if self.scenario.pending_confirmation is not None:
             pending = self.scenario.pending_confirmation
             return AgentLoopResult(

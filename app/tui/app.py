@@ -17,7 +17,9 @@ from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import Settings
 from app.runtime.session_store import SessionNotFoundError, SessionStore
 from app.runtime.tool_confirmation import PendingToolConfirmation
-from app.tools.structured import ToolInvocation
+from app.schemas.agent_action import ToolCallAction
+from app.tools.registry import default_tool_registry
+from app.tools.structured import ToolExecutionContext, ToolInvocation
 from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_responder
 from app.tui.commands import ChatCommand
 from app.tui.controller import TuiController
@@ -340,6 +342,17 @@ class MendCodeTextualApp(App[None]):
         chat_log.write(Text(line))
 
     def handle_user_input(self, raw_text: str) -> None:
+        text = raw_text.strip()
+        normalized = text.lower()
+        if text and normalized in _CONFIRM_TERMS | _CANCEL_TERMS:
+            if self.session_state.pending_tool is not None:
+                self.append_message("You", text)
+                self._handle_pending_tool_reply(text)
+                return
+            if self.session_state.pending_fix is not None:
+                self.append_message("You", text)
+                self._handle_pending_fix_reply(text)
+                return
         self._controller.handle_user_input(raw_text)
 
     @property
@@ -660,7 +673,57 @@ class MendCodeTextualApp(App[None]):
         self._run_shell_worker(command, confirmed)
 
     def _start_confirmed_tool(self, pending: PendingToolConfirmation) -> None:
-        self.append_message("System", f"已确认待执行工具调用：{pending.tool_name}。")
+        if self.session_state.running:
+            self.append_message("Error", "A request is already running.")
+            return
+        try:
+            confirmed_record = self._execute_pending_tool(pending)
+        except Exception as exc:
+            self.append_message("Error", str(exc))
+            return
+        self._conversation_log.append_event(
+            "tool_confirmation_executed",
+            {
+                "pending": pending.model_dump(mode="json"),
+                "observation": confirmed_record.observation.model_dump(mode="json"),
+            },
+        )
+        task = self.session_state.recent_task or f"Summarize {pending.tool_name} result"
+        self.session_state.mark_tool_started(task)
+        self._run_tool_worker(task, initial_observations=[confirmed_record])
+
+    def _execute_pending_tool(
+        self,
+        pending: PendingToolConfirmation,
+    ) -> AgentObservationRecord:
+        action = ToolCallAction(
+            type="tool_call",
+            action=pending.tool_name,
+            reason=f"user approved pending tool {pending.tool_name}",
+            args=pending.arguments,
+        )
+        invocation = ToolInvocation(
+            id=pending.tool_call_id,
+            name=pending.tool_name,
+            args=pending.arguments,
+            source="openai_tool_call" if pending.tool_call_id is not None else "json_action",
+        )
+        spec = default_tool_registry().get(pending.tool_name)
+        observation = spec.execute(
+            pending.arguments,
+            ToolExecutionContext(
+                workspace_path=self.repo_path,
+                settings=self.settings,
+                verification_commands=self.session_state.verification_commands,
+                permission_mode="danger-full-access",
+                pending_confirmation=pending.model_dump(mode="json"),
+            ),
+        )
+        return AgentObservationRecord(
+            action=action,
+            tool_invocation=invocation,
+            observation=observation,
+        )
 
     def _start_chat(self, message: str) -> None:
         if self.session_state.running:
@@ -711,16 +774,37 @@ class MendCodeTextualApp(App[None]):
         self.call_from_thread(self._complete_shell, result)
 
     @work(thread=True, exclusive=True, exit_on_error=False)
-    def _run_tool_worker(self, task: str) -> None:
+    def _run_tool_worker(
+        self,
+        task: str,
+        initial_observations: list[AgentObservationRecord] | None = None,
+    ) -> None:
         try:
             runner = self._tool_agent_runner or self._run_tool_agent_loop
-            result = runner(problem_statement=task)
+            try:
+                result = runner(
+                    problem_statement=task,
+                    initial_observations=initial_observations,
+                )
+            except TypeError as exc:
+                is_unexpected_kwarg = (
+                    "initial_observations" in str(exc)
+                    and "unexpected keyword" in str(exc)
+                )
+                if initial_observations is not None or not is_unexpected_kwarg:
+                    raise
+                result = runner(problem_statement=task)
         except Exception as exc:  # pragma: no cover - exercised through UI behavior
             self.call_from_thread(self._complete_tool_error, exc)
             return
         self.call_from_thread(self._complete_tool_request, result)
 
-    def _run_tool_agent_loop(self, *, problem_statement: str) -> AgentLoopResult:
+    def _run_tool_agent_loop(
+        self,
+        *,
+        problem_statement: str,
+        initial_observations: list[AgentObservationRecord] | None = None,
+    ) -> AgentLoopResult:
         if _is_tool_availability_question(problem_statement):
             provider = ToolAvailabilityProvider()
         else:
@@ -731,6 +815,7 @@ class MendCodeTextualApp(App[None]):
                 problem_statement=problem_statement,
                 provider=provider,
                 verification_commands=[],
+                initial_observations=initial_observations or [],
                 allowed_tools=READ_ONLY_TOOL_AGENT_TOOLS,
                 permission_mode="guided",
                 step_budget=12,
