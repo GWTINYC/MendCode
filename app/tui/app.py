@@ -344,8 +344,11 @@ class MendCodeTextualApp(App[None]):
     def conversation_log(self) -> ConversationLog:
         return self._conversation_log
 
+    def handle_pending_tool_reply(self, message: str) -> bool:
+        return self._handle_pending_tool_reply(message)
+
     def handle_pending_shell_reply(self, message: str) -> bool:
-        return self._handle_pending_shell_reply(message)
+        return self._handle_pending_tool_reply(message)
 
     def handle_pending_fix_reply(self, message: str) -> bool:
         return self._handle_pending_fix_reply(message)
@@ -418,8 +421,10 @@ class MendCodeTextualApp(App[None]):
             if self.session_state.last_turn is not None
             else self.session_state.last_turn_status
         )
-        pending_shell = (
-            self.session_state.pending_shell.command if self.session_state.pending_shell else "none"
+        pending_tool = (
+            self.session_state.pending_tool.tool_name
+            if self.session_state.pending_tool is not None
+            else "none"
         )
         conversation_log = self.session_state.conversation_markdown_path or "not set"
         return "\n".join(
@@ -432,7 +437,7 @@ class MendCodeTextualApp(App[None]):
                 f"running: {self.session_state.running}",
                 f"running_kind: {self.session_state.running_kind or 'none'}",
                 f"pending_fix: {self.session_state.pending_fix is not None}",
-                f"pending_shell: {pending_shell}",
+                f"pending_tool: {pending_tool}",
                 f"last_turn: {last_turn}",
                 f"conversation_log: {conversation_log}",
             ]
@@ -557,21 +562,30 @@ class MendCodeTextualApp(App[None]):
             return True
         return False
 
-    def _handle_pending_shell_reply(self, message: str) -> bool:
-        pending = self.session_state.pending_shell
+    def _handle_pending_tool_reply(self, message: str) -> bool:
+        pending = self.session_state.pending_tool
         if pending is None:
             return False
         normalized = message.strip().lower()
         if normalized in _CANCEL_TERMS:
-            self.session_state.clear_pending_shell()
-            self.append_message("System", "已取消待确认的 shell 命令。")
+            tool_name = pending.tool_name
+            self.session_state.clear_pending_tool()
+            self.append_message("System", f"已取消待确认的工具调用：{tool_name}。")
             return True
         if normalized in _CONFIRM_TERMS:
-            command = pending.command
-            self.session_state.clear_pending_shell()
-            self._start_shell_command(command, confirmed=True)
+            tool_name = pending.tool_name
+            if tool_name == "run_shell_command":
+                command = str(pending.arguments.get("command", ""))
+                self.session_state.clear_pending_tool()
+                self._start_shell_command(command, confirmed=True)
+                return True
+            self.session_state.clear_pending_tool()
+            self.append_message("System", f"已确认工具调用：{tool_name}。")
             return True
         return False
+
+    def _handle_pending_shell_reply(self, message: str) -> bool:
+        return self._handle_pending_tool_reply(message)
 
     def _shell_policy(self) -> ShellPolicy:
         return ShellPolicy(

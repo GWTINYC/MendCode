@@ -4,6 +4,7 @@ from typing import Literal
 
 from app.agent.prompt_context import ChatMessage
 from app.agent.session import AgentSessionTurn
+from app.runtime.tool_confirmation import PendingToolConfirmation
 from app.workspace.review_actions import ReviewActionResult
 
 RunningKind = Literal["agent", "chat", "shell", "tool"]
@@ -13,15 +14,6 @@ RunningKind = Literal["agent", "chat", "shell", "tool"]
 class PendingFix:
     problem_statement: str
     suggested_verification_command: str
-    source: str
-    awaiting_confirmation: bool = True
-
-
-@dataclass
-class PendingShell:
-    command: str
-    risk_level: str
-    reason: str
     source: str
     awaiting_confirmation: bool = True
 
@@ -37,7 +29,7 @@ class TuiSessionState:
     last_review_action: ReviewActionResult | None = None
     chat_history: list[ChatMessage] = field(default_factory=list)
     pending_fix: PendingFix | None = None
-    pending_shell: PendingShell | None = None
+    pending_tool: PendingToolConfirmation | None = None
     conversation_markdown_path: Path | None = None
     conversation_jsonl_path: Path | None = None
 
@@ -75,6 +67,36 @@ class TuiSessionState:
     def clear_pending_fix(self) -> None:
         self.pending_fix = None
 
+    def set_pending_tool(
+        self,
+        *,
+        tool_name: str,
+        arguments: dict[str, object],
+        risk_level: str,
+        reason: str,
+        source: str,
+        required_mode: str = "danger-full-access",
+        preview: dict[str, object] | None = None,
+        tool_call_id: str | None = None,
+        confirmation_id: str | None = None,
+    ) -> None:
+        payload = {
+            "tool_call_id": tool_call_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "reason": reason,
+            "risk_level": risk_level,
+            "required_mode": required_mode,
+            "preview": preview or {},
+            "source": source,
+        }
+        if confirmation_id is not None:
+            payload["id"] = confirmation_id
+        self.pending_tool = PendingToolConfirmation.model_validate(payload)
+
+    def clear_pending_tool(self) -> None:
+        self.pending_tool = None
+
     def set_pending_shell(
         self,
         *,
@@ -83,15 +105,24 @@ class TuiSessionState:
         reason: str,
         source: str,
     ) -> None:
-        self.pending_shell = PendingShell(
-            command=command,
+        self.set_pending_tool(
+            tool_name="run_shell_command",
+            arguments={"command": command},
             risk_level=risk_level,
             reason=reason,
             source=source,
+            required_mode="danger-full-access",
+            preview={"command": command, "reason": reason},
         )
 
     def clear_pending_shell(self) -> None:
-        self.pending_shell = None
+        self.clear_pending_tool()
+
+    @property
+    def pending_shell(self) -> PendingToolConfirmation | None:
+        if self.pending_tool is None or self.pending_tool.tool_name != "run_shell_command":
+            return None
+        return self.pending_tool
 
     def mark_turn_started(self, task: str) -> None:
         self.recent_task = task

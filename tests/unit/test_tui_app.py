@@ -797,6 +797,26 @@ async def test_pending_shell_confirmation_runs_command(tmp_path: Path) -> None:
         assert any("risk_level: high" in message for message in app.message_texts)
 
 
+async def test_status_displays_pending_tool(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+
+    async with app.run_test():
+        app.session_state.set_pending_tool(
+            tool_name="memory_write",
+            arguments={"title": "lesson"},
+            risk_level="medium",
+            reason="tool memory_write requires confirmation",
+            source="test",
+            required_mode="workspace-write",
+            preview={"title": "lesson"},
+        )
+
+        app.handle_user_input("/status")
+
+    assert "pending_tool: memory_write" in "\n".join(app.message_texts)
+
+
 async def test_natural_fix_request_waits_for_confirmation_then_runs_with_set_test(
     tmp_path: Path,
 ) -> None:
