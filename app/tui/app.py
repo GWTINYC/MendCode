@@ -15,6 +15,7 @@ from app.agent.provider_factory import ProviderConfigurationError, build_agent_p
 from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import Settings
 from app.runtime.session_store import SessionNotFoundError, SessionStore
+from app.runtime.tool_confirmation import PendingToolConfirmation
 from app.tools.structured import ToolInvocation
 from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_responder
 from app.tui.commands import ChatCommand
@@ -568,9 +569,12 @@ class MendCodeTextualApp(App[None]):
             return False
         normalized = message.strip().lower()
         if normalized in _CANCEL_TERMS:
-            tool_name = pending.tool_name
+            self._conversation_log.append_event(
+                "tool_confirmation_rejected",
+                pending.model_dump(mode="json"),
+            )
             self.session_state.clear_pending_tool()
-            self.append_message("System", f"已取消待确认的工具调用：{tool_name}。")
+            self.append_message("System", "已取消待确认的工具调用。")
             return True
         if normalized in _CONFIRM_TERMS:
             tool_name = pending.tool_name
@@ -580,7 +584,7 @@ class MendCodeTextualApp(App[None]):
                 self._start_shell_command(command, confirmed=True)
                 return True
             self.session_state.clear_pending_tool()
-            self.append_message("System", f"已确认工具调用：{tool_name}。")
+            self._start_confirmed_tool(pending)
             return True
         return False
 
@@ -653,6 +657,9 @@ class MendCodeTextualApp(App[None]):
         self.session_state.mark_shell_started(command)
         self.append_message("Shell", f"Running command: {command}")
         self._run_shell_worker(command, confirmed)
+
+    def _start_confirmed_tool(self, pending: PendingToolConfirmation) -> None:
+        self.append_message("System", f"已确认工具调用：{pending.tool_name}。")
 
     def _start_chat(self, message: str) -> None:
         if self.session_state.running:
@@ -759,6 +766,31 @@ class MendCodeTextualApp(App[None]):
             compact_agent_loop_result(result),
         )
         self._render_tool_result(result)
+        if result.status == "needs_user_confirmation":
+            self._store_pending_tool_from_result(result)
+
+    def _store_pending_tool_from_result(self, result: AgentLoopResult) -> bool:
+        for step in result.steps:
+            pending = step.observation.payload.get("pending_confirmation")
+            if not isinstance(pending, dict):
+                continue
+            self.session_state.set_pending_tool(
+                tool_name=str(pending["tool_name"]),
+                arguments=dict(pending.get("arguments", {})),
+                risk_level=str(pending["risk_level"]),
+                reason=str(pending["reason"]),
+                source=str(pending.get("source", "agent_loop")),
+                required_mode=str(pending["required_mode"]),
+                preview=dict(pending.get("preview", {})),
+                tool_call_id=pending.get("tool_call_id"),
+                confirmation_id=pending.get("id"),
+            )
+            self.append_message(
+                "System",
+                "工具调用需要确认。回复“确认”或 yes 执行，回复“取消”放弃。",
+            )
+            return True
+        return False
 
     def _complete_turn_error(self, exc: Exception) -> None:
         self.session_state.mark_turn_failed()

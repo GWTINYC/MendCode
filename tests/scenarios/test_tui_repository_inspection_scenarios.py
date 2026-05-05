@@ -360,6 +360,39 @@ async def test_memory_recall_question_uses_memory_search(tmp_path):
     assert_answer_is_concise(transcript, max_lines=8, max_chars=500)
 
 
+async def test_tui_stores_pending_tool_from_agent_loop_confirmation(tmp_path):
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="pending tool confirmation",
+            repo_files={"README.md": "MendCode\n"},
+            user_inputs=["记住这个经验"],
+            pending_confirmation={
+                "id": "confirm-memory-write",
+                "tool_call_id": "call_memory_write",
+                "tool_name": "memory_write",
+                "arguments": {
+                    "kind": "failure_lesson",
+                    "title": "Use concise tool summaries",
+                    "content": "Keep TUI tool output compact.",
+                },
+                "reason": "tool memory_write requires confirmation",
+                "risk_level": "medium",
+                "required_mode": "workspace-write",
+                "preview": {
+                    "kind": "failure_lesson",
+                    "title": "Use concise tool summaries",
+                    "content_chars": 29,
+                },
+                "source": "agent_loop",
+            },
+        )
+    )
+
+    assert_visible_answer_contains(transcript, "工具调用需要确认")
+    assert transcript.pending_tool is not None
+    assert transcript.pending_tool["tool_name"] == "memory_write"
+
+
 def _tool_step(transcript: ScenarioTranscript, tool_name: str) -> dict[str, object]:
     for result in transcript.tool_results:
         for step in result.get("steps", []):

@@ -760,6 +760,43 @@ async def test_pending_shell_reply_can_cancel_without_agent_request(tmp_path: Pa
         assert app.session_state.pending_shell is None
 
 
+async def test_pending_tool_cancel_records_rejection(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=FakeToolAgentRunner(),
+    )
+
+    async with app.run_test() as pilot:
+        app.session_state.set_pending_tool(
+            tool_name="memory_write",
+            arguments={"title": "lesson"},
+            risk_level="medium",
+            reason="tool memory_write requires confirmation",
+            source="test",
+            required_mode="workspace-write",
+            preview={"title": "lesson"},
+        )
+
+        app.handle_user_input("取消")
+        await pilot.pause()
+
+        assert app.session_state.pending_tool is None
+        assert "已取消待确认的工具调用" in "\n".join(app.message_texts)
+        assert app.session_state.conversation_jsonl_path is not None
+        records = [
+            json.loads(line)
+            for line in app.session_state.conversation_jsonl_path.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ]
+        assert any(
+            record["event_type"] == "tool_confirmation_rejected"
+            for record in records
+        )
+
+
 async def test_pending_shell_compatibility_exposes_command_and_bounded_preview(
     tmp_path: Path,
 ) -> None:
@@ -821,6 +858,33 @@ async def test_pending_shell_confirmation_runs_command(tmp_path: Path) -> None:
         assert shell_executor.calls == [("rm README.md", repo_path, True)]
         assert app.session_state.pending_shell is None
         assert any("risk_level: high" in message for message in app.message_texts)
+
+
+async def test_pending_shell_confirmation_still_runs_command(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    shell_executor = FakeShellExecutor()
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        shell_executor=shell_executor,
+        tool_agent_runner=FakeToolAgentRunner(),
+    )
+
+    async with app.run_test():
+        app.session_state.set_pending_shell(
+            command="printf hello",
+            risk_level="medium",
+            reason="test pending shell",
+            source="test",
+        )
+        app.handle_user_input("确认")
+        await wait_until(lambda: not app.session_state.running)
+
+        assert app.session_state.pending_tool is None
+        rendered = "\n".join(app.message_texts)
+        assert "Running command: printf hello" in rendered or shell_executor.calls == [
+            ("printf hello", repo_path, True)
+        ]
 
 
 async def test_status_displays_pending_tool(tmp_path: Path) -> None:

@@ -13,7 +13,12 @@ from typing import Any
 from app.agent.loop import AgentLoopResult, AgentStep
 from app.agent.session import AgentSessionTurn, ReviewSummary
 from app.config.settings import Settings
-from app.schemas.agent_action import FinalResponseAction, Observation, ToolCallAction
+from app.schemas.agent_action import (
+    FinalResponseAction,
+    Observation,
+    ToolCallAction,
+    UserConfirmationRequestAction,
+)
 from app.tui.app import MendCodeTextualApp
 from app.tui.chat import ChatResponse
 from app.workspace.shell_executor import ShellCommandResult
@@ -35,6 +40,7 @@ class TuiScenario:
     user_inputs: list[str]
     repo_files: dict[str, str] = field(default_factory=dict)
     tool_steps: list[ScenarioToolStep] = field(default_factory=list)
+    pending_confirmation: dict[str, Any] | None = None
     final_summary: str = "完成。"
     chat_response: str = "chat response"
     shell_stdout: str = "README.md\n"
@@ -49,6 +55,7 @@ class ScenarioTranscript:
     chat_calls: list[str]
     tool_calls: list[str]
     shell_calls: list[tuple[str, Path, bool]]
+    pending_tool: dict[str, Any] | None = None
     chat_history: list[tuple[str, str | None]] = field(default_factory=list)
     chat_contexts: list[list[tuple[str, str | None]]] = field(default_factory=list)
 
@@ -98,6 +105,7 @@ class ScenarioTranscript:
                 f"chat_contexts: {self.chat_contexts}",
                 f"tool_calls: {self.tool_calls}",
                 f"shell_calls: {self.shell_calls}",
+                f"pending_tool: {self.pending_tool}",
                 f"tool_results: {self.tool_results}",
             ]
         )
@@ -145,6 +153,36 @@ class FakeToolAgentRunner:
 
     def __call__(self, *, problem_statement: str) -> AgentLoopResult:
         self.calls.append(problem_statement)
+        if self.scenario.pending_confirmation is not None:
+            pending = self.scenario.pending_confirmation
+            return AgentLoopResult(
+                run_id=f"scenario-{self.scenario.name.replace(' ', '-')}",
+                status="needs_user_confirmation",
+                summary="工具调用需要确认",
+                trace_path=str(self.repo_path / "data" / "traces" / "scenario.jsonl"),
+                workspace_path=str(self.repo_path),
+                steps=[
+                    AgentStep(
+                        index=1,
+                        action=UserConfirmationRequestAction(
+                            type="user_confirmation_request",
+                            prompt="工具调用需要确认",
+                            risk_level=pending["risk_level"],
+                            options=["确认", "取消"],
+                            tool_name=pending["tool_name"],
+                            required_mode=pending["required_mode"],
+                            permission_reason=pending["reason"],
+                            confirmation_id=pending["id"],
+                            preview=pending["preview"],
+                        ),
+                        observation=Observation(
+                            status="succeeded",
+                            summary="工具调用需要确认",
+                            payload={"pending_confirmation": pending},
+                        ),
+                    )
+                ],
+            )
         steps: list[AgentStep] = []
         for index, item in enumerate(self.scenario.tool_steps, start=1):
             error_message = item.error_message
@@ -393,6 +431,11 @@ class TuiScenarioRunner:
             chat_contexts=list(chat_responder.contexts),
             tool_calls=list(tool_runner.calls),
             shell_calls=list(shell_executor.calls),
+            pending_tool=(
+                app.session_state.pending_tool.model_dump(mode="json")
+                if app.session_state.pending_tool is not None
+                else None
+            ),
         )
 
 
