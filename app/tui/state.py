@@ -4,6 +4,7 @@ from typing import Literal
 
 from app.agent.prompt_context import ChatMessage
 from app.agent.session import AgentSessionTurn
+from app.permissions.policy import PermissionMode
 from app.runtime.tool_confirmation import PendingToolConfirmation
 from app.workspace.review_actions import ReviewActionResult
 
@@ -21,6 +22,7 @@ class PendingFix:
 
 @dataclass
 class TuiSessionState:
+    permission_mode: PermissionMode = "guided"
     verification_command: str | None = None
     recent_task: str | None = None
     last_turn: AgentSessionTurn | None = None

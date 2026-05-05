@@ -69,6 +69,15 @@ ToolAgentRunner = Callable[..., AgentLoopResult]
 
 _CONFIRM_TERMS = {"start", "yes", "y", "confirm", "开始", "确认", "可以", "执行", "好", "好的"}
 _CANCEL_TERMS = {"cancel", "no", "n", "stop", "取消", "不用", "停止", "算了"}
+_CHANGE_MODE_TERMS = {
+    "change mode",
+    "change permission",
+    "change permission mode",
+    "change_permission_mode",
+    "切换模式",
+    "切换权限",
+    "提升权限",
+}
 
 
 def _is_tool_availability_question(message: str) -> bool:
@@ -356,13 +365,13 @@ class MendCodeTextualApp(App[None]):
         text = raw_text.strip()
         normalized = text.lower()
         if text and self.session_state.pending_tool is not None:
-            if normalized in _CONFIRM_TERMS | _CANCEL_TERMS:
+            if normalized in _CONFIRM_TERMS | _CANCEL_TERMS | _CHANGE_MODE_TERMS:
                 self.append_message("You", text)
                 self._handle_pending_tool_reply(text)
                 return
             if normalized != "/status":
                 self.append_message("You", text)
-                self.append_message("System", "请先确认或取消待执行的工具调用。")
+                self.append_message("System", "请先确认、取消或切换模式来处理待执行的工具调用。")
                 return
         if text and normalized in _CONFIRM_TERMS | _CANCEL_TERMS:
             if self.session_state.pending_fix is not None:
@@ -467,6 +476,7 @@ class MendCodeTextualApp(App[None]):
                 f"recent_task: {recent_task}",
                 f"running: {self.session_state.running}",
                 f"running_kind: {self.session_state.running_kind or 'none'}",
+                f"permission_mode: {self.session_state.permission_mode}",
                 f"pending_fix: {self.session_state.pending_fix is not None}",
                 f"pending_tool: {pending_tool}",
                 f"last_turn: {last_turn}",
@@ -617,6 +627,15 @@ class MendCodeTextualApp(App[None]):
                 self.session_state.mark_tool_started(task)
                 self._run_tool_worker(task, initial_observations=[rejected_record])
             return True
+        if normalized in _CHANGE_MODE_TERMS:
+            if self.session_state.running:
+                self.append_message("Error", "A request is already running.")
+                return True
+            self.session_state.permission_mode = pending.required_mode
+            self.append_message("System", f"权限模式已切换为 {pending.required_mode}。")
+            self.session_state.clear_pending_tool()
+            self._start_confirmed_tool(pending, permission_mode=pending.required_mode)
+            return True
         if normalized in _CONFIRM_TERMS:
             if self.session_state.running:
                 self.append_message("Error", "A request is already running.")
@@ -702,12 +721,20 @@ class MendCodeTextualApp(App[None]):
         self.append_message("Shell", f"Running command: {command}")
         self._run_shell_worker(command, confirmed)
 
-    def _start_confirmed_tool(self, pending: PendingToolConfirmation) -> None:
+    def _start_confirmed_tool(
+        self,
+        pending: PendingToolConfirmation,
+        *,
+        permission_mode: str = "danger-full-access",
+    ) -> None:
         if self.session_state.running:
             self.append_message("Error", "A request is already running.")
             return
         try:
-            confirmed_record = self._execute_pending_tool(pending)
+            confirmed_record = self._execute_pending_tool(
+                pending,
+                permission_mode=permission_mode,
+            )
         except Exception as exc:
             self.append_message("Error", str(exc))
             return
@@ -725,6 +752,8 @@ class MendCodeTextualApp(App[None]):
     def _execute_pending_tool(
         self,
         pending: PendingToolConfirmation,
+        *,
+        permission_mode: str = "danger-full-access",
     ) -> AgentObservationRecord:
         action = ToolCallAction(
             type="tool_call",
@@ -746,7 +775,7 @@ class MendCodeTextualApp(App[None]):
                 workspace_path=self.repo_path,
                 settings=self.settings,
                 verification_commands=self.session_state.verification_commands,
-                permission_mode="danger-full-access",
+                permission_mode=permission_mode,
                 pending_confirmation=pending.safe_payload(),
             ),
         )
@@ -873,7 +902,7 @@ class MendCodeTextualApp(App[None]):
                 verification_commands=[],
                 initial_observations=initial_observations or [],
                 allowed_tools=READ_ONLY_TOOL_AGENT_TOOLS,
-                permission_mode="guided",
+                permission_mode=self.session_state.permission_mode,
                 step_budget=12,
                 use_worktree=False,
             ),
@@ -942,7 +971,10 @@ class MendCodeTextualApp(App[None]):
             )
             self.append_message(
                 "System",
-                "工具调用需要确认。回复“确认”或 yes 执行，回复“取消”放弃。",
+                (
+                    "工具调用需要确认。回复“确认”或 yes 执行一次，"
+                    "回复“取消”放弃，回复“切换模式”提升到所需权限后执行。"
+                ),
             )
             return True
         return False

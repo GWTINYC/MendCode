@@ -218,6 +218,7 @@ User Message
 - [x] `needs_user_confirmation` 会携带 `pending_confirmation`，TUI 可确认或取消任意待确认工具
 - [x] 用户确认后按 allow-once 执行一次工具，并把 observation 回传后续 AgentLoop
 - [x] 用户取消后记录 rejected observation，避免模型假装工具已经执行
+- [x] 用户可在 pending tool 下回复“切换模式”/`change_permission_mode`，TUI 会把当前会话权限提升到该工具的 `required_mode`，执行一次工具，并把 observation 回传后续 AgentLoop
 - [x] stdout-only `printf` 低风险允许，重定向仍需确认
 - [x] `sed -n` 只读查看允许，`sed -i` 要求确认
 - [x] `rg` / `sed` 的显式读取路径逃逸会要求确认，写入路径逃逸会拒绝
@@ -225,13 +226,12 @@ User Message
 当前不足：
 
 - [ ] ToolPool 还未贯穿所有 legacy JSON action 调试入口
-- [ ] change mode 回写尚未接入 TUI，当前只完成 allow once / deny
 - [ ] Custom mode 未配置化
 
 下一步：
 
 - 所有 Provider 和 prompt contract 都必须通过 ToolPool 获取当前可见工具。
-- 把 change mode 作为 pending confirmation 的第三种选择接入 TUI 和 AgentLoop。
+- 继续把会话权限模式用于后续更完整的工具面切换；当前自然语言只读 TUI 工具面仍保守裁剪，不会因为切到高权限就自动暴露全部写入工具。
 - 所有写主工作区、安装、网络、commit、push、reset、checkout 都必须有测试覆盖。
 
 ### 3.5 TUI
@@ -277,7 +277,7 @@ User Message
 - 每个 live 用例都要断言：没有 `Provider failed`、没有可见 `trace_path`、结果来自 conversation JSONL 中的 tool/shell 证据。
 - 继续把 worker 启动、completion 处理和 review action 迁到 controller 或 runtime-facing service。
 - 工具结果摘要保留在聊天流；conversation log 只保留摘要、样本和 trace/workspace 指针，完整 payload 通过 trace 或后续 viewer 查看。
-- 对 pending confirmation 支持 allow once / deny / change mode。
+- 对 pending confirmation 继续完善 preview 和风险说明；allow once / deny / change mode 三种回复已进入 TUI 主路径。
 - 增加 session picker，并把 trace viewer 做成可按需展开完整 payload 的 TUI 入口。
 
 ### 3.6 Session / Trace / Conversation Log

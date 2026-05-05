@@ -896,6 +896,64 @@ async def test_confirmed_tool_result_is_passed_back_to_agent_loop(tmp_path: Path
     assert record.observation.payload["title"] == "lesson"
 
 
+async def test_pending_tool_change_mode_updates_permission_and_resumes(
+    tmp_path: Path,
+) -> None:
+    calls: list[AgentLoopInput] = []
+
+    def runner(
+        *, problem_statement: str, initial_observations=None
+    ) -> AgentLoopResult:
+        calls.append(
+            AgentLoopInput(
+                repo_path=tmp_path,
+                problem_statement=problem_statement,
+                initial_observations=initial_observations or [],
+            )
+        )
+        return AgentLoopResult(
+            run_id="agent-test",
+            status="completed",
+            summary="权限模式已切换。",
+            trace_path=None,
+            workspace_path=str(tmp_path),
+            steps=[],
+        )
+
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=runner,
+    )
+    app.session_state.recent_task = "查看会话状态"
+    app.session_state.set_pending_tool(
+        tool_name="session_status",
+        arguments={"include_tools": False, "include_recent_steps": False},
+        risk_level="medium",
+        reason="tool requires higher permission",
+        source="agent_loop",
+        required_mode="danger-full-access",
+        preview={"reason": "tool requires higher permission"},
+        tool_call_id="call_status",
+        tool_call_group_id="provider-1",
+    )
+
+    async with app.run_test() as pilot:
+        app.handle_user_input("切换模式")
+        await pilot.pause()
+
+    assert app.session_state.permission_mode == "danger-full-access"
+    assert calls
+    record = calls[0].initial_observations[0]
+    assert record.tool_invocation is not None
+    assert record.tool_invocation.name == "session_status"
+    assert record.tool_invocation.group_id == "provider-1"
+    assert record.observation.status == "succeeded"
+    assert record.observation.payload["permission_mode"] == "danger-full-access"
+    assert any("权限模式已切换为 danger-full-access" in message for message in app.message_texts)
+
+
 async def test_agent_loop_shell_confirmation_resumes_with_tool_observation(
     tmp_path: Path,
 ) -> None:
@@ -979,7 +1037,9 @@ async def test_pending_tool_blocks_new_task_until_resolved(tmp_path: Path) -> No
 
     assert runner.calls == []
     assert app.session_state.pending_tool is not None
-    assert "请先确认或取消待执行的工具调用" in "\n".join(app.message_texts)
+    assert "请先确认、取消或切换模式来处理待执行的工具调用" in "\n".join(
+        app.message_texts
+    )
 
 
 async def test_json_action_pending_confirmation_recovers_arguments(
