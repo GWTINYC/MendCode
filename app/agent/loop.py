@@ -52,6 +52,7 @@ class AgentLoopInput(BaseModel):
     provider: Any | None = None
     verification_commands: list[str] = Field(default_factory=list)
     provider_context: str | None = None
+    initial_observations: list[Any] = Field(default_factory=list)
     allowed_tools: set[str] | None = None
     permission_mode: PermissionMode = "guided"
     step_budget: int = Field(default=12, ge=1)

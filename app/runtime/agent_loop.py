@@ -90,7 +90,22 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
     steps: list[AgentStep] = []
     status = "failed"
     summary = "Agent loop ended without final response"
-    observation_history: list[AgentObservationRecord] = []
+    observation_history: list[AgentObservationRecord] = [
+        record
+        for record in loop_input.initial_observations
+        if isinstance(record, AgentObservationRecord)
+    ]
+    for seed_index, record in enumerate(observation_history, start=1):
+        if record.action is None:
+            continue
+        steps.append(
+            AgentStep(
+                index=seed_index,
+                action=record.action,
+                observation=record.observation,
+                tool_invocation=record.tool_invocation,
+            )
+        )
     repetition_tracker = RepetitionTracker()
     memory_store = MemoryStore(settings.data_dir / "memory")
     memory_runtime = MemoryRuntime(memory_store)
@@ -102,6 +117,8 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
         user_message=loop_input.problem_statement,
         repo_path=workspace_path,
     )
+    for record in observation_history:
+        context_manager.record_observation(record)
 
     def provider_context() -> str:
         return context_manager.build_provider_context().provider_context
@@ -133,7 +150,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
 
     try:
         if loop_input.provider is not None:
-            index = 1
+            index = len(steps) + 1
             provider_turn = 0
             while index <= loop_input.step_budget:
                 provider_turn += 1

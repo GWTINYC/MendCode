@@ -11,11 +11,12 @@ from app.agent.openai_compatible import (
     OpenAICompletion,
     OpenAIToolCall,
 )
-from app.agent.provider import AgentProviderStepInput, ProviderResponse
+from app.agent.provider import AgentObservationRecord, AgentProviderStepInput, ProviderResponse
 from app.agent.provider_factory import build_agent_provider
 from app.config.settings import Settings
 from app.memory.models import MemoryRecord
 from app.memory.store import MemoryStore
+from app.schemas.agent_action import Observation, ToolCallAction
 from app.tools.structured import ToolInvocation
 
 PYTHON = shlex.quote(sys.executable)
@@ -1158,6 +1159,59 @@ def test_agent_loop_passes_failed_observation_to_provider(tmp_path: Path) -> Non
     assert result.status == "failed"
     assert len(provider.calls) == 2
     assert provider.calls[1].observations[0].observation.status == "failed"
+
+
+def test_agent_loop_can_resume_after_confirmed_tool_observation(tmp_path: Path) -> None:
+    invocation = ToolInvocation(
+        id="call_ls",
+        name="list_dir",
+        args={"path": "."},
+        source="openai_tool_call",
+        group_id="provider-1",
+    )
+    action = ToolCallAction(
+        type="tool_call",
+        action="list_dir",
+        reason="confirmed by user",
+        args={"path": "."},
+    )
+    observation = Observation(
+        status="succeeded",
+        summary="Listed directory",
+        payload={"entries": [{"relative_path": "README.md", "type": "file"}]},
+    )
+    provider = RecordingProvider(
+        [
+            {
+                "type": "final_response",
+                "status": "completed",
+                "summary": "README.md is present",
+            }
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="list files",
+            provider=provider,
+            permission_mode="guided",
+            initial_observations=[
+                AgentObservationRecord(
+                    action=action,
+                    tool_invocation=invocation,
+                    observation=observation,
+                )
+            ],
+            step_budget=2,
+            use_worktree=False,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert provider.calls[0].observations[0].tool_invocation == invocation
+    assert result.steps[0].observation.summary == "Listed directory"
 
 
 def test_agent_loop_executes_native_tool_invocation(tmp_path: Path) -> None:
