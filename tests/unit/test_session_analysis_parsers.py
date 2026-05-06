@@ -89,7 +89,10 @@ def test_parse_jsonl_trace_extracts_tool_and_final_response(tmp_path: Path) -> N
             "payload": {"content": "当前目录包含 README.md。"},
         },
     ]
-    path.write_text("\n".join(json.dumps(event, ensure_ascii=False) for event in events), encoding="utf-8")
+    path.write_text(
+        "\n".join(json.dumps(event, ensure_ascii=False) for event in events),
+        encoding="utf-8",
+    )
 
     transcript = parse_session_file(path)
 

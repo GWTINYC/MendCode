@@ -148,4 +148,7 @@ class SessionAnalysisReport(BaseModel):
     @computed_field
     @property
     def observed_tools(self) -> list[str]:
-        return sorted({call.tool_name for call in self.tool_calls} | {obs.tool_name for obs in self.observations})
+        return sorted(
+            {call.tool_name for call in self.tool_calls}
+            | {obs.tool_name for obs in self.observations}
+        )

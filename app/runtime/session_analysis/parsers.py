@@ -122,7 +122,9 @@ def _parse_jsonl(path: Path) -> SessionTranscript:
         payload = payload if isinstance(payload, dict) else {}
 
         if "user" in event_type:
-            message = _first_text(payload, ["message", "content", "user_message"]) or event.get("message")
+            message = _first_text(
+                payload, ["message", "content", "user_message"]
+            ) or event.get("message")
             if message:
                 user_messages.append(compact_text(message, max_chars=6000))
         if "assistant" in event_type and "tool" not in event_type:
@@ -174,7 +176,10 @@ def _tool_call_from_payload(
         arguments=arguments,
         call_index=call_index,
         status=str(payload.get("status") or "unknown"),
-        requires_confirmation=bool(payload.get("requires_confirmation") or payload.get("needs_user_confirmation")),
+        requires_confirmation=bool(
+            payload.get("requires_confirmation")
+            or payload.get("needs_user_confirmation")
+        ),
         risk_level=str(payload.get("risk_level") or "unknown"),
         duration_ms=_optional_int(payload.get("duration_ms")),
         raw_excerpt=compact_json(raw_event),
@@ -189,18 +194,33 @@ def _observation_from_payload(
     observation = payload.get("observation")
     if not isinstance(observation, dict):
         observation = payload
-    nested_payload = observation.get("payload") if isinstance(observation.get("payload"), dict) else {}
+    nested_payload = (
+        observation.get("payload") if isinstance(observation.get("payload"), dict) else {}
+    )
+    tool_name = (
+        observation.get("tool_name")
+        or payload.get("tool_name")
+        or payload.get("action")
+        or "unknown"
+    )
+    stdout = nested_payload.get("stdout") or observation.get("stdout") or ""
+    stderr = nested_payload.get("stderr") or observation.get("stderr") or ""
+    content = nested_payload if nested_payload else observation.get("content") or ""
+    error_message = observation.get("error_message") or payload.get("error_message") or ""
     return ObservationEvent(
-        tool_name=str(observation.get("tool_name") or payload.get("tool_name") or payload.get("action") or "unknown"),
+        tool_name=str(tool_name),
         status=str(observation.get("status") or payload.get("status") or "unknown"),
-        stdout_excerpt=compact_text(nested_payload.get("stdout") or observation.get("stdout") or ""),
-        stderr_excerpt=compact_text(nested_payload.get("stderr") or observation.get("stderr") or ""),
-        content_excerpt=compact_json(nested_payload if nested_payload else observation.get("content") or ""),
+        stdout_excerpt=compact_text(stdout),
+        stderr_excerpt=compact_text(stderr),
+        content_excerpt=compact_json(content),
         exit_code=_optional_int(nested_payload.get("exit_code") or observation.get("exit_code")),
-        error_excerpt=compact_text(observation.get("error_message") or payload.get("error_message") or ""),
+        error_excerpt=compact_text(error_message),
         raw_excerpt=compact_json(raw_event),
         call_index=call_index,
-        requires_confirmation=bool(observation.get("requires_confirmation") or observation.get("needs_user_confirmation")),
+        requires_confirmation=bool(
+            observation.get("requires_confirmation")
+            or observation.get("needs_user_confirmation")
+        ),
         risk_level=str(observation.get("risk_level") or payload.get("risk_level") or "unknown"),
     )
 
