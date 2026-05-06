@@ -7,6 +7,7 @@ from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.css.query import NoMatches
+from textual.events import Key
 from textual.widgets import Input, RichLog, Static
 
 from app.agent.loop import AgentLoopInput, AgentLoopResult, run_agent_loop
@@ -25,6 +26,7 @@ from app.tools.registry import default_tool_registry
 from app.tools.structured import ToolExecutionContext, ToolInvocation
 from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_responder
 from app.tui.commands import ChatCommand
+from app.tui.completions import CompletionState, build_completion_state, insert_completion
 from app.tui.controller import TuiController
 from app.tui.conversation_log import ConversationLog
 from app.tui.log_summarizer import compact_agent_loop_result, compact_agent_session_turn
@@ -263,6 +265,21 @@ def _format_chat_line(role: str, message: str) -> Text:
     return text
 
 
+def _format_completion_panel(state: CompletionState | None) -> Text:
+    text = Text()
+    if state is None:
+        text.append("Type @ for files, $ for context shortcuts, / for commands.", style="dim")
+        return text
+    for index, item in enumerate(state.items):
+        prefix = "▶" if index == state.selected_index else " "
+        text.append(
+            f"{prefix} {item.label}  ",
+            style="bold" if index == state.selected_index else "white",
+        )
+        text.append(f"{item.description}\n", style="dim")
+    return text
+
+
 def _available_review_actions(turn: AgentSessionTurn) -> list[str]:
     actions = set(turn.review.recommended_actions)
     if turn.review.workspace_path is None:
@@ -349,6 +366,14 @@ class MendCodeTextualApp(App[None]):
         border-bottom: tall $primary-background;
     }
 
+    #completion-panel {
+        height: auto;
+        max-height: 6;
+        padding: 0 2;
+        color: $text-muted;
+        background: $surface;
+    }
+
     #status-bar {
         height: 1;
         padding: 0 2;
@@ -380,6 +405,7 @@ class MendCodeTextualApp(App[None]):
         self.session_state = TuiSessionState()
         self.header_text = _build_header_text(repo_path, settings)
         self.message_texts: list[str] = []
+        self._completion_state: CompletionState | None = None
         self._agent_session = agent_session
         self._chat_responder = chat_responder
         self._review_action_executor = review_action_executor
@@ -398,6 +424,7 @@ class MendCodeTextualApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Static(self.header_text, id="repo-header")
         yield RichLog(id="chat-log", wrap=True, highlight=False)
+        yield Static(_format_completion_panel(None), id="completion-panel")
         yield Static(_status_bar_text(self.session_state), id="status-bar")
         yield Input(placeholder="Ask MendCode anything about this repo", id="chat-input")
 
@@ -411,9 +438,40 @@ class MendCodeTextualApp(App[None]):
 
     @on(Input.Submitted, "#chat-input")
     def on_chat_submitted(self, event: Input.Submitted) -> None:
+        if self._completion_state is not None:
+            self._accept_completion()
+            return
         value = event.value
         event.input.value = ""
+        self._clear_completion_state()
         self.handle_user_input(value)
+
+    @on(Input.Changed, "#chat-input")
+    def on_chat_changed(self, event: Input.Changed) -> None:
+        cursor_position = getattr(event.input, "cursor_position", len(event.value))
+        self._set_completion_state(
+            build_completion_state(
+                repo_path=self.repo_path,
+                text=event.value,
+                cursor_position=cursor_position,
+            )
+        )
+
+    def on_key(self, event: Key) -> None:
+        if self._completion_state is None:
+            return
+        if event.key == "escape":
+            self._clear_completion_state()
+            event.stop()
+            return
+        if event.key in {"up", "down"}:
+            self._move_completion_selection(-1 if event.key == "up" else 1)
+            event.stop()
+            return
+        if event.key in {"tab", "enter"}:
+            self._accept_completion()
+            event.stop()
+            return
 
     def append_message(self, role: str, message: str) -> None:
         line = f"{role}: {message}"
@@ -425,6 +483,50 @@ class MendCodeTextualApp(App[None]):
             return
         chat_log.write(_format_chat_line(role, message))
         self._refresh_status_bar()
+
+    def _set_completion_state(self, state: CompletionState | None) -> None:
+        self._completion_state = state
+        self._refresh_completion_panel()
+
+    def _clear_completion_state(self) -> None:
+        self._completion_state = None
+        self._refresh_completion_panel()
+
+    def _move_completion_selection(self, delta: int) -> None:
+        if self._completion_state is None:
+            return
+        selected = (self._completion_state.selected_index + delta) % len(
+            self._completion_state.items
+        )
+        self._completion_state = CompletionState(
+            trigger=self._completion_state.trigger,
+            query=self._completion_state.query,
+            selected_index=selected,
+            items=self._completion_state.items,
+        )
+        self._refresh_completion_panel()
+
+    def _accept_completion(self) -> None:
+        if self._completion_state is None:
+            return
+        input_widget = self.query_one("#chat-input", Input)
+        current_text = input_widget.value
+        cursor_position = getattr(input_widget, "cursor_position", len(current_text))
+        item = self._completion_state.items[self._completion_state.selected_index]
+        updated_text, new_cursor = insert_completion(current_text, cursor_position, item)
+        input_widget.value = updated_text
+        try:
+            input_widget.cursor_position = new_cursor
+        except Exception:
+            pass
+        self._clear_completion_state()
+
+    def _refresh_completion_panel(self) -> None:
+        try:
+            panel = self.query_one("#completion-panel", Static)
+        except NoMatches:
+            return
+        panel.update(_format_completion_panel(self._completion_state))
 
     def _refresh_status_bar(self) -> None:
         try:
