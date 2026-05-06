@@ -149,6 +149,14 @@ mendcode benchmark status tests/scenarios/benchmark_manifest.json
 mendcode benchmark check tests/scenarios/benchmark_manifest.json data/benchmark-reports/latest.json
 ```
 
+从 TUI scenario audit 生成 benchmark result：
+
+```bash
+python -m app.runtime.tui_scenario_audit \
+  --benchmark-manifest tests/scenarios/benchmark_manifest.json \
+  --benchmark-output data/benchmark-reports/latest.json
+```
+
 ## Provider 配置
 
 当前主线使用 OpenAI-compatible chat completions，并要求 provider 支持原生 tool calls。如果 provider 不支持 tools，MendCode 会明确失败，而不是退回普通聊天去编造本地事实。

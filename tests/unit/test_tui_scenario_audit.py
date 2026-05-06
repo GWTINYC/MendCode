@@ -1,7 +1,9 @@
 from pathlib import Path
 
+from app.runtime.benchmark import BenchmarkManifest
 from app.runtime.tui_scenario_audit import (
     ScenarioAuditResult,
+    build_benchmark_report_from_audit,
     default_tui_scenario_audit_command,
     extract_pytest_failures,
     write_tui_scenario_audit_report,
@@ -79,3 +81,94 @@ def test_write_tui_scenario_audit_report_records_clean_run(tmp_path: Path) -> No
     assert "问题数：0" in text
     assert "未发现失败场景" in text
     assert "18 passed" in text
+
+
+def test_build_benchmark_report_from_clean_audit_marks_manifest_cases_passed(
+    tmp_path: Path,
+) -> None:
+    result = ScenarioAuditResult(
+        command=["python", "-m", "pytest", "-q", "tests/scenarios"],
+        cwd=tmp_path,
+        exit_code=0,
+        stdout="2 passed\n",
+        stderr="",
+        duration_ms=20,
+    )
+    manifest = BenchmarkManifest.model_validate(
+        {
+            "name": "quick",
+            "cases": [
+                {
+                    "id": "repo-list",
+                    "category": "repository_inspection",
+                    "prompt": "列文件",
+                    "expected_tools": ["list_dir"],
+                    "pytest_nodeids": [
+                        "tests/scenarios/test_tui_repository_inspection_scenarios.py::"
+                        "test_directory_listing_is_tool_backed_and_concise"
+                    ],
+                },
+                {
+                    "id": "danger",
+                    "category": "permission_safety",
+                    "prompt": "危险命令",
+                    "expected_tools": ["run_shell_command"],
+                    "expects_dangerous_block": True,
+                },
+            ],
+        }
+    )
+
+    report = build_benchmark_report_from_audit(result=result, manifest=manifest)
+
+    assert [case.name for case in report.cases] == ["repo-list", "danger"]
+    assert all(case.passed for case in report.cases)
+    assert all(case.tool_chain_passed for case in report.cases)
+    assert report.cases[1].dangerous_command_blocked is True
+
+
+def test_build_benchmark_report_from_audit_maps_failed_node_to_case(tmp_path: Path) -> None:
+    failed_node = (
+        "tests/scenarios/test_tui_repository_inspection_scenarios.py::"
+        "test_directory_listing_is_tool_backed_and_concise"
+    )
+    result = ScenarioAuditResult(
+        command=["python", "-m", "pytest", "-q", "tests/scenarios"],
+        cwd=tmp_path,
+        exit_code=1,
+        stdout=f"FAILED {failed_node} - AssertionError\n",
+        stderr="",
+        duration_ms=20,
+    )
+    manifest = BenchmarkManifest.model_validate(
+        {
+            "name": "quick",
+            "cases": [
+                {
+                    "id": "repo-list",
+                    "category": "repository_inspection",
+                    "prompt": "列文件",
+                    "expected_tools": ["list_dir"],
+                    "pytest_nodeids": [failed_node],
+                },
+                {
+                    "id": "memory",
+                    "category": "memory_context",
+                    "prompt": "记忆",
+                    "expected_tools": ["memory_search"],
+                    "pytest_nodeids": [
+                        "tests/scenarios/test_tui_repository_inspection_scenarios.py::"
+                        "test_memory_recall_question_uses_memory_search"
+                    ],
+                },
+            ],
+        }
+    )
+
+    report = build_benchmark_report_from_audit(result=result, manifest=manifest)
+
+    assert report.cases[0].name == "repo-list"
+    assert report.cases[0].passed is False
+    assert report.cases[0].tool_chain_passed is False
+    assert report.cases[1].name == "memory"
+    assert report.cases[1].passed is True

@@ -35,6 +35,7 @@ class BenchmarkCaseSpec(BaseModel):
     expected_tools: list[str] = Field(default_factory=list)
     expects_dangerous_block: bool = False
     max_visible_chars: int | None = Field(default=None, gt=0)
+    pytest_nodeids: list[str] = Field(default_factory=list)
     notes: str | None = None
 
 

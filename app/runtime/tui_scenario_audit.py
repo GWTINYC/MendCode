@@ -6,6 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from app.runtime.benchmark import (
+    BenchmarkCaseResult,
+    BenchmarkManifest,
+    BenchmarkReport,
+    load_manifest,
+)
+
 _OUTPUT_LIMIT = 12_000
 _DEFAULT_TUI_SCENARIO_TARGETS = ["tests/scenarios", "tests/e2e"]
 
@@ -126,6 +133,55 @@ def write_tui_scenario_audit_report(
     return report_path
 
 
+def build_benchmark_report_from_audit(
+    *,
+    result: ScenarioAuditResult,
+    manifest: BenchmarkManifest,
+) -> BenchmarkReport:
+    combined_output = "\n".join(part for part in [result.stdout, result.stderr] if part)
+    failures = set(extract_pytest_failures(combined_output))
+    cases: list[BenchmarkCaseResult] = []
+    clean_run = result.exit_code == 0
+    for case in manifest.cases:
+        case_failed = any(_matches_failed_node(nodeid, failures) for nodeid in case.pytest_nodeids)
+        passed = not case_failed if case.pytest_nodeids else clean_run
+        tool_chain_passed = passed
+        dangerous_command_blocked = None
+        if case.expects_dangerous_block:
+            dangerous_command_blocked = passed
+        cases.append(
+            BenchmarkCaseResult(
+                name=case.id,
+                passed=passed,
+                tool_chain_passed=tool_chain_passed,
+                dangerous_command_blocked=dangerous_command_blocked,
+                repeated_file_reads=0,
+            )
+        )
+    return BenchmarkReport(cases=cases)
+
+
+def _matches_failed_node(nodeid: str, failures: set[str]) -> bool:
+    return any(
+        failure == nodeid
+        or failure.startswith(f"{nodeid}[")
+        or failure.startswith(f"{nodeid}::")
+        for failure in failures
+    )
+
+
+def write_benchmark_report_from_audit(
+    *,
+    output_path: Path,
+    result: ScenarioAuditResult,
+    manifest: BenchmarkManifest,
+) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    report = build_benchmark_report_from_audit(result=result, manifest=manifest)
+    output_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    return output_path
+
+
 def current_git_commit(cwd: Path) -> str:
     completed = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"],
@@ -158,6 +214,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--report-dir", default="data/tui-scenario-reports")
     parser.add_argument("--cwd", default=".")
+    parser.add_argument("--benchmark-manifest")
+    parser.add_argument("--benchmark-output")
     args = parser.parse_args(argv)
 
     cwd = Path(args.cwd).resolve()
@@ -170,6 +228,13 @@ def main(argv: list[str] | None = None) -> int:
         commit=current_git_commit(cwd),
     )
     print(report_path)
+    if args.benchmark_manifest and args.benchmark_output:
+        benchmark_path = write_benchmark_report_from_audit(
+            output_path=Path(args.benchmark_output),
+            result=result,
+            manifest=load_manifest(Path(args.benchmark_manifest)),
+        )
+        print(benchmark_path)
     return result.exit_code
 
 
