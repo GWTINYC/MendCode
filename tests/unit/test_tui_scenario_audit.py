@@ -8,6 +8,7 @@ from app.runtime.tui_scenario_audit import (
     build_benchmark_report_from_audit,
     default_tui_scenario_audit_command,
     extract_pytest_failures,
+    write_benchmark_report_from_audit,
     write_tui_scenario_audit_report,
 )
 
@@ -205,3 +206,39 @@ def test_build_benchmark_report_from_audit_maps_failed_node_to_case(tmp_path: Pa
     assert report.cases[0].tool_chain_passed is False
     assert report.cases[1].name == "memory"
     assert report.cases[1].passed is True
+
+
+def test_tui_scenario_audit_writes_benchmark_and_analysis_outputs(tmp_path: Path) -> None:
+    result = ScenarioAuditResult(
+        command=["python", "-m", "pytest"],
+        cwd=tmp_path,
+        exit_code=1,
+        stdout="FAILED tests/e2e/test_tui_pty_live.py::test_git - AssertionError",
+        stderr="",
+        duration_ms=10,
+    )
+    manifest = BenchmarkManifest.model_validate(
+        {
+            "name": "gate",
+            "cases": [
+                {
+                    "id": "git-status",
+                    "category": "git_status",
+                    "prompt": "看下 git status",
+                    "expected_tools": ["git"],
+                    "pytest_nodeids": ["tests/e2e/test_tui_pty_live.py::test_git"],
+                }
+            ],
+        }
+    )
+
+    benchmark_path = write_benchmark_report_from_audit(
+        output_path=tmp_path / "benchmark.json",
+        result=result,
+        manifest=manifest,
+        analysis_report_dir=tmp_path / "analysis-reports",
+        run_id="gate-123",
+    )
+
+    assert benchmark_path.exists()
+    assert (tmp_path / "analysis-reports" / "gate-123-git-status.json").exists()

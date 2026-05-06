@@ -12,7 +12,7 @@ from app.runtime.benchmark import (
     BenchmarkReport,
     load_manifest,
 )
-from app.runtime.benchmark_gate import select_pytest_nodeids
+from app.runtime.benchmark_gate import select_pytest_nodeids, write_failure_analysis_reports
 
 _OUTPUT_LIMIT = 12_000
 _DEFAULT_TUI_SCENARIO_TARGETS = ["tests/scenarios", "tests/e2e"]
@@ -184,10 +184,18 @@ def write_benchmark_report_from_audit(
     output_path: Path,
     result: ScenarioAuditResult,
     manifest: BenchmarkManifest,
+    analysis_report_dir: Path | None = None,
+    run_id: str | None = None,
 ) -> Path:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     report = build_benchmark_report_from_audit(result=result, manifest=manifest)
     output_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    if analysis_report_dir is not None:
+        write_failure_analysis_reports(
+            output_dir=analysis_report_dir,
+            report=report,
+            run_id=run_id or output_path.stem,
+        )
     return output_path
 
 
@@ -225,6 +233,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cwd", default=".")
     parser.add_argument("--benchmark-manifest")
     parser.add_argument("--benchmark-output")
+    parser.add_argument("--analysis-report-dir", default="data/analysis-reports")
     args = parser.parse_args(argv)
 
     cwd = Path(args.cwd).resolve()
@@ -245,6 +254,7 @@ def main(argv: list[str] | None = None) -> int:
             output_path=Path(args.benchmark_output),
             result=result,
             manifest=load_manifest(Path(args.benchmark_manifest)),
+            analysis_report_dir=Path(args.analysis_report_dir),
         )
         print(benchmark_path)
     return result.exit_code
