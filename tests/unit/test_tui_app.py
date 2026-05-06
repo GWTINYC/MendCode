@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 
 import pytest
+from textual.widgets import Input
 
 from app.agent.loop import AgentLoopInput, AgentLoopResult, AgentStep, run_agent_loop
 from app.agent.openai_compatible import (
@@ -23,10 +24,12 @@ from app.tui.app import (
     READ_ONLY_TOOL_AGENT_TOOLS,
     MendCodeTextualApp,
     _format_chat_line,
+    _format_completion_panel,
     _is_tool_availability_question,
     _status_bar_text,
 )
 from app.tui.chat import ChatResponse
+from app.tui.completions import build_completion_state
 from app.workspace.review_actions import ReviewActionResult
 from app.workspace.shell_executor import ShellCommandResult
 
@@ -435,6 +438,34 @@ async def test_app_renders_claude_style_status_and_message_prefix(
         assert "test not set" in _status_bar_text(app.session_state)
         assert _format_chat_line("You", "hello").plain == "You\nhello"
         assert _format_chat_line("Agent", "done").plain == "MendCode\ndone"
+
+
+async def test_completion_panel_lists_symbol_candidates_and_accepts_selection(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        input_widget = app.query_one("#chat-input", Input)
+        input_widget.value = "读取 @app"
+        input_widget.cursor_position = len(input_widget.value)
+        app._set_completion_state(
+            build_completion_state(
+                repo_path=repo_path,
+                text=input_widget.value,
+                cursor_position=input_widget.cursor_position,
+            )
+        )
+
+        assert app._completion_state is not None
+        assert "@app.py" in _format_completion_panel(app._completion_state).plain
+        app._accept_completion()
+
+        assert input_widget.value == "读取 @app.py "
+        assert app._completion_state is None
 
 
 async def test_app_exposes_only_agent_request_for_normal_text_path(tmp_path: Path) -> None:
