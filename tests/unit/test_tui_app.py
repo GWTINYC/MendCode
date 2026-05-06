@@ -14,15 +14,34 @@ from app.agent.openai_compatible import (
     OpenAICompletion,
     OpenAIToolCall,
 )
+from app.agent.provider import AgentProviderStepInput, ProviderResponse
 from app.agent.session import AgentSessionTurn, ReviewSummary, ToolCallSummary
 from app.config.settings import Settings
 from app.schemas.agent_action import FinalResponseAction, Observation, ToolCallAction
-from app.tui.app import MendCodeTextualApp, _is_tool_availability_question
+from app.tools.structured import ToolInvocation
+from app.tui.app import (
+    READ_ONLY_TOOL_AGENT_TOOLS,
+    MendCodeTextualApp,
+    _is_tool_availability_question,
+)
 from app.tui.chat import ChatResponse
 from app.workspace.review_actions import ReviewActionResult
 from app.workspace.shell_executor import ShellCommandResult
 
 pytestmark = pytest.mark.asyncio
+
+
+class NativeToolProvider:
+    def __init__(self, batches: list[list[ToolInvocation]]) -> None:
+        self.batches = batches
+        self.calls: list[AgentProviderStepInput] = []
+
+    def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
+        self.calls.append(step_input)
+        return ProviderResponse(
+            status="succeeded",
+            tool_invocations=self.batches[len(self.calls) - 1],
+        )
 
 
 def init_git_repo(path: Path) -> Path:
@@ -677,6 +696,51 @@ async def test_tool_availability_answer_uses_actual_read_only_tool_pool(
     assert "session_status" in result.summary
     assert result.steps[0].tool_invocation is not None
     assert result.steps[0].tool_invocation.source == "openai_tool_call"
+
+
+async def test_tui_tool_agent_allows_evolution_rule_review_tools() -> None:
+    assert {
+        "evolution_rule_list",
+        "evolution_rule_view",
+        "evolution_rule_accept",
+        "evolution_rule_reject",
+        "evolution_rule_accept_with_edits",
+    }.issubset(READ_ONLY_TOOL_AGENT_TOOLS)
+
+
+async def test_evolution_rule_accept_reaches_permission_confirmation(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    settings = make_settings(tmp_path)
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_evolution_rule_accept",
+                    name="evolution_rule_accept",
+                    args={"candidate_id": "rule-candidate-1"},
+                    source="openai_tool_call",
+                )
+            ]
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="接受第一条规则",
+            provider=provider,
+            permission_mode="guided",
+            allowed_tools=READ_ONLY_TOOL_AGENT_TOOLS,
+            use_worktree=False,
+        ),
+        settings,
+    )
+
+    assert result.status == "needs_user_confirmation"
+    assert result.steps[0].action.type == "user_confirmation_request"
+    assert result.steps[0].action.tool_name == "evolution_rule_accept"
 
 
 async def test_tool_availability_detection_does_not_hijack_repo_stack_question() -> None:

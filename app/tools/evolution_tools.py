@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.evolution.models import LessonCandidate
+from app.evolution.rules import EvolutionRuleRuntime, EvolutionRuleStore
 from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
 from app.schemas.agent_action import Observation
@@ -14,12 +15,6 @@ from app.tools.arguments import (
 )
 from app.tools.observations import tool_observation
 from app.tools.structured import ToolExecutionContext
-
-try:
-    from app.evolution.rules import EvolutionRuleRuntime, EvolutionRuleStore
-except ImportError:
-    EvolutionRuleRuntime = None  # type: ignore[assignment]
-    EvolutionRuleStore = None  # type: ignore[assignment]
 
 
 def evolution_rule_list(
@@ -111,77 +106,15 @@ def evolution_rule_accept_with_edits(
 
 
 def _rule_runtime(context: ToolExecutionContext):
-    if EvolutionRuleStore is None:
-        raise RuntimeError("app.evolution.rules.EvolutionRuleStore is not available")
     memory_runtime = MemoryRuntime(_memory_store(context))
     rule_store = EvolutionRuleStore(context.settings.data_dir / "evolution")
-    if EvolutionRuleRuntime is not None:
-        return EvolutionRuleRuntime(memory_runtime.review_queue, rule_store)
-    return _FallbackEvolutionRuleRuntime(memory_runtime, rule_store)
+    return EvolutionRuleRuntime(memory_runtime.review_queue, rule_store)
 
 
 def _memory_store(context: ToolExecutionContext) -> MemoryStore:
     if isinstance(context.memory_store, MemoryStore):
         return context.memory_store
     return MemoryStore(context.settings.data_dir / "memory")
-
-
-class _FallbackEvolutionRuleRuntime:
-    def __init__(self, memory_runtime: MemoryRuntime, rule_store: Any) -> None:
-        self.memory_runtime = memory_runtime
-        self.rule_store = rule_store
-
-    def list_candidates(self, *, status: str = "pending", limit: int = 20) -> list[LessonCandidate]:
-        candidates = [
-            candidate
-            for candidate in self.memory_runtime.list_candidates()
-            if candidate.target_kind == "rule" and candidate.rule_candidate is not None
-        ]
-        if status != "all":
-            candidates = [candidate for candidate in candidates if candidate.status == status]
-        return candidates[:limit]
-
-    def candidate_for_id(self, candidate_id: str) -> LessonCandidate:
-        for candidate in self.memory_runtime.list_candidates():
-            if (
-                candidate.id == candidate_id
-                and candidate.target_kind == "rule"
-                and candidate.rule_candidate is not None
-            ):
-                return candidate
-        raise KeyError(f"unknown evolution rule candidate: {candidate_id}")
-
-    def accept(self, candidate_id: str):
-        candidate = self.candidate_for_id(candidate_id)
-        assert candidate.rule_candidate is not None
-        rule = self.rule_store.accept_candidate(candidate.rule_candidate)
-        self.memory_runtime.review_queue.update_status(candidate.id, "accepted")
-        return rule
-
-    def accept_with_edits(
-        self,
-        candidate_id: str,
-        *,
-        rule_text: str,
-        scope: str,
-        activation_hint: str,
-    ):
-        candidate = self.candidate_for_id(candidate_id)
-        assert candidate.rule_candidate is not None
-        rule = self.rule_store.accept_candidate(
-            candidate.rule_candidate,
-            edits={
-                "rule_text": rule_text,
-                "scope": scope,
-                "activation_hint": activation_hint,
-            },
-        )
-        self.memory_runtime.review_queue.update_status(candidate.id, "accepted")
-        return rule
-
-    def reject(self, candidate_id: str) -> LessonCandidate:
-        candidate = self.candidate_for_id(candidate_id)
-        return self.memory_runtime.review_queue.update_status(candidate.id, "rejected")
 
 
 def _compact_candidate(candidate: LessonCandidate) -> dict[str, object]:

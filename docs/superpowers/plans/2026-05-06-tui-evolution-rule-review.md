@@ -1366,7 +1366,7 @@ git commit -m "test: cover tui evolution rule review"
 - Modify: `README.md`
 - Modify: `MendCode_开发方案.md`
 
-- [ ] **Step 1: Update README**
+- [x] **Step 1: Update README**
 
 In the self-evolution section, add:
 
@@ -1376,7 +1376,7 @@ In the self-evolution section, add:
 被接受的规则写入 `data/evolution/rules.jsonl`。后续 AgentLoop 会按当前用户问题相关性召回最多 3 条 active rules 注入 provider context；pending / rejected candidate 不会影响模型行为。
 ```
 
-- [ ] **Step 2: Update development plan**
+- [x] **Step 2: Update development plan**
 
 In `MendCode_开发方案.md`, update the Context / Evolution Runtime section:
 

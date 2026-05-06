@@ -42,6 +42,11 @@ ToolName = Literal[
     "review_queue_view",
     "review_queue_accept",
     "review_queue_reject",
+    "evolution_rule_list",
+    "evolution_rule_view",
+    "evolution_rule_accept",
+    "evolution_rule_reject",
+    "evolution_rule_accept_with_edits",
 ]
 ObservationStatus = Literal["succeeded", "failed", "rejected"]
 RiskLevel = Literal["low", "medium", "high", "critical"]

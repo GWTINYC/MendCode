@@ -166,8 +166,9 @@ class OpenAICompatibleAgentProvider:
     def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
         messages = build_provider_messages(step_input, secret_values=[self._api_key])
         try:
+            schema_permission_mode = _schema_permission_mode(step_input)
             tool_pool = self._tool_registry.tool_pool(
-                permission_mode=step_input.permission_mode,
+                permission_mode=schema_permission_mode,
                 allowed_tools=step_input.allowed_tools,
             )
             openai_tools = tool_pool.openai_tools()
@@ -222,6 +223,12 @@ def _text_final_status(step_input: AgentProviderStepInput) -> str | None:
     if all(record.observation.status == "succeeded" for record in step_input.observations):
         return "completed"
     return "failed"
+
+
+def _schema_permission_mode(step_input: AgentProviderStepInput) -> str:
+    if step_input.allowed_tools is not None:
+        return "danger-full-access"
+    return step_input.permission_mode
 
 
 def _parse_tool_call_arguments(tool_call: OpenAIToolCall) -> dict[str, object] | ProviderResponse:

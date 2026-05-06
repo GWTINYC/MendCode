@@ -99,6 +99,67 @@ def test_rule_runtime_accepts_rule_candidate_and_updates_queue(tmp_path: Path) -
     assert listed[0].status == "accepted"
 
 
+def test_rule_runtime_accept_rolls_back_rule_when_queue_update_fails(tmp_path: Path) -> None:
+    class BrokenReviewQueue:
+        def __init__(self, candidate: LessonCandidate) -> None:
+            self.candidate = candidate
+
+        def list_candidates(self) -> list[LessonCandidate]:
+            return [self.candidate]
+
+        def update_status(self, candidate_id: str, status: str) -> LessonCandidate:
+            raise OSError("queue rewrite failed")
+
+    rule_store = EvolutionRuleStore(tmp_path / "data" / "evolution")
+    lesson = LessonCandidate(
+        id="candidate-1",
+        kind="tool_policy_lesson",
+        summary="Git status needs git tool",
+        target_kind="rule",
+        rule_candidate=_candidate("candidate-1"),
+    )
+    runtime = EvolutionRuleRuntime(BrokenReviewQueue(lesson), rule_store)  # type: ignore[arg-type]
+
+    with pytest.raises(OSError, match="queue rewrite failed"):
+        runtime.accept("candidate-1")
+
+    assert rule_store.list_rules() == []
+
+
+def test_rule_runtime_accept_with_edits_rolls_back_rule_when_queue_update_fails(
+    tmp_path: Path,
+) -> None:
+    class BrokenReviewQueue:
+        def __init__(self, candidate: LessonCandidate) -> None:
+            self.candidate = candidate
+
+        def list_candidates(self) -> list[LessonCandidate]:
+            return [self.candidate]
+
+        def update_status(self, candidate_id: str, status: str) -> LessonCandidate:
+            raise OSError("queue rewrite failed")
+
+    rule_store = EvolutionRuleStore(tmp_path / "data" / "evolution")
+    lesson = LessonCandidate(
+        id="candidate-1",
+        kind="tool_policy_lesson",
+        summary="Git status needs git tool",
+        target_kind="rule",
+        rule_candidate=_candidate("candidate-1"),
+    )
+    runtime = EvolutionRuleRuntime(BrokenReviewQueue(lesson), rule_store)  # type: ignore[arg-type]
+
+    with pytest.raises(OSError, match="queue rewrite failed"):
+        runtime.accept_with_edits(
+            "candidate-1",
+            rule_text="回答 Git 状态前必须调用 git 工具。",
+            scope="git status",
+            activation_hint="git status",
+        )
+
+    assert rule_store.list_rules() == []
+
+
 def test_rule_runtime_accept_with_edits_preserves_evidence(tmp_path: Path) -> None:
     memory = MemoryRuntime(MemoryStore(tmp_path / "data" / "memory"))
     runtime = EvolutionRuleRuntime(

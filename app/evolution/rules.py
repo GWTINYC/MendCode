@@ -70,6 +70,22 @@ class EvolutionRuleStore:
                 return rule
         return None
 
+    def remove_rule_for_candidate(self, candidate_id: str) -> None:
+        if not self.path.exists():
+            return
+        remaining = [
+            rule
+            for rule in self.list_rules()
+            if rule.candidate_id != candidate_id
+        ]
+        if remaining:
+            self.path.write_text(
+                "\n".join(rule.model_dump_json() for rule in remaining) + "\n",
+                encoding="utf-8",
+            )
+        else:
+            self.path.write_text("", encoding="utf-8")
+
     def _raw_lines(self) -> list[str]:
         if not self.path.exists():
             return []
@@ -99,8 +115,14 @@ class EvolutionRuleRuntime:
         rule_candidate = candidate.rule_candidate
         if rule_candidate is None:
             raise ValueError(f"review candidate is not a rule candidate: {candidate_id}")
+        existing = self.rule_store.rule_for_candidate(rule_candidate.candidate_id)
         rule = self.rule_store.accept_candidate(rule_candidate)
-        self._update_status(candidate.id, "accepted")
+        try:
+            self._update_status(candidate.id, "accepted")
+        except Exception:
+            if existing is None:
+                self.rule_store.remove_rule_for_candidate(rule_candidate.candidate_id)
+            raise
         return rule
 
     def accept_with_edits(
@@ -115,6 +137,7 @@ class EvolutionRuleRuntime:
         rule_candidate = candidate.rule_candidate
         if rule_candidate is None:
             raise ValueError(f"review candidate is not a rule candidate: {candidate_id}")
+        existing = self.rule_store.rule_for_candidate(rule_candidate.candidate_id)
         rule = self.rule_store.accept_candidate(
             rule_candidate,
             edits={
@@ -123,7 +146,12 @@ class EvolutionRuleRuntime:
                 "activation_hint": activation_hint,
             },
         )
-        self._update_status(candidate.id, "accepted")
+        try:
+            self._update_status(candidate.id, "accepted")
+        except Exception:
+            if existing is None:
+                self.rule_store.remove_rule_for_candidate(rule_candidate.candidate_id)
+            raise
         return rule
 
     def reject(self, candidate_id: str) -> LessonCandidate:

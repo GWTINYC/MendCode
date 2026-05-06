@@ -365,25 +365,27 @@ User Message
 - [x] `EvolutionRuntime` 在 turn 结束后根据失败、rejected tool、重复读取和验证恢复生成 lesson candidate。
 - [x] `EvolutionRuntime.after_turn()` 是 best-effort；review queue 写入失败会进入 `evolution_summary.error`，不会覆盖已完成的用户回答。
 - [x] 离线 Session Analysis 可把 conversation / trace 转成结构化失败证据，为后续 EvolutionRuntime 生成 Memory / SKILL / Prompt Rule / Tool Schema 候选提供输入。
+- [x] TUI-first evolution rule review：`evolution_rule_list/view/accept/reject/accept_with_edits` 已通过 ToolRegistry 暴露，用户可在 TUI 对话里用自然语言审查规则候选，而不是把 CLI 作为主入口。
+- [x] Accepted rules 写入 `data/evolution/rules.jsonl`，运行时按相关性召回 top 3 active rules 注入 provider context；pending / rejected candidate 不影响模型行为。
 
 当前不足：
 
 - [ ] Context compaction 仍是启发式字符预算，尚未接入真实 tokenizer 和模型窗口。
 - [ ] file summary 只覆盖重复读取场景，尚未形成 repo map 或跨轮缓存策略。
 - [ ] Context compaction 还没有按任务类型区分策略。
-- [ ] review queue 还没有专用 TUI 审查面板。
+- [ ] rule review 还没有专用 TUI 面板；当前先通过 schema tool calls 在聊天流中 list/view/accept/reject/accept with edits。
 - [ ] lesson candidate 不会自动更新 SKILL、prompt 或长期 memory。
 - [ ] `EvolutionRuntime` 仍是轻量规则，不做跨 trace 聚合和收益验证。
-- [ ] Session Analysis 报告尚未被 EvolutionRuntime 自动消费。
+- [ ] Session Analysis 报告尚未被 EvolutionRuntime 自动消费生成 rule candidate。
 
 下一步：
 
 - 将 context budget 接入真实 tokenizer，并基于模型窗口动态裁剪 runtime context。
 - 在 file summary 基础上继续扩展 repo map 和跨轮摘要缓存。
-- 为 review queue 增加专用 TUI 面板、筛选和批量操作。
+- 为 evolution rule review 增加专用 TUI 面板、筛选和批量操作，同时保留自然语言 schema tool-call 主路径。
 - 建立 lesson candidate 到 SKILL 更新建议的中间层，但保持人工审查。
 - 用 benchmark report 验证 repeated read、context size 和 token-ish 指标是否真实下降。
-- 让 EvolutionRuntime 读取 `data/analysis-reports/*.json`，生成可审查的 memory / skill / prompt rule 候选。
+- 让 EvolutionRuntime 读取 `data/analysis-reports/*.json`，生成可审查的 memory / skill / prompt rule candidate，并进入同一 TUI review loop。
 
 ### 3.9 Story Runner
 

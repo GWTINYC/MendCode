@@ -79,6 +79,10 @@ MendCode 的长期方向是 `SKILL.md + JSONL Trace-driven Evolution`。
 
 这部分还在演进中，目标是把高频任务流程沉淀成可复用 Skill，例如 Debug、Test-Fix、Review、Repo-Map 等；同时基于每轮运行产生的 JSONL Trace 分析失败原因，反向优化 memory、skill、prompt rule、tool schema 和测试集。
 
+第一版自进化规则审查以 TUI 自然语言为主入口，而不是让 CLI 成为主要操作面。用户可以在对话里询问“有哪些待确认的规则”、 “接受第一条规则”、 “接受第一条，但改成……”。模型会通过 `evolution_rule_list`、`evolution_rule_view`、`evolution_rule_accept`、`evolution_rule_reject`、`evolution_rule_accept_with_edits` 等 schema tools 完成审查动作，TUI 只负责展示对话、确认意图和回传真实 observation。
+
+被接受的规则写入 `data/evolution/rules.jsonl`。后续 AgentLoop 会按当前用户问题相关性召回最多 3 条 active rules 注入 provider context；pending / rejected candidate 不会影响模型行为。`data/evolution/` 和其它 runtime 产物一样属于本地运行状态，默认不提交到仓库。
+
 预期闭环是：
 
 ```text
@@ -211,10 +215,11 @@ app/
 - `data/conversations/`：Markdown 和 JSONL 对话日志。
 - `data/traces/`：Agent Runtime trace。
 - `data/memory/`：本地 layered memory JSONL 和文件摘要记录。
+- `data/evolution/`：已接受的自进化规则，例如 `rules.jsonl`。
 - `data/processes/`：后台进程日志。
 - `data/reference-*` 或其它本地分析 clone：参考材料，默认被 git 忽略。
 
-不要提交运行日志或本地 clone 的参考仓库。
+不要提交运行日志、conversation、trace、memory、evolution rule runtime 状态或本地 clone 的参考仓库。
 
 ## 文档
 

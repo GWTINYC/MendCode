@@ -40,9 +40,14 @@ from app.workspace.review_actions import (
 from app.workspace.shell_executor import ShellCommandResult, execute_shell_command
 from app.workspace.shell_policy import ShellPolicy
 
-READ_ONLY_TOOL_AGENT_TOOLS = {
+TUI_TOOL_AGENT_TOOLS = {
     "glob_file_search",
     "git",
+    "evolution_rule_accept",
+    "evolution_rule_accept_with_edits",
+    "evolution_rule_list",
+    "evolution_rule_reject",
+    "evolution_rule_view",
     "file_summary_read",
     "list_dir",
     "lsp",
@@ -53,6 +58,7 @@ READ_ONLY_TOOL_AGENT_TOOLS = {
     "session_status",
     "tool_search",
 }
+READ_ONLY_TOOL_AGENT_TOOLS = TUI_TOOL_AGENT_TOOLS
 
 _TOOL_AVAILABILITY_TERMS = (
     "哪些工具",
@@ -901,7 +907,7 @@ class MendCodeTextualApp(App[None]):
                 provider=provider,
                 verification_commands=[],
                 initial_observations=initial_observations or [],
-                allowed_tools=READ_ONLY_TOOL_AGENT_TOOLS,
+                allowed_tools=TUI_TOOL_AGENT_TOOLS,
                 permission_mode=self.session_state.permission_mode,
                 step_budget=12,
                 use_worktree=False,
