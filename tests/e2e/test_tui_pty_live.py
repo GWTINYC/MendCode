@@ -84,6 +84,21 @@ def test_live_tui_answers_last_sentence_with_tools(live_repo: Path) -> None:
     assert_conversation_has_tool_evidence(result, "read_file")
 
 
+def test_live_tui_last_sentence_answer_is_not_full_file(live_repo: Path) -> None:
+    result = run_live_tui_question(
+        live_repo,
+        "MendCode问题记录的最后一句话是什么",
+        timeout_seconds=120,
+    )
+
+    latest_agent_message = _latest_agent_message(result)
+    assert_no_provider_failure_or_trace_exposed(result)
+    assert_response_evidence_contains(result, "不再记录纯讨论、一次性环境噪声、旧路线细枝末节。")
+    assert_conversation_has_tool_evidence(result, "read_file")
+    assert len(latest_agent_message) <= 300
+    assert "这里记录需要持续修复的问题" not in latest_agent_message
+
+
 def test_live_tui_lists_current_directory(live_repo: Path) -> None:
     result = run_live_tui_question(
         live_repo,
