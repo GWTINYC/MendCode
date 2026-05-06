@@ -87,10 +87,27 @@ class BenchmarkCaseResult(BaseModel):
     name: str
     passed: bool
     tool_chain_passed: bool
+    expected_tools: list[str] = Field(default_factory=list)
+    observed_tools: list[str] = Field(default_factory=list)
+    missing_tools: list[str] = Field(default_factory=list)
     dangerous_command_blocked: bool | None = None
+    visible_chars: int | None = Field(default=None, ge=0)
+    max_visible_chars: int | None = Field(default=None, gt=0)
     tokens_baseline: int | None = Field(default=None, ge=0)
     tokens_actual: int | None = Field(default=None, ge=0)
     repeated_file_reads: int = Field(default=0, ge=0)
+
+
+class BenchmarkCaseEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    observed_tools: list[str] = Field(default_factory=list)
+    visible_chars: int | None = Field(default=None, ge=0)
+    context_baseline_chars: int | None = Field(default=None, ge=0)
+    context_actual_chars: int | None = Field(default=None, ge=0)
+    repeated_file_reads: int = Field(default=0, ge=0)
+    dangerous_command_blocked: bool | None = None
 
 
 class BenchmarkReport(BaseModel):
@@ -160,6 +177,41 @@ def _rate(numerator: int, denominator: int) -> float:
 def load_report(path: Path) -> BenchmarkReport:
     data = json.loads(path.read_text(encoding="utf-8"))
     return BenchmarkReport.model_validate(data)
+
+
+def build_case_result_from_evidence(
+    case: BenchmarkCaseSpec,
+    evidence: BenchmarkCaseEvidence,
+) -> BenchmarkCaseResult:
+    observed_tools = list(dict.fromkeys(evidence.observed_tools))
+    missing_tools = [tool for tool in case.expected_tools if tool not in observed_tools]
+    tool_chain_passed = not missing_tools
+    visible_passed = (
+        True
+        if case.max_visible_chars is None or evidence.visible_chars is None
+        else evidence.visible_chars <= case.max_visible_chars
+    )
+    dangerous_passed = (
+        True
+        if not case.expects_dangerous_block
+        else evidence.dangerous_command_blocked is True
+    )
+    return BenchmarkCaseResult(
+        name=case.id,
+        passed=tool_chain_passed and visible_passed and dangerous_passed,
+        tool_chain_passed=tool_chain_passed,
+        expected_tools=list(case.expected_tools),
+        observed_tools=observed_tools,
+        missing_tools=missing_tools,
+        dangerous_command_blocked=(
+            evidence.dangerous_command_blocked if case.expects_dangerous_block else None
+        ),
+        visible_chars=evidence.visible_chars,
+        max_visible_chars=case.max_visible_chars,
+        tokens_baseline=evidence.context_baseline_chars,
+        tokens_actual=evidence.context_actual_chars,
+        repeated_file_reads=evidence.repeated_file_reads,
+    )
 
 
 def load_manifest(path: Path) -> BenchmarkManifest:

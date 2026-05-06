@@ -588,10 +588,14 @@ export MENDCODE_API_KEY=<api-key>
 - [x] 新增 `mendcode benchmark check <manifest.json> <result.json>`，用于检查 benchmark result 是否覆盖 manifest 中的全部 case，避免漏测后仍计算指标
 - [x] TUI scenario audit 支持 `--benchmark-manifest` / `--benchmark-output`，可把 pytest audit 结果映射为 BenchmarkReport JSON
 - [x] benchmark manifest case 支持 `pytest_nodeids`，把固定目标 case 关联到现有 scenario/e2e/integration 测试节点
+- [x] `BenchmarkCaseResult` 记录 expected_tools、observed_tools、missing_tools、visible_chars、max_visible_chars、危险命令拦截、context baseline/actual 和 repeated_file_reads
+- [x] 新增 `BenchmarkCaseEvidence` / `build_case_result_from_evidence()`，可从结构化 evidence 生成单 case 结果
+- [x] TUI scenario transcript 可转换为 benchmark evidence，第一版接入目录查看场景，开始把 tool evidence、简洁输出和 context-ish 指标沉淀到 benchmark 口径
 
 下一步：
 
-- 在 benchmark case 中记录 baseline token、actual token、工具证据和危险命令断言。
+- 扩展更多 scenario tests 直接产出 benchmark evidence，并把 result JSON 写入 `data/benchmark-reports/`。
+- 将 context 字符预算替换或补充为 tokenizer-aware token 估算。
 - 将 benchmark report 写入 `data/benchmark-reports/`，并在文档中只引用已跑出的真实指标。
 
 ### 任务 9：Story Runner 接入开发闭环

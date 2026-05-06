@@ -13,6 +13,7 @@ from typing import Any
 from app.agent.loop import AgentLoopResult, AgentStep
 from app.agent.session import AgentSessionTurn, ReviewSummary
 from app.config.settings import Settings
+from app.runtime.benchmark import BenchmarkCaseEvidence, BenchmarkCaseSpec
 from app.schemas.agent_action import (
     FinalResponseAction,
     Observation,
@@ -109,6 +110,65 @@ class ScenarioTranscript:
                 f"tool_results: {self.tool_results}",
             ]
         )
+
+    def to_benchmark_evidence(self, case: BenchmarkCaseSpec) -> BenchmarkCaseEvidence:
+        observed_tools: list[str] = []
+        for result in self.tool_results:
+            tool_name = result.get("tool_name")
+            if tool_name is not None:
+                observed_tools.append(str(tool_name))
+            for step in result.get("steps", []):
+                if isinstance(step, dict) and step.get("action") is not None:
+                    action = str(step["action"])
+                    if action != "final_response":
+                        observed_tools.append(action)
+        if not observed_tools:
+            observed_tools = list(self.tool_calls)
+        repeated_file_reads = 0
+        context_actual_chars = len(self.visible_text)
+        for record in self.jsonl_records:
+            payload = record.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            context_summary = payload.get("context_summary")
+            if not isinstance(context_summary, dict):
+                continue
+            metrics = context_summary.get("metrics")
+            if not isinstance(metrics, dict):
+                continue
+            repeated_file_reads = int(metrics.get("repeated_read_file_count") or 0)
+            context_chars = metrics.get("context_chars")
+            if isinstance(context_chars, int):
+                context_actual_chars = context_chars
+        dangerous_blocked = None
+        if case.expects_dangerous_block:
+            dangerous_blocked = any(
+                _compact_tool_result_is_rejected_for(result, case.expected_tools)
+                for result in self.tool_results
+            )
+        return BenchmarkCaseEvidence(
+            case_id=case.id,
+            observed_tools=observed_tools,
+            visible_chars=len(self.visible_text),
+            context_baseline_chars=sum(len(message or "") for _, message in self.chat_history),
+            context_actual_chars=context_actual_chars,
+            repeated_file_reads=repeated_file_reads,
+            dangerous_command_blocked=dangerous_blocked,
+        )
+
+
+def _compact_tool_result_is_rejected_for(
+    result: dict[str, Any],
+    tool_names: list[str],
+) -> bool:
+    if result.get("tool_name") in tool_names and result.get("status") == "rejected":
+        return True
+    for step in result.get("steps", []):
+        if not isinstance(step, dict):
+            continue
+        if step.get("action") in tool_names and step.get("status") == "rejected":
+            return True
+    return False
 
 
 class FakeChatResponder:

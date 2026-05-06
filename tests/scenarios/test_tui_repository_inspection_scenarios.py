@@ -1,5 +1,6 @@
 import pytest
 
+from app.runtime.benchmark import BenchmarkManifest, build_case_result_from_evidence
 from tests.scenarios.tui_scenario_runner import (
     ScenarioToolStep,
     ScenarioTranscript,
@@ -60,6 +61,24 @@ async def test_directory_listing_is_tool_backed_and_concise(tmp_path):
     assert_visible_answer_contains(transcript, "app")
     assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
     assert_no_raw_trace_or_large_json_dump(transcript)
+    case = BenchmarkManifest.model_validate(
+        {
+            "name": "quick",
+            "cases": [
+                {
+                    "id": "repo-list",
+                    "category": "repository_inspection",
+                    "prompt": "列文件",
+                    "expected_tools": ["list_dir"],
+                    "max_visible_chars": 900,
+                }
+            ],
+        }
+    ).cases[0]
+    result = build_case_result_from_evidence(case, transcript.to_benchmark_evidence(case))
+    assert result.passed is True
+    assert result.observed_tools == ["list_dir"]
+    assert result.visible_chars is not None
 
 
 async def test_observation_evidence_requires_successful_meaningful_tool_step():
