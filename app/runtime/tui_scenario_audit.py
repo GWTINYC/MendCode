@@ -6,13 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from app.runtime.benchmark import (
-    BenchmarkCaseResult,
-    BenchmarkManifest,
-    BenchmarkReport,
-    load_manifest,
+from app.runtime.benchmark import BenchmarkManifest, BenchmarkReport, load_manifest
+from app.runtime.benchmark_gate import (
+    PytestRunResult,
+    build_gate_report,
+    select_pytest_nodeids,
+    write_failure_analysis_reports,
 )
-from app.runtime.benchmark_gate import select_pytest_nodeids, write_failure_analysis_reports
 
 _OUTPUT_LIMIT = 12_000
 _DEFAULT_TUI_SCENARIO_TARGETS = ["tests/scenarios", "tests/e2e"]
@@ -147,35 +147,16 @@ def build_benchmark_report_from_audit(
     result: ScenarioAuditResult,
     manifest: BenchmarkManifest,
 ) -> BenchmarkReport:
-    combined_output = "\n".join(part for part in [result.stdout, result.stderr] if part)
-    failures = set(extract_pytest_failures(combined_output))
-    cases: list[BenchmarkCaseResult] = []
-    clean_run = result.exit_code == 0
-    for case in manifest.cases:
-        case_failed = any(_matches_failed_node(nodeid, failures) for nodeid in case.pytest_nodeids)
-        passed = not case_failed if case.pytest_nodeids else clean_run
-        tool_chain_passed = passed
-        dangerous_command_blocked = None
-        if case.expects_dangerous_block:
-            dangerous_command_blocked = passed
-        cases.append(
-            BenchmarkCaseResult(
-                name=case.id,
-                passed=passed,
-                tool_chain_passed=tool_chain_passed,
-                dangerous_command_blocked=dangerous_command_blocked,
-                repeated_file_reads=0,
-            )
-        )
-    return BenchmarkReport(cases=cases)
-
-
-def _matches_failed_node(nodeid: str, failures: set[str]) -> bool:
-    return any(
-        failure == nodeid
-        or failure.startswith(f"{nodeid}[")
-        or failure.startswith(f"{nodeid}::")
-        for failure in failures
+    return build_gate_report(
+        manifest=manifest,
+        result=PytestRunResult(
+            command=result.command,
+            cwd=result.cwd,
+            exit_code=result.exit_code,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            duration_ms=result.duration_ms,
+        ),
     )
 
 

@@ -66,9 +66,9 @@ def build_gate_report(
     clean_run = result.exit_code == 0
     for case in manifest.cases:
         failed = any(_matches_failed_nodeid(nodeid, failures) for nodeid in case.pytest_nodeids)
-        passed = clean_run and not failed
+        passed = not failed if case.pytest_nodeids else clean_run
         reasons = ["pytest_node_failed"] if failed else []
-        if result.exit_code != 0 and not failed:
+        if result.exit_code != 0 and not failed and not case.pytest_nodeids:
             reasons.append("pytest_run_failed_without_case_match")
         cases.append(
             BenchmarkCaseResult(
