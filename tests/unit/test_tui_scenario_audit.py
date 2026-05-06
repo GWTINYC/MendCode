@@ -1,3 +1,5 @@
+import json
+import sys
 from pathlib import Path
 
 from app.runtime.benchmark import BenchmarkManifest
@@ -31,6 +33,37 @@ def test_default_tui_scenario_audit_command_includes_live_e2e_tests() -> None:
     command = default_tui_scenario_audit_command()
 
     assert command[-2:] == ["tests/scenarios", "tests/e2e"]
+
+
+def test_default_tui_scenario_audit_command_can_be_manifest_driven(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "manifest.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "name": "gate",
+                "cases": [
+                    {
+                        "id": "git-status",
+                        "category": "git_status",
+                        "prompt": "看下 git status",
+                        "expected_tools": ["git"],
+                        "pytest_nodeids": ["tests/e2e/test_tui_pty_live.py::test_git"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    command = default_tui_scenario_audit_command(benchmark_manifest=manifest_path)
+
+    assert command == [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "tests/e2e/test_tui_pty_live.py::test_git",
+    ]
 
 
 def test_write_tui_scenario_audit_report_records_failure_issue(tmp_path: Path) -> None:

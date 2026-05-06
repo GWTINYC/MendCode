@@ -12,6 +12,7 @@ from app.runtime.benchmark import (
     BenchmarkReport,
     load_manifest,
 )
+from app.runtime.benchmark_gate import select_pytest_nodeids
 
 _OUTPUT_LIMIT = 12_000
 _DEFAULT_TUI_SCENARIO_TARGETS = ["tests/scenarios", "tests/e2e"]
@@ -39,7 +40,15 @@ def extract_pytest_failures(output: str) -> list[str]:
     return failures
 
 
-def default_tui_scenario_audit_command() -> list[str]:
+def default_tui_scenario_audit_command(
+    *,
+    benchmark_manifest: Path | None = None,
+) -> list[str]:
+    if benchmark_manifest is not None:
+        manifest = load_manifest(benchmark_manifest)
+        nodeids = select_pytest_nodeids(manifest)
+        if nodeids:
+            return [sys.executable, "-m", "pytest", "-q", *nodeids]
     return [sys.executable, "-m", "pytest", "-q", *_DEFAULT_TUI_SCENARIO_TARGETS]
 
 
@@ -220,7 +229,10 @@ def main(argv: list[str] | None = None) -> int:
 
     cwd = Path(args.cwd).resolve()
     run_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
-    result = run_tui_scenario_audit_command(cwd=cwd)
+    command = default_tui_scenario_audit_command(
+        benchmark_manifest=Path(args.benchmark_manifest) if args.benchmark_manifest else None
+    )
+    result = run_tui_scenario_audit_command(cwd=cwd, command=command)
     report_path = write_tui_scenario_audit_report(
         report_dir=Path(args.report_dir),
         result=result,

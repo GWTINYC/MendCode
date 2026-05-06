@@ -10,7 +10,6 @@ from app.runtime.benchmark import (
     BenchmarkManifest,
     BenchmarkReport,
 )
-from app.runtime.tui_scenario_audit import extract_pytest_failures
 
 
 @dataclass(frozen=True)
@@ -61,7 +60,7 @@ def build_gate_report(
     result: PytestRunResult,
 ) -> BenchmarkReport:
     output = "\n".join(part for part in [result.stdout, result.stderr] if part)
-    failures = set(extract_pytest_failures(output))
+    failures = set(_extract_pytest_failures(output))
     cases: list[BenchmarkCaseResult] = []
     clean_run = result.exit_code == 0
     for case in manifest.cases:
@@ -157,6 +156,18 @@ def _matches_failed_nodeid(nodeid: str, failures: set[str]) -> bool:
         or failure.startswith(f"{nodeid}::")
         for failure in failures
     )
+
+
+def _extract_pytest_failures(output: str) -> list[str]:
+    failures: list[str] = []
+    for raw_line in output.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("FAILED "):
+            continue
+        failure = line.removeprefix("FAILED ").split(" - ", 1)[0].strip()
+        if failure:
+            failures.append(failure)
+    return failures
 
 
 def _visible_agent_text(records: list[dict[str, Any]]) -> str:
