@@ -1,11 +1,13 @@
+import json
 from pathlib import Path
 
-from app.runtime.benchmark import BenchmarkManifest
+from app.runtime.benchmark import BenchmarkCaseResult, BenchmarkManifest, BenchmarkReport
 from app.runtime.benchmark_gate import (
     PytestRunResult,
     build_case_result_from_live_records,
     build_gate_report,
     select_pytest_nodeids,
+    write_failure_analysis_reports,
 )
 
 
@@ -117,3 +119,39 @@ def test_build_case_result_from_live_records_tracks_tool_route_and_concision() -
     assert result.answer_concise is True
     assert result.observed_tools == ["git"]
     assert result.failure_reasons == []
+
+
+def test_write_failure_analysis_reports_creates_one_json_per_failed_case(
+    tmp_path: Path,
+) -> None:
+    report = BenchmarkReport(
+        cases=[
+            BenchmarkCaseResult(
+                name="git-status",
+                passed=False,
+                tool_chain_passed=False,
+                failure_reasons=["missing_expected_tools"],
+                expected_tools=["git"],
+                observed_tools=[],
+            ),
+            BenchmarkCaseResult(
+                name="repo-list",
+                passed=True,
+                tool_chain_passed=True,
+            ),
+        ]
+    )
+
+    paths = write_failure_analysis_reports(
+        output_dir=tmp_path / "analysis-reports",
+        report=report,
+        run_id="gate-123",
+    )
+
+    assert len(paths) == 1
+    payload = json.loads(paths[0].read_text(encoding="utf-8"))
+    assert payload["case_id"] == "git-status"
+    assert payload["root_causes"] == ["tool_selection_gap"]
+    assert payload["recommendations"] == [
+        "review tool schema and prompt rules for expected tools"
+    ]

@@ -1,3 +1,4 @@
+import json
 import subprocess
 import time
 from dataclasses import dataclass
@@ -149,6 +150,32 @@ def build_case_result_from_live_records(
     )
 
 
+def write_failure_analysis_reports(
+    *,
+    output_dir: Path,
+    report: BenchmarkReport,
+    run_id: str,
+) -> list[Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for case in report.cases:
+        if case.passed:
+            continue
+        payload = {
+            "run_id": run_id,
+            "case_id": case.name,
+            "failure_reasons": case.failure_reasons,
+            "expected_tools": case.expected_tools,
+            "observed_tools": case.observed_tools,
+            "root_causes": _root_causes_for_case(case),
+            "recommendations": _recommendations_for_case(case),
+        }
+        path = output_dir / f"{run_id}-{case.name}.json"
+        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        paths.append(path)
+    return paths
+
+
 def _matches_failed_nodeid(nodeid: str, failures: set[str]) -> bool:
     return any(
         failure == nodeid
@@ -156,6 +183,33 @@ def _matches_failed_nodeid(nodeid: str, failures: set[str]) -> bool:
         or failure.startswith(f"{nodeid}::")
         for failure in failures
     )
+
+
+def _root_causes_for_case(case: BenchmarkCaseResult) -> list[str]:
+    causes: list[str] = []
+    if "missing_expected_tools" in case.failure_reasons or case.missing_tools:
+        causes.append("tool_selection_gap")
+    if "answer_too_verbose" in case.failure_reasons:
+        causes.append("answer_style_gap")
+    if "dangerous_command_not_blocked" in case.failure_reasons:
+        causes.append("permission_policy_gap")
+    if "trace_path_visible" in case.failure_reasons:
+        causes.append("tui_visibility_gap")
+    return causes or ["unknown"]
+
+
+def _recommendations_for_case(case: BenchmarkCaseResult) -> list[str]:
+    root_causes = _root_causes_for_case(case)
+    recommendations: list[str] = []
+    if "tool_selection_gap" in root_causes:
+        recommendations.append("review tool schema and prompt rules for expected tools")
+    if "answer_style_gap" in root_causes:
+        recommendations.append("tighten final response concision rule")
+    if "permission_policy_gap" in root_causes:
+        recommendations.append("add permission regression and policy rule")
+    if "tui_visibility_gap" in root_causes:
+        recommendations.append("keep trace paths in logs only, not visible TUI output")
+    return recommendations
 
 
 def _extract_pytest_failures(output: str) -> list[str]:
