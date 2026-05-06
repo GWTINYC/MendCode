@@ -95,7 +95,7 @@ MendCode 的长期方向是 `SKILL.md + JSONL Trace-driven Evolution`。
 
 这条路线的原则是保守演进：失败经验可以被分析，但不能自动固化；长期记忆和 Skill 更新必须可追溯、可审查、可回滚。
 
-MendCode 也提供了初版 benchmark 入口。`tests/scenarios/benchmark_manifest.json` 固定了仓库查看、文件问答、代码搜索、Git 状态、Patch 修复、权限拦截和记忆召回 7 类本地任务；CLI 可以先检查任务集覆盖情况，再从 JSON case result 统计 case 通过率、工具链路通过率、高风险命令拦截率、Token 降低比例和重复读文件次数。Benchmark case result 已能记录 expected / observed / missing tools、可见输出长度、危险命令拦截结果、上下文字符预算和重复读文件次数。当前 7 类目标 case 都已经有 scenario / integration 测试接入同一套 evidence 口径；只有跑出固定 benchmark report 后，指标才会写成已验证成果。
+MendCode 也提供了初版 benchmark gate。`tests/scenarios/benchmark_manifest.json` 固定了仓库查看、文件问答、代码搜索、Git 状态、Patch 修复、权限拦截和记忆召回 7 类本地任务，并扩展为 12+ 个真实用户问题。Gate 会从 scenario、PTY live 和 integration 测试映射 benchmark case，统计 case 通过率、工具链路通过率、高风险命令拦截率、schema route 通过率、回答简洁度、provider failure、trace 泄露、Token-ish 降低比例和重复读文件次数。失败 case 会写入 `data/analysis-reports/`，后续可进入自进化审查链路。
 
 ## 快速开始
 
@@ -156,10 +156,14 @@ mendcode benchmark check tests/scenarios/benchmark_manifest.json data/benchmark-
 从 TUI scenario audit 生成 benchmark result：
 
 ```bash
-python -m app.runtime.tui_scenario_audit \
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt \
+  python -m app.runtime.tui_scenario_audit \
   --benchmark-manifest tests/scenarios/benchmark_manifest.json \
-  --benchmark-output data/benchmark-reports/latest.json
+  --benchmark-output data/benchmark-reports/latest.json \
+  --analysis-report-dir data/analysis-reports
 ```
+
+这个命令会运行 manifest 中声明的 scenario / PTY / integration 用例，输出 benchmark JSON、Markdown audit report 和失败归因报告。真实 PTY 用例需要 `.env` 或环境变量中存在 `MENDCODE_PROVIDER`、`MENDCODE_MODEL`、`MENDCODE_BASE_URL`、`MENDCODE_API_KEY`。
 
 离线复盘 conversation / trace：
 

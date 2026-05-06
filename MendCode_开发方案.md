@@ -601,12 +601,16 @@ export MENDCODE_API_KEY=<api-key>
 - [x] 新增 `BenchmarkCaseEvidence` / `build_case_result_from_evidence()`，可从结构化 evidence 生成单 case 结果
 - [x] TUI scenario transcript 可转换为 benchmark evidence，把 tool evidence、简洁输出和 context-ish 指标沉淀到 benchmark 口径
 - [x] 7 类目标 case 已全部接入同一 evidence 口径：仓库查看、文件末句、代码搜索、Git 状态、Patch 修复、权限拦截、记忆召回
+- [x] TUI Benchmark Gate：manifest 驱动运行 scenario / PTY / integration 用例，输出 benchmark metrics 和失败归因报告
+- [x] 评测指标覆盖 tool-chain pass rate、dangerous-command block rate、route pass rate、answer concise rate、provider failure count、trace exposure count 和 repeated read count
+- [x] `tests/scenarios/benchmark_manifest.json` 已扩展为 12+ 个真实用户问题，覆盖目录、路径、Git、文件末句、文件读取、代码定位、工具面、危险命令、会话列表、多轮对话、记忆召回和修复链路
 
 下一步：
 
-- 把 scenario / integration 中的 inline evidence 结果聚合写入 `data/benchmark-reports/`。
+- 每个用户暴露的 TUI 体验问题必须补 benchmark case。
+- 每个 context / memory / tool schema 改动都要观察 benchmark report 中 token-ish、重复读文件和工具链路指标。
 - 将 context 字符预算替换或补充为 tokenizer-aware token 估算。
-- 将 benchmark report 写入 `data/benchmark-reports/`，并在文档中只引用已跑出的真实指标。
+- 将失败 analysis report 接入 EvolutionRuntime，生成可审查的 memory / rule / skill candidate。
 
 ### 任务 9：Story Runner 接入开发闭环
 
