@@ -740,7 +740,7 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
         assert "intent" in markdown
         assert '"kind": "agent"' in markdown
         assert '"source": "schema_tool_call"' in markdown
-        assert "Tool Result" in markdown
+        assert "Tool Process" in markdown
         assert "README.md" in markdown
         assert "/tmp/tool-trace.jsonl" in markdown
         assert app.session_state.conversation_jsonl_path is not None
@@ -758,6 +758,35 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
         assert tool_payload["step_count"] == 2
         assert tool_payload["steps"][0]["action"] == "list_dir"
         assert "observation" not in tool_payload["steps"][0]
+
+
+async def test_tool_result_defaults_to_compact_process_and_tools_expands_details(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    tool_agent_runner = FakeToolAgentRunner()
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=tool_agent_runner,
+    )
+
+    async with app.run_test():
+        app.handle_user_input("帮我查看当前文件夹里的文件")
+        await wait_until(lambda: not app.session_state.running)
+
+        rendered = "\n".join(app.message_texts)
+        assert "Tool Result" not in rendered
+        assert "Tool Process" in rendered
+        assert "1. list_dir: succeeded - Listed ." in rendered
+        assert "  - README.md" not in rendered
+
+        app.handle_user_input("/tools")
+
+        expanded = "\n".join(app.message_texts)
+        assert "Tool Details" in expanded
+        assert "README.md" in expanded
+        assert "content: omitted from chat stream" not in rendered
 
 
 async def test_tool_availability_answer_uses_actual_read_only_tool_pool(

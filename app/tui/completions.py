@@ -23,6 +23,7 @@ _COMMAND_DESCRIPTIONS = {
     "fix": "准备一次修复任务",
     "diff": "查看最近修复的 diff",
     "trace": "查看最近 trace 摘要",
+    "tools": "展开最近工具调用详情",
     "apply": "应用最近验证通过的改动",
     "discard": "丢弃最近 worktree",
     "sessions": "列出本地会话",

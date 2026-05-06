@@ -10,6 +10,7 @@ KNOWN_COMMANDS = {
     "fix",
     "diff",
     "trace",
+    "tools",
     "apply",
     "discard",
     "sessions",

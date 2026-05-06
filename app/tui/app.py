@@ -625,6 +625,9 @@ class MendCodeTextualApp(App[None]):
         if command.name in {"diff", "trace", "apply", "discard"}:
             self._run_review_action(command.name)
             return
+        if command.name == "tools":
+            self._show_latest_tool_details()
+            return
         if command.name == "sessions":
             self._show_sessions()
             return
@@ -646,6 +649,7 @@ class MendCodeTextualApp(App[None]):
                 "slash commands control the TUI.",
                 "/diff - show latest worktree diff",
                 "/trace - show latest trace excerpt",
+                "/tools - expand latest tool-call details",
                 "/sessions - list saved conversation sessions",
                 "/resume [session_id] - show compact context from a saved session",
                 "/apply - apply latest verified worktree changes",
@@ -1133,6 +1137,7 @@ class MendCodeTextualApp(App[None]):
 
     def _complete_tool_request(self, result: AgentLoopResult) -> None:
         self.session_state.mark_tool_completed(result.status)
+        self.session_state.set_last_tool_result(result)
         self._conversation_log.append_event(
             "tool_result",
             compact_agent_loop_result(result),
@@ -1259,6 +1264,31 @@ class MendCodeTextualApp(App[None]):
                 f"{step.index}. {action_name}: "
                 f"{step.observation.status} - {step.observation.summary}"
             )
+            content = step.observation.payload.get("content")
+            if isinstance(content, str) and content:
+                lines.append(_content_metadata_line(content, step.observation.payload))
+        self.append_message("Agent", "Tool Process\n" + "\n".join(lines))
+
+    def _show_latest_tool_details(self) -> None:
+        result = self.session_state.last_tool_result
+        if result is None:
+            self.append_message("System", "No tool details available yet.")
+            return
+        self._render_tool_details(result)
+
+    def _render_tool_details(self, result: AgentLoopResult) -> None:
+        lines = [
+            f"status: {result.status}",
+            f"summary: {result.summary}",
+        ]
+        for step in result.steps:
+            if step.action.type != "tool_call":
+                continue
+            action_name = getattr(step.action, "action", "tool_call")
+            lines.append(
+                f"{step.index}. {action_name}: "
+                f"{step.observation.status} - {step.observation.summary}"
+            )
             entries = step.observation.payload.get("entries")
             if isinstance(entries, list):
                 for entry in entries[:20]:
@@ -1274,7 +1304,7 @@ class MendCodeTextualApp(App[None]):
             stdout = step.observation.payload.get("stdout_excerpt")
             if isinstance(stdout, str) and stdout:
                 lines.extend(["stdout:", stdout])
-        self.append_message("Agent", "Tool Result\n" + "\n".join(lines))
+        self.append_message("Agent", "Tool Details\n" + "\n".join(lines))
 
     def _render_turn(self, turn: AgentSessionTurn) -> None:
         if turn.tool_summaries:
