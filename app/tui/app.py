@@ -42,6 +42,8 @@ from app.workspace.review_actions import (
 from app.workspace.shell_executor import ShellCommandResult, execute_shell_command
 from app.workspace.shell_policy import ShellPolicy
 
+_VISIBLE_COMPLETION_ROWS = 5
+
 TUI_TOOL_AGENT_TOOLS = {
     "glob_file_search",
     "git",
@@ -270,14 +272,39 @@ def _format_completion_panel(state: CompletionState | None) -> Text:
     if state is None:
         text.append("Type @ for files, $ for context shortcuts, / for commands.", style="dim")
         return text
-    for index, item in enumerate(state.items):
+    start = _completion_window_start(
+        selected_index=state.selected_index,
+        item_count=len(state.items),
+        visible_rows=_VISIBLE_COMPLETION_ROWS,
+    )
+    end = min(len(state.items), start + _VISIBLE_COMPLETION_ROWS)
+    if start > 0:
+        text.append("  ↑ more\n", style="dim")
+    for index in range(start, end):
+        item = state.items[index]
         prefix = "▶" if index == state.selected_index else " "
         text.append(
             f"{prefix} {item.label}  ",
             style="bold" if index == state.selected_index else "white",
         )
         text.append(f"{item.description}\n", style="dim")
+    if end < len(state.items):
+        text.append("  ↓ more\n", style="dim")
     return text
+
+
+def _completion_window_start(
+    *,
+    selected_index: int,
+    item_count: int,
+    visible_rows: int,
+) -> int:
+    if item_count <= visible_rows:
+        return 0
+    half_window = visible_rows // 2
+    start = selected_index - half_window
+    max_start = item_count - visible_rows
+    return min(max(start, 0), max_start)
 
 
 def _available_review_actions(turn: AgentSessionTurn) -> list[str]:

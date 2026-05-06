@@ -468,6 +468,35 @@ async def test_completion_panel_lists_symbol_candidates_and_accepts_selection(
         assert app._completion_state is None
 
 
+async def test_completion_panel_scrolls_to_keep_selected_candidate_visible(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        input_widget = app.query_one("#chat-input", Input)
+        input_widget.value = "/"
+        input_widget.cursor_position = len(input_widget.value)
+        app._set_completion_state(
+            build_completion_state(
+                repo_path=repo_path,
+                text=input_widget.value,
+                cursor_position=input_widget.cursor_position,
+            )
+        )
+
+        assert app._completion_state is not None
+        for _ in range(6):
+            app._move_completion_selection(1)
+
+        rendered = _format_completion_panel(app._completion_state).plain
+        selected = app._completion_state.items[app._completion_state.selected_index]
+        assert f"▶ {selected.label}" in rendered
+        assert "/apply" not in rendered
+
+
 async def test_app_exposes_only_agent_request_for_normal_text_path(tmp_path: Path) -> None:
     repo_path = init_git_repo(tmp_path)
     app = MendCodeTextualApp(
