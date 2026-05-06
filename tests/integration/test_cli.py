@@ -1,3 +1,4 @@
+import json
 import shlex
 import subprocess
 import sys
@@ -697,3 +698,97 @@ def test_task_command_is_no_longer_registered() -> None:
 
     assert result.exit_code != 0
     assert "No such command" in result.output
+
+
+def test_benchmark_status_prints_manifest_coverage(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "benchmark.json"
+    manifest_path.write_text(json.dumps(_benchmark_manifest_payload()), encoding="utf-8")
+
+    result = runner.invoke(app, ["benchmark", "status", str(manifest_path)])
+
+    assert result.exit_code == 0
+    assert "quick" in result.stdout
+    assert "case_count" in result.stdout
+    assert "repository_inspection" in result.stdout
+    assert "missing_target_categories" in result.stdout
+    assert "none" in result.stdout
+
+
+def test_benchmark_check_prints_result_coverage(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "benchmark.json"
+    manifest_path.write_text(json.dumps(_benchmark_manifest_payload()), encoding="utf-8")
+    result_path = tmp_path / "result.json"
+    result_path.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "name": "repo-list",
+                        "passed": True,
+                        "tool_chain_passed": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["benchmark", "check", str(manifest_path), str(result_path)])
+
+    assert result.exit_code == 0
+    assert "Benchmark Coverage" in result.stdout
+    assert "missing_case_ids" in result.stdout
+    assert "file-answer" in result.stdout
+    assert "complete" in result.stdout
+    assert "false" in result.stdout
+
+
+def _benchmark_manifest_payload() -> dict[str, object]:
+    return {
+        "name": "quick",
+        "cases": [
+            {
+                "id": "repo-list",
+                "category": "repository_inspection",
+                "prompt": "列文件",
+                "expected_tools": ["list_dir"],
+            },
+            {
+                "id": "file-answer",
+                "category": "file_question",
+                "prompt": "最后一句",
+                "expected_tools": ["read_file"],
+            },
+            {
+                "id": "code-search",
+                "category": "code_search",
+                "prompt": "搜索",
+                "expected_tools": ["rg"],
+            },
+            {
+                "id": "git-status",
+                "category": "git_status",
+                "prompt": "git 状态",
+                "expected_tools": ["git"],
+            },
+            {
+                "id": "patch-fix",
+                "category": "patch_repair",
+                "prompt": "修复",
+                "expected_tools": ["apply_patch"],
+            },
+            {
+                "id": "danger",
+                "category": "permission_safety",
+                "prompt": "危险命令",
+                "expected_tools": ["run_shell_command"],
+                "expects_dangerous_block": True,
+            },
+            {
+                "id": "memory",
+                "category": "memory_context",
+                "prompt": "记忆",
+                "expected_tools": ["memory_search"],
+            },
+        ],
+    }

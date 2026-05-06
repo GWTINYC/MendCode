@@ -13,6 +13,7 @@ from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import get_settings
 from app.core.paths import ensure_data_directories
 from app.orchestrator.failure_parser import FailureInsight, extract_failure_insight
+from app.runtime.benchmark import load_manifest, load_report, validate_report_coverage
 from app.runtime.story_runner import (
     Story,
     StoryStatus,
@@ -32,7 +33,9 @@ from app.workspace.review_actions import (
 
 app = typer.Typer(help="MendCode CLI", invoke_without_command=True)
 story_app = typer.Typer(help="Ralph-style story plan utilities")
+benchmark_app = typer.Typer(help="Benchmark manifest and report utilities")
 app.add_typer(story_app, name="story")
+app.add_typer(benchmark_app, name="benchmark")
 console = Console()
 
 
@@ -159,6 +162,38 @@ def _render_story(story: Story) -> None:
     table.add_row("passes", str(story.passes).lower())
     table.add_row("acceptance_criteria", "\n".join(story.acceptance_criteria))
     table.add_row("verification_commands", "\n".join(story.verification_commands))
+    console.print(table)
+
+
+def _render_benchmark_manifest(manifest_path: Path) -> None:
+    manifest = load_manifest(manifest_path)
+    table = Table(title="Benchmark Manifest")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("name", manifest.name)
+    table.add_row("case_count", str(manifest.case_count))
+    missing = manifest.missing_target_categories()
+    table.add_row("missing_target_categories", ", ".join(missing) if missing else "none")
+    for category, count in manifest.category_counts().items():
+        table.add_row(category, str(count))
+    console.print(table)
+
+
+def _render_benchmark_coverage(manifest_path: Path, result_path: Path) -> None:
+    manifest = load_manifest(manifest_path)
+    report = load_report(result_path)
+    coverage = validate_report_coverage(manifest, report)
+    table = Table(title="Benchmark Coverage")
+    table.add_column("Field")
+    table.add_column("Value")
+    for key, value in coverage.items():
+        if isinstance(value, list):
+            rendered = ", ".join(str(item) for item in value) if value else "none"
+        elif isinstance(value, bool):
+            rendered = str(value).lower()
+        else:
+            rendered = str(value)
+        table.add_row(key, rendered)
     console.print(table)
 
 
@@ -421,6 +456,16 @@ def story_status(plan: Path) -> None:
     table.add_row("remaining", str(story_plan.remaining_count))
     table.add_row("progress_path", story_plan.progress_path)
     console.print(table)
+
+
+@benchmark_app.command("status")
+def benchmark_status(manifest: Path) -> None:
+    _render_benchmark_manifest(manifest)
+
+
+@benchmark_app.command("check")
+def benchmark_check(manifest: Path, result: Path) -> None:
+    _render_benchmark_coverage(manifest, result)
 
 
 @story_app.command("next")

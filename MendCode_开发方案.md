@@ -582,10 +582,14 @@ export MENDCODE_API_KEY=<api-key>
 
 - [x] 新增 `app.runtime.benchmark`，可从 benchmark JSON cases 计算 case pass rate、tool chain pass rate、dangerous command block rate、token reduction rate 和 repeated file reads
 - [x] 支持输出 Markdown report，后续可由固定任务集或 TUI audit 产物生成输入
+- [x] 新增 `BenchmarkManifest` / `BenchmarkCaseSpec`，固定 7 类目标任务：仓库查看、文件问答、代码搜索、Git 状态、Patch 修复、权限拦截、记忆召回
+- [x] 新增 `tests/scenarios/benchmark_manifest.json` 作为第一版固定任务集
+- [x] 新增 `mendcode benchmark status <manifest.json>`，用于检查 case 数量、分类覆盖和缺失目标分类
+- [x] 新增 `mendcode benchmark check <manifest.json> <result.json>`，用于检查 benchmark result 是否覆盖 manifest 中的全部 case，避免漏测后仍计算指标
 
 下一步：
 
-- 定义 6 类本地任务 benchmark manifest，并把现有 `tests/scenarios` / `tests/e2e` 映射到 case result。
+- 把现有 `tests/scenarios` / `tests/e2e` 执行结果映射到 benchmark case result。
 - 在 benchmark case 中记录 baseline token、actual token、工具证据和危险命令断言。
 - 将 benchmark report 写入 `data/benchmark-reports/`，并在文档中只引用已跑出的真实指标。
 
@@ -628,7 +632,7 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 - TUI 真实终端测试：`tests/e2e/` 使用 PTY 启动真实 TUI 进程；默认要求真实 OpenAI-compatible provider 环境变量，缺失时应明确失败。
 - TUI 巡检：`python -m app.runtime.tui_scenario_audit --report-dir data/tui-scenario-reports` 默认同时运行 `tests/scenarios` 和 `tests/e2e`。
 - Memory 改动：`tests/unit/test_memory_store.py`、`tests/unit/test_file_summary_cache.py`、`tests/unit/test_memory_tools.py`、`tests/unit/test_trace_analyzer.py`、`tests/scenarios/test_tui_repository_inspection_scenarios.py::test_memory_recall_question_uses_memory_search`
-- Benchmark 改动：`tests/unit/test_benchmark_report.py`
+- Benchmark 改动：`app/runtime/benchmark.py`、`tests/unit/test_benchmark_report.py`、`tests/scenarios/benchmark_manifest.json`
 - CLI 改动：`tests/integration/test_cli.py`
 
 测试原则：

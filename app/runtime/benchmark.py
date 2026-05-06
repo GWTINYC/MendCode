@@ -1,8 +1,83 @@
 import argparse
 import json
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+BenchmarkCategory = Literal[
+    "repository_inspection",
+    "file_question",
+    "code_search",
+    "git_status",
+    "patch_repair",
+    "permission_safety",
+    "memory_context",
+]
+
+TARGET_CATEGORIES: tuple[BenchmarkCategory, ...] = (
+    "repository_inspection",
+    "file_question",
+    "code_search",
+    "git_status",
+    "patch_repair",
+    "permission_safety",
+    "memory_context",
+)
+
+
+class BenchmarkCaseSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    category: BenchmarkCategory
+    prompt: str
+    expected_tools: list[str] = Field(default_factory=list)
+    expects_dangerous_block: bool = False
+    max_visible_chars: int | None = Field(default=None, gt=0)
+    notes: str | None = None
+
+
+class BenchmarkManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    cases: list[BenchmarkCaseSpec] = Field(default_factory=list)
+
+    @property
+    def case_count(self) -> int:
+        return len(self.cases)
+
+    def category_counts(self) -> dict[str, int]:
+        counts = {category: 0 for category in TARGET_CATEGORIES}
+        for case in self.cases:
+            counts[case.category] += 1
+        return {category: count for category, count in counts.items() if count > 0}
+
+    def missing_target_categories(self) -> list[str]:
+        present = {case.category for case in self.cases}
+        return [category for category in TARGET_CATEGORIES if category not in present]
+
+    def to_markdown(self) -> str:
+        lines = [
+            "# MendCode Benchmark Manifest",
+            "",
+            f"- name: {self.name}",
+            f"- case_count: {self.case_count}",
+            f"- missing_target_categories: {_format_missing(self.missing_target_categories())}",
+            "",
+            "## Categories",
+            "",
+        ]
+        for category, count in self.category_counts().items():
+            lines.append(f"- {category}: {count}")
+        lines.extend(["", "## Cases", ""])
+        for case in self.cases:
+            lines.append(
+                f"- {case.id}: category={case.category}, "
+                f"expected_tools={','.join(case.expected_tools)}"
+            )
+        return "\n".join(lines) + "\n"
 
 
 class BenchmarkCaseResult(BaseModel):
@@ -84,6 +159,34 @@ def _rate(numerator: int, denominator: int) -> float:
 def load_report(path: Path) -> BenchmarkReport:
     data = json.loads(path.read_text(encoding="utf-8"))
     return BenchmarkReport.model_validate(data)
+
+
+def load_manifest(path: Path) -> BenchmarkManifest:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return BenchmarkManifest.model_validate(data)
+
+
+def validate_report_coverage(
+    manifest: BenchmarkManifest,
+    report: BenchmarkReport,
+) -> dict[str, object]:
+    expected_ids = [case.id for case in manifest.cases]
+    expected = set(expected_ids)
+    actual_ids = [case.name for case in report.cases]
+    actual = set(actual_ids)
+    missing = [case_id for case_id in expected_ids if case_id not in actual]
+    unexpected = [case_id for case_id in actual_ids if case_id not in expected]
+    return {
+        "manifest_case_count": len(expected_ids),
+        "result_case_count": len(actual_ids),
+        "missing_case_ids": missing,
+        "unexpected_case_ids": unexpected,
+        "complete": not missing and not unexpected,
+    }
+
+
+def _format_missing(missing: list[str]) -> str:
+    return ", ".join(missing) if missing else "none"
 
 
 def main(argv: list[str] | None = None) -> int:
