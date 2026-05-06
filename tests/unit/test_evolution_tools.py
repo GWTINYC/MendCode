@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from app.config.settings import Settings
@@ -47,6 +48,28 @@ def _seed_rule_candidate(context: ToolExecutionContext, candidate_id: str = "rul
                 root_cause="tool_selection_gap",
             ),
         )
+    )
+
+
+def _write_analysis_report(context: ToolExecutionContext) -> None:
+    report_dir = context.settings.data_dir / "analysis-reports"
+    report_dir.mkdir(parents=True)
+    (report_dir / "run-1-git-status.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run-1",
+                "case_id": "git-status-natural-language",
+                "failure_reasons": ["missing_expected_tools"],
+                "expected_tools": ["git"],
+                "observed_tools": [],
+                "root_causes": ["tool_selection_gap"],
+                "recommendations": [
+                    "review tool schema and prompt rules for expected tools",
+                ],
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
     )
 
 
@@ -117,3 +140,32 @@ def test_evolution_rule_reject_does_not_write_rule(tmp_path: Path) -> None:
 
     assert result.status == "succeeded"
     assert not (tmp_path / "data" / "evolution" / "rules.jsonl").exists()
+
+
+def test_analysis_report_list_returns_compact_reports(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = _context(tmp_path)
+    _write_analysis_report(context)
+
+    result = registry.get("analysis_report_list").execute({}, context)
+
+    assert result.status == "succeeded"
+    assert result.payload["total_reports"] == 1
+    report = result.payload["reports"][0]
+    assert report["case_id"] == "git-status-natural-language"
+    assert report["root_causes"] == ["tool_selection_gap"]
+    assert "raw" not in report
+
+
+def test_analysis_report_ingest_enqueues_review_candidates(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = _context(tmp_path)
+    _write_analysis_report(context)
+
+    result = registry.get("analysis_report_ingest").execute({}, context)
+
+    assert result.status == "succeeded"
+    assert result.payload["report_count"] == 1
+    assert result.payload["enqueued_count"] == 2
+    assert result.payload["candidate_ids"]
+    assert MemoryRuntime(context.memory_store).list_candidates()[0].id.startswith("analysis-")

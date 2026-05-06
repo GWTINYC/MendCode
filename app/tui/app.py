@@ -45,6 +45,8 @@ from app.workspace.shell_policy import ShellPolicy
 _VISIBLE_COMPLETION_ROWS = 5
 
 TUI_TOOL_AGENT_TOOLS = {
+    "analysis_report_ingest",
+    "analysis_report_list",
     "glob_file_search",
     "git",
     "evolution_rule_accept",

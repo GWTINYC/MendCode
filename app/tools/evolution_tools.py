@@ -4,10 +4,13 @@ from typing import Any
 
 from app.evolution.models import LessonCandidate
 from app.evolution.rules import EvolutionRuleRuntime, EvolutionRuleStore
+from app.evolution.runtime import EvolutionRuntime
 from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
 from app.schemas.agent_action import Observation
 from app.tools.arguments import (
+    AnalysisReportIngestArgs,
+    AnalysisReportListArgs,
     EvolutionRuleAcceptWithEditsArgs,
     EvolutionRuleActionArgs,
     EvolutionRuleListArgs,
@@ -15,6 +18,58 @@ from app.tools.arguments import (
 )
 from app.tools.observations import tool_observation
 from app.tools.structured import ToolExecutionContext
+
+
+def analysis_report_list(
+    args: AnalysisReportListArgs,
+    context: ToolExecutionContext,
+) -> Observation:
+    try:
+        ingestion = _analysis_ingestion_runtime(context)
+        reports = ingestion.list_reports()[: args.limit]
+    except Exception as exc:
+        return _rejected("analysis_report_list", "", exc)
+    return tool_observation(
+        tool_name="analysis_report_list",
+        status="succeeded",
+        summary=f"Found {len(reports)} analysis reports",
+        payload={
+            "total_reports": len(reports),
+            "reports": [_compact_report(report) for report in reports],
+        },
+    )
+
+
+def analysis_report_ingest(
+    args: AnalysisReportIngestArgs,
+    context: ToolExecutionContext,
+) -> Observation:
+    try:
+        runtime = EvolutionRuntime(_memory_runtime(context))
+        result = runtime.ingest_analysis_reports(
+            _analysis_reports_dir(context),
+            limit=args.limit,
+        )
+    except Exception as exc:
+        return _rejected("analysis_report_ingest", "", exc)
+    status = "succeeded" if not result.errors else "failed"
+    return tool_observation(
+        tool_name="analysis_report_ingest",
+        status=status,
+        summary=(
+            f"Ingested {result.report_count} analysis reports, "
+            f"enqueued {result.enqueued_count} candidates"
+        ),
+        payload={
+            "report_count": result.report_count,
+            "generated_count": result.generated_count,
+            "enqueued_count": result.enqueued_count,
+            "skipped_existing_count": result.skipped_existing_count,
+            "candidate_ids": [candidate.id for candidate in result.candidates[:50]],
+            "errors": result.errors[:20],
+        },
+        error_message="analysis report ingestion had errors" if result.errors else None,
+    )
 
 
 def evolution_rule_list(
@@ -106,15 +161,44 @@ def evolution_rule_accept_with_edits(
 
 
 def _rule_runtime(context: ToolExecutionContext):
-    memory_runtime = MemoryRuntime(_memory_store(context))
     rule_store = EvolutionRuleStore(context.settings.data_dir / "evolution")
-    return EvolutionRuleRuntime(memory_runtime.review_queue, rule_store)
+    return EvolutionRuleRuntime(_memory_runtime(context).review_queue, rule_store)
 
 
 def _memory_store(context: ToolExecutionContext) -> MemoryStore:
     if isinstance(context.memory_store, MemoryStore):
         return context.memory_store
     return MemoryStore(context.settings.data_dir / "memory")
+
+
+def _memory_runtime(context: ToolExecutionContext) -> MemoryRuntime:
+    return MemoryRuntime(_memory_store(context))
+
+
+def _analysis_reports_dir(context: ToolExecutionContext):
+    return context.settings.data_dir / "analysis-reports"
+
+
+def _analysis_ingestion_runtime(context: ToolExecutionContext):
+    from app.evolution.analysis_ingestion import AnalysisIngestionRuntime
+
+    return AnalysisIngestionRuntime(
+        _memory_runtime(context),
+        reports_dir=_analysis_reports_dir(context),
+    )
+
+
+def _compact_report(report) -> dict[str, object]:
+    return {
+        "run_id": report.run_id,
+        "case_id": report.case_id,
+        "failure_reasons": report.failure_reasons[:20],
+        "expected_tools": report.expected_tools[:20],
+        "observed_tools": report.observed_tools[:20],
+        "root_causes": report.root_causes[:20],
+        "recommendations": [item[:300] for item in report.recommendations[:10]],
+        "source_report": report.source_path,
+    }
 
 
 def _compact_candidate(candidate: LessonCandidate) -> dict[str, object]:

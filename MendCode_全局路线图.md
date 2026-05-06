@@ -77,11 +77,11 @@ MendCode 的目标是成为面向本地代码仓库的可进化 Code Agent Runti
 
 目标：让 trace 和 benchmark 失败能够沉淀为可审查、可回滚、可验证收益的 memory、rule 和 SKILL。
 
-当前状态：EvolutionRuntime 能生成 lesson candidate；evolution rule 可以通过 TUI 对话 list/view/accept/reject；accepted rules 会写入本地 `data/evolution/rules.jsonl` 并按相关性注入后续 provider context。Session analysis 和 benchmark analysis 已能产生结构化失败证据。
+当前状态：EvolutionRuntime 能生成 lesson candidate；analysis report 可以通过 schema tools 转成 pending memory/rule candidates；evolution rule 可以通过 TUI 对话 list/view/accept/reject；accepted rules 会写入本地 `data/evolution/rules.jsonl` 并按相关性注入后续 provider context。Session analysis 和 benchmark analysis 已能产生结构化失败证据。
 
 下一步重点：
 
-- 让 EvolutionRuntime 读取 `data/analysis-reports/*.json` 并生成候选。
+- 扩展 analysis ingestion 的候选类型，覆盖 prompt rule、skill 和 tool schema hint。
 - 把候选统一进入 TUI review loop，用户接受后才影响 runtime。
 - 建立 SKILL.md-compatible skill system，先沉淀 Debug、Test-Fix、Review、Repo-Map。
 - 用 benchmark 回归证明候选是否提升工具链路、降低重复读取或减少上下文。

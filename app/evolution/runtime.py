@@ -1,5 +1,7 @@
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+from app.evolution.analysis_ingestion import AnalysisIngestionResult, AnalysisIngestionRuntime
 from app.evolution.lesson_builder import build_lesson_candidates
 from app.evolution.models import EvolutionTurnInput, EvolutionTurnResult
 
@@ -30,3 +32,14 @@ class EvolutionRuntime:
             signals=signals,
             error=error,
         )
+
+    def ingest_analysis_reports(
+        self,
+        reports_dir: Path,
+        *,
+        limit: int | None = None,
+    ) -> AnalysisIngestionResult:
+        return AnalysisIngestionRuntime(
+            self.memory_runtime,
+            reports_dir=reports_dir,
+        ).ingest_reports(limit=limit)

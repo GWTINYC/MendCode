@@ -346,6 +346,21 @@ def test_registry_default_pool_exposes_review_queue_read_tools_only() -> None:
     assert "review_queue_reject" in full_pool.names()
 
 
+def test_registry_exposes_analysis_reports_as_review_tools() -> None:
+    registry = default_tool_registry()
+
+    guided_pool = registry.tool_pool(permission_mode="guided")
+    full_evolution_pool = registry.tool_pool(
+        permission_mode="danger-full-access",
+        allowed_tools={"evolution"},
+    )
+
+    assert "analysis_report_list" in guided_pool.names()
+    assert "analysis_report_ingest" not in guided_pool.names()
+    assert "analysis_report_list" in full_evolution_pool.names()
+    assert "analysis_report_ingest" in full_evolution_pool.names()
+
+
 def test_registry_expands_tool_groups() -> None:
     registry = default_tool_registry()
     names = set(registry.names(allowed_tools={"fs_read", "introspection"}))

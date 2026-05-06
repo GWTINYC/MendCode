@@ -38,6 +38,8 @@ ToolName = Literal[
     "file_summary_read",
     "file_summary_refresh",
     "trace_analyze",
+    "analysis_report_list",
+    "analysis_report_ingest",
     "review_queue_list",
     "review_queue_view",
     "review_queue_accept",

@@ -36,7 +36,7 @@ User Message
 - 工具与权限主链路：已基本成型，继续补安全细节和 legacy 收敛。
 - TUI 自然语言主线：已可用，继续补真实体验、折叠展示和 provider doctor。
 - 记忆与上下文：第一切片已完成，下一步是 tokenizer-aware compact、repo map 和长会话健康度。
-- 自进化机制：已有候选和规则审查基础，距离“失败归因 -> 候选 -> 审查 -> 回归验证收益”完整闭环仍有明显差距。
+- 自进化机制：已有候选、规则审查和 analysis report ingestion 基础，距离“接受候选 -> 回归验证收益”的完整闭环仍有明显差距。
 - Benchmark：固定 manifest、PTY live 和 gate 已建立，下一步是把失败报告接入 EvolutionRuntime。
 
 ## 3. 模块现状
@@ -160,13 +160,13 @@ User Message
 主要不足：
 
 - 离线 analysis 仍是规则化第一版。
-- analysis report 尚未自动进入 EvolutionRuntime。
+- analysis report 已能通过 schema tool 进入 EvolutionRuntime 并生成 review candidates。
 - 还没有长会话 session health probe。
 
 近期任务：
 
-- 定义 analysis report reader/model。
-- 将 root causes 映射为 memory/rule/skill candidate。
+- 扩展 analysis report reader/model，覆盖 session analysis 和 benchmark analysis 的更多字段。
+- 将 root causes 继续扩展为 memory/rule/skill/tool schema hint candidate。
 - 把候选统一送入 review queue 或 evolution rule review。
 - 在 TUI 中支持“有哪些失败可以沉淀？”这类自然语言审查入口。
 
@@ -202,8 +202,10 @@ User Message
 已完成：
 
 - `EvolutionRuntime` 可根据失败 turn、rejected tool、重复读取和验证恢复生成 lesson candidate。
+- `AnalysisIngestionRuntime` 可读取 `data/analysis-reports/*.json`，把 root causes 转成 pending memory/rule candidates。
 - Lesson candidate 使用确定性 hash，避免重复候选。
 - Review queue 保存候选，accept 才提升为长期 memory。
+- `analysis_report_list` 和 `analysis_report_ingest` 已暴露为 schema tools，TUI 自然语言可以触发“列出失败分析/沉淀失败经验”的审查入口。
 - `evolution_rule_list/view/accept/reject/accept_with_edits` 已暴露为 schema tools。
 - Accepted rules 写入 `data/evolution/rules.jsonl`，运行时按相关性召回 top 3 active rules。
 - Pending / rejected candidate 不影响模型行为。
@@ -211,14 +213,14 @@ User Message
 主要不足：
 
 - 还没有 SKILL.md-compatible skill system。
-- EvolutionRuntime 不会自动消费 benchmark failure analysis。
+- Analysis ingestion 仍是第一版，只覆盖 benchmark failure analysis 的核心 root causes。
 - 候选不会自动生成 prompt rule / tool schema / skill patch 建议。
 - 尚未形成“接受候选后再次跑 benchmark 证明收益”的闭环。
 
 近期任务：
 
-- 先打通 `data/analysis-reports/*.json -> candidate -> TUI review -> accepted runtime context`。
-- 增加 candidate 类型：memory、prompt_rule、skill、tool_schema_hint。
+- 完善 `data/analysis-reports/*.json -> candidate -> TUI review -> accepted runtime context` 的真实 TUI 场景覆盖。
+- 增加 candidate 类型：prompt_rule、skill、tool_schema_hint，并让 skill candidate 可审查。
 - SKILL 第一批只做 Debug、Test-Fix、Review、Repo-Map，不追求复杂插件化。
 - 每个 accepted candidate 都记录来源 trace、analysis report、用户操作和回滚标识。
 
@@ -252,13 +254,14 @@ User Message
 建议按以下顺序推进：
 
 1. Analysis Report -> Evolution Candidate
-   - 读取 `data/analysis-reports/*.json`。
-   - 将 root causes 映射成 memory / prompt rule / skill / tool schema hint 候选。
+   - 已完成第一版：读取 `data/analysis-reports/*.json`。
+   - 已完成第一版：将 root causes 映射成 memory / rule 候选。
+   - 下一步：继续扩展 prompt rule / skill / tool schema hint 候选。
    - 候选必须带来源 trace、benchmark case、失败证据和建议改动。
 
 2. TUI-first Review Loop
    - 用户用自然语言问“有哪些 benchmark 失败可以沉淀？”。
-   - 模型调用 schema tools 列出候选。
+   - 模型调用 `analysis_report_list` / `analysis_report_ingest` / review tools 列出候选。
    - 用户可以查看、编辑、接受或拒绝。
    - 接受后才写入 `data/evolution/` 或 `data/memory/`。
 
