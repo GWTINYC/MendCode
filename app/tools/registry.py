@@ -8,6 +8,10 @@ from app.tools.arguments import (
     ApplyPatchArgs,
     EditFileArgs,
     EmptyToolArgs,
+    EvolutionRuleAcceptWithEditsArgs,
+    EvolutionRuleActionArgs,
+    EvolutionRuleListArgs,
+    EvolutionRuleViewArgs,
     FileSummaryReadArgs,
     FileSummaryRefreshArgs,
     GitArgs,
@@ -32,6 +36,13 @@ from app.tools.arguments import (
     ToolSearchArgs,
     TraceAnalyzeArgs,
     WriteFileArgs,
+)
+from app.tools.evolution_tools import (
+    evolution_rule_accept,
+    evolution_rule_accept_with_edits,
+    evolution_rule_list,
+    evolution_rule_reject,
+    evolution_rule_view,
 )
 from app.tools.lsp_tool import lsp
 from app.tools.memory_tools import (
@@ -907,6 +918,44 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=ReviewQueueActionArgs,
                 risk_level=ToolRisk.DANGEROUS,
                 executor=review_queue_reject,
+            ),
+            ToolSpec(
+                name="evolution_rule_list",
+                description="List pending evolution rule candidates for TUI review.",
+                args_model=EvolutionRuleListArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=evolution_rule_list,
+            ),
+            ToolSpec(
+                name="evolution_rule_view",
+                description="View one evolution rule candidate with bounded evidence.",
+                args_model=EvolutionRuleViewArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=evolution_rule_view,
+            ),
+            ToolSpec(
+                name="evolution_rule_accept",
+                description="Accept an evolution rule candidate and persist an active rule.",
+                args_model=EvolutionRuleActionArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=evolution_rule_accept,
+            ),
+            ToolSpec(
+                name="evolution_rule_reject",
+                description="Reject an evolution rule candidate without changing active rules.",
+                args_model=EvolutionRuleActionArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=evolution_rule_reject,
+            ),
+            ToolSpec(
+                name="evolution_rule_accept_with_edits",
+                description=(
+                    "Accept an evolution rule candidate with edited rule text, scope, "
+                    "and activation hint."
+                ),
+                args_model=EvolutionRuleAcceptWithEditsArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=evolution_rule_accept_with_edits,
             ),
             ToolSpec(
                 name="process_start",

@@ -190,6 +190,34 @@ class ReviewQueueActionArgs(BaseModel):
     candidate_id: str = Field(min_length=1)
 
 
+class EvolutionRuleListArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["pending", "accepted", "rejected", "all"] = "pending"
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class EvolutionRuleViewArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=1)
+
+
+class EvolutionRuleActionArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=1)
+
+
+class EvolutionRuleAcceptWithEditsArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    candidate_id: str = Field(min_length=1)
+    rule_text: str = Field(min_length=1, max_length=1200)
+    scope: str = Field(default="", max_length=400)
+    activation_hint: str = Field(default="", max_length=600)
+
+
 class SessionStatusArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
