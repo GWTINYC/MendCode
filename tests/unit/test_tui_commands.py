@@ -30,6 +30,15 @@ def test_sessions_command_parses_without_args() -> None:
     )
 
 
+def test_tools_command_parses_without_args() -> None:
+    parsed = parse_chat_input("/tools")
+
+    assert parsed == ParsedChatInput(
+        kind="command",
+        command=ChatCommand(name="tools", args=""),
+    )
+
+
 def test_plain_text_parses_as_task_message() -> None:
     parsed = parse_chat_input("pytest is failing, fix it")
 

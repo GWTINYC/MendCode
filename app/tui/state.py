@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from app.agent.loop import AgentLoopResult
 from app.agent.prompt_context import ChatMessage
 from app.agent.session import AgentSessionTurn
 from app.permissions.policy import PermissionMode
@@ -30,6 +31,7 @@ class TuiSessionState:
     running_kind: RunningKind | None = None
     last_turn_status: str = "idle"
     last_review_action: ReviewActionResult | None = None
+    last_tool_result: AgentLoopResult | None = None
     chat_history: list[ChatMessage] = field(default_factory=list)
     pending_fix: PendingFix | None = None
     pending_tool: PendingToolConfirmation | None = None
@@ -194,6 +196,9 @@ class TuiSessionState:
         self.running = False
         self.running_kind = None
         self.last_turn_status = status
+
+    def set_last_tool_result(self, result: AgentLoopResult) -> None:
+        self.last_tool_result = result
 
     def mark_tool_failed(self) -> None:
         self.running = False
