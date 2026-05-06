@@ -2,11 +2,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from app.agent.loop import AgentLoopResult
 from app.agent.prompt_context import ChatMessage
 from app.agent.session import AgentSessionTurn
+from app.permissions.policy import PermissionMode
+from app.runtime.tool_confirmation import PendingToolConfirmation
 from app.workspace.review_actions import ReviewActionResult
 
 RunningKind = Literal["agent", "chat", "shell", "tool"]
+_MAX_COMMAND_PREVIEW_CHARS = 240
 
 
 @dataclass
@@ -18,16 +22,8 @@ class PendingFix:
 
 
 @dataclass
-class PendingShell:
-    command: str
-    risk_level: str
-    reason: str
-    source: str
-    awaiting_confirmation: bool = True
-
-
-@dataclass
 class TuiSessionState:
+    permission_mode: PermissionMode = "guided"
     verification_command: str | None = None
     recent_task: str | None = None
     last_turn: AgentSessionTurn | None = None
@@ -35,9 +31,10 @@ class TuiSessionState:
     running_kind: RunningKind | None = None
     last_turn_status: str = "idle"
     last_review_action: ReviewActionResult | None = None
+    last_tool_result: AgentLoopResult | None = None
     chat_history: list[ChatMessage] = field(default_factory=list)
     pending_fix: PendingFix | None = None
-    pending_shell: PendingShell | None = None
+    pending_tool: PendingToolConfirmation | None = None
     conversation_markdown_path: Path | None = None
     conversation_jsonl_path: Path | None = None
 
@@ -75,6 +72,38 @@ class TuiSessionState:
     def clear_pending_fix(self) -> None:
         self.pending_fix = None
 
+    def set_pending_tool(
+        self,
+        *,
+        tool_name: str,
+        arguments: dict[str, object],
+        risk_level: str,
+        reason: str,
+        source: str,
+        required_mode: str = "danger-full-access",
+        preview: dict[str, object] | None = None,
+        tool_call_id: str | None = None,
+        tool_call_group_id: str | None = None,
+        confirmation_id: str | None = None,
+    ) -> None:
+        payload = {
+            "tool_call_id": tool_call_id,
+            "tool_call_group_id": tool_call_group_id,
+            "tool_name": tool_name,
+            "arguments": arguments,
+            "reason": reason,
+            "risk_level": risk_level,
+            "required_mode": required_mode,
+            "preview": preview or {},
+            "source": source,
+        }
+        if confirmation_id is not None:
+            payload["id"] = confirmation_id
+        self.pending_tool = PendingToolConfirmation.model_validate(payload)
+
+    def clear_pending_tool(self) -> None:
+        self.pending_tool = None
+
     def set_pending_shell(
         self,
         *,
@@ -83,15 +112,28 @@ class TuiSessionState:
         reason: str,
         source: str,
     ) -> None:
-        self.pending_shell = PendingShell(
-            command=command,
+        self.set_pending_tool(
+            tool_name="run_shell_command",
+            arguments={"command": command},
             risk_level=risk_level,
             reason=reason,
             source=source,
+            required_mode="danger-full-access",
+            preview={
+                "command_preview": _bounded_command_preview(command),
+                "command_chars": len(command),
+                "reason": reason,
+            },
         )
 
     def clear_pending_shell(self) -> None:
-        self.pending_shell = None
+        self.clear_pending_tool()
+
+    @property
+    def pending_shell(self) -> PendingToolConfirmation | None:
+        if self.pending_tool is None or self.pending_tool.tool_name != "run_shell_command":
+            return None
+        return self.pending_tool
 
     def mark_turn_started(self, task: str) -> None:
         self.recent_task = task
@@ -155,7 +197,16 @@ class TuiSessionState:
         self.running_kind = None
         self.last_turn_status = status
 
+    def set_last_tool_result(self, result: AgentLoopResult) -> None:
+        self.last_tool_result = result
+
     def mark_tool_failed(self) -> None:
         self.running = False
         self.running_kind = None
         self.last_turn_status = "tool_failed"
+
+
+def _bounded_command_preview(command: str) -> str:
+    if len(command) <= _MAX_COMMAND_PREVIEW_CHARS:
+        return command
+    return f"{command[:_MAX_COMMAND_PREVIEW_CHARS]}..."

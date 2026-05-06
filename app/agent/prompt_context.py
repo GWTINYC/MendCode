@@ -350,8 +350,11 @@ def _system_prompt(
     permission_mode: str = "guided",
 ) -> str:
     registry = default_tool_registry()
+    schema_permission_mode = (
+        "danger-full-access" if allowed_tools is not None else permission_mode
+    )
     pool = registry.tool_pool(
-        permission_mode=permission_mode,
+        permission_mode=schema_permission_mode,
         allowed_tools=allowed_tools,
     )
     tool_names = pool.names()
@@ -365,6 +368,8 @@ def _system_prompt(
     text += (
         "When finishing, call final_response with a concise summary and optional "
         "recommended_actions.\n"
+        "Some listed tools can still require user confirmation at execution time; "
+        "if a tool returns a confirmation request, stop and wait for the user's reply.\n"
         "Prefer structured tools over raw shell: use read_file for file content, "
         "list_dir for directory inspection, glob_file_search for path discovery, rg or "
         "search_code for text search, git for repository inspection, write_file or "

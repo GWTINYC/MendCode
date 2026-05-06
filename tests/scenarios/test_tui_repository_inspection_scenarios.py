@@ -6,6 +6,7 @@ from tests.scenarios.tui_scenario_runner import (
     TuiScenario,
     TuiScenarioRunner,
     assert_answer_is_concise,
+    assert_benchmark_case_passed,
     assert_did_not_use_chat,
     assert_has_evidence_from_any_observation,
     assert_has_evidence_from_observation,
@@ -60,6 +61,13 @@ async def test_directory_listing_is_tool_backed_and_concise(tmp_path):
     assert_visible_answer_contains(transcript, "app")
     assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
     assert_no_raw_trace_or_large_json_dump(transcript)
+    assert_benchmark_case_passed(
+        transcript,
+        case_id="repo-list-current-directory",
+        category="repository_inspection",
+        expected_tools=["list_dir"],
+        max_visible_chars=900,
+    )
 
 
 async def test_observation_evidence_requires_successful_meaningful_tool_step():
@@ -169,6 +177,13 @@ async def test_git_status_request_uses_safe_shell_and_stays_compact(tmp_path):
     assert_visible_answer_contains(transcript, "git status")
     assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
     assert_no_raw_trace_or_large_json_dump(transcript)
+    assert_benchmark_case_passed(
+        transcript,
+        case_id="git-status",
+        category="git_status",
+        expected_tools=["git"],
+        max_visible_chars=900,
+    )
 
 
 async def test_chinese_git_state_request_uses_safe_shell_not_chat(tmp_path):
@@ -199,6 +214,47 @@ async def test_chinese_git_state_request_uses_safe_shell_not_chat(tmp_path):
     assert_has_evidence_from_any_observation(transcript, ("git", "run_shell_command"))
     assert_visible_answer_contains(transcript, "git status")
     assert_visible_answer_contains(transcript, "M README.md")
+    assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
+    assert_no_raw_trace_or_large_json_dump(transcript)
+
+
+async def test_review_queue_question_uses_review_queue_tool(tmp_path):
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="review queue list",
+            repo_files={"README.md": "MendCode\n"},
+            user_inputs=["列出待审查的经验候选"],
+            tool_steps=[
+                ScenarioToolStep(
+                    action="review_queue_list",
+                    status="succeeded",
+                    summary="Found 1 review candidates",
+                    payload={
+                        "status": "pending",
+                        "total_candidates": 1,
+                        "candidates": [
+                            {
+                                "id": "candidate-1",
+                                "kind": "context_lesson",
+                                "summary": "Use tail_lines for final-line questions.",
+                                "suggested_memory_kind": "failure_lesson",
+                                "confidence": 0.8,
+                                "status": "pending",
+                            }
+                        ],
+                    },
+                    args={"status": "pending"},
+                )
+            ],
+            final_summary="当前有 1 条待审查经验候选：Use tail_lines for final-line questions。",
+        )
+    )
+
+    assert_used_tool_path(transcript)
+    assert_did_not_use_chat(transcript)
+    assert_has_evidence_from_observation(transcript, "review_queue_list")
+    assert_visible_answer_contains(transcript, "待审查")
+    assert_visible_answer_contains(transcript, "tail_lines")
     assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
     assert_no_raw_trace_or_large_json_dump(transcript)
 
@@ -317,6 +373,46 @@ async def test_memory_recall_question_uses_memory_search(tmp_path):
     )
     assert_visible_answer_contains(transcript, "python -m pytest -q")
     assert_answer_is_concise(transcript, max_lines=8, max_chars=500)
+    assert_benchmark_case_passed(
+        transcript,
+        case_id="memory-recall-verification-command",
+        category="memory_context",
+        expected_tools=["memory_search"],
+        max_visible_chars=500,
+    )
+
+
+async def test_tui_stores_pending_tool_from_agent_loop_confirmation(tmp_path):
+    transcript = await TuiScenarioRunner(tmp_path).run(
+        TuiScenario(
+            name="pending tool confirmation",
+            repo_files={"README.md": "MendCode\n"},
+            user_inputs=["记住这个经验"],
+            pending_confirmation={
+                "id": "confirm-memory-write",
+                "tool_call_id": "call_memory_write",
+                "tool_name": "memory_write",
+                "arguments": {
+                    "kind": "failure_lesson",
+                    "title": "Use concise tool summaries",
+                    "content": "Keep TUI tool output compact.",
+                },
+                "reason": "tool memory_write requires confirmation",
+                "risk_level": "medium",
+                "required_mode": "workspace-write",
+                "preview": {
+                    "kind": "failure_lesson",
+                    "title": "Use concise tool summaries",
+                    "content_chars": 29,
+                },
+                "source": "agent_loop",
+            },
+        )
+    )
+
+    assert_visible_answer_contains(transcript, "工具调用需要确认")
+    assert transcript.pending_tool is not None
+    assert transcript.pending_tool["tool_name"] == "memory_write"
 
 
 def _tool_step(transcript: ScenarioTranscript, tool_name: str) -> dict[str, object]:

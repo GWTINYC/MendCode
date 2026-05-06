@@ -101,7 +101,7 @@ def _is_successful_patch_boundary(step: AgentStep) -> bool:
     return (
         step.action.type == "tool_call"
         and getattr(step.action, "action", None)
-        in {"apply_patch", "apply_patch_to_worktree"}
+        == "apply_patch"
     )
 
 

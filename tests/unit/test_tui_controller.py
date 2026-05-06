@@ -25,6 +25,8 @@ class FakeHost:
         self.started_agent: list[str] = []
         self.prepared_fix: list[tuple[str, str]] = []
         self.pending_shell_replies: list[str] = []
+        self.pending_tool_replies: list[str] = []
+        self.pending_tool_result = False
         self.pending_fix_replies: list[str] = []
 
     def append_message(self, role: str, message: str) -> None:
@@ -33,6 +35,10 @@ class FakeHost:
     def handle_pending_shell_reply(self, message: str) -> bool:
         self.pending_shell_replies.append(message)
         return False
+
+    def handle_pending_tool_reply(self, message: str) -> bool:
+        self.pending_tool_replies.append(message)
+        return self.pending_tool_result
 
     def handle_pending_fix_reply(self, message: str) -> bool:
         self.pending_fix_replies.append(message)
@@ -91,3 +97,15 @@ def test_controller_dispatches_slash_commands_without_intent_router() -> None:
 
     assert host.commands[0].name == "status"
     assert host.started_agent == []
+
+
+def test_controller_routes_pending_tool_reply_before_starting_agent() -> None:
+    host = FakeHost()
+    host.pending_tool_result = True
+
+    TuiController(host).handle_user_input("确认")
+
+    assert host.pending_tool_replies == ["确认"]
+    assert host.pending_fix_replies == []
+    assert host.started_agent == []
+    assert host.conversation_log.events == []

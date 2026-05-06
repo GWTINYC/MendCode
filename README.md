@@ -1,140 +1,81 @@
 # MendCode
 
-MendCode 是一个面向本地代码仓库的 TUI Code Agent Runtime。它从当前仓库启动，接受自然语言任务，让大模型通过结构化工具读取代码、搜索文件、执行受控命令、应用补丁并运行验证，最后基于真实 observation 给出回答或修复结果。
+MendCode 是一个面向本地代码仓库的可进化 Code Agent Runtime。它以 Textual TUI 作为主要交互入口，让用户用自然语言完成代码查看、问题定位、修改修复、测试验证和任务复盘。
 
-该项目关注的是代码任务拆成一条可控、可复盘的本地执行链路：
+项目的核心目标是解决长链路代码任务中的三个关键问题：工具调用失控、上下文膨胀、经验难沉淀。MendCode 不让模型直接操控终端，也不允许模型凭空回答本地事实；所有本地能力都通过结构化工具、权限策略、路径边界和真实 observation 进入 Agent Loop。
 
 ```text
 自然语言任务
--> Agent Runtime
 -> 模型选择工具
--> 权限校验
+-> 参数校验与权限控制
 -> 本地执行
 -> Observation 回传
--> 继续调用工具或给出最终回答
--> Trace / Conversation Log 落盘
+-> 基于证据回答、修复或继续调用工具
+-> Trace / Memory / Benchmark 复盘
 ```
 
-## 项目目标
+## 项目定位
 
-MendCode 的目标是成为一个轻量但可进化的本地 Code Agent Runtime，重点解决代码 Agent 在多轮任务中常见的几个问题：
+MendCode 面向的是本地代码仓库中的真实开发任务，而不是一次性的聊天问答。它强调：
 
-- 本地事实容易被模型编造，而不是来自真实文件、Git 状态或命令输出。
-- 工具调用、Shell 执行、文件写入和 Git 操作缺少统一权限边界。
-- 长任务中上下文不断膨胀，模型重复读文件、重复搜索、丢失任务状态。
-- 修复是否真的成功缺少验证闭环，失败原因也难以复盘。
-- 成功经验和失败经验无法沉淀，下一轮任务又从零开始。
+- 可控工具调用：文件、搜索、Shell、Git、Patch、测试验证等能力统一由 ToolRegistry 注册，并经过 PermissionPolicy 管控。
+- 可持续上下文：通过 Layered Memory、文件摘要、Observation 压缩和上下文管理，减少重复读文件和无效历史堆叠。
+- 可复盘演进：记录 JSONL Trace，将失败任务、工具调用、修复过程和验证结果转化为可审查的规则、记忆和 Skill 候选。
 
-因此，MendCode 的设计重点放在三件事上：结构化工具、分层记忆和可复盘的自进化机制。
+目标成果包括：支持 20 多种本地工具、3 档权限模式，在固定本地代码任务评测集中持续提升工具链路通过率、高风险命令拦截率，并降低长任务中的上下文消耗。
 
-## 工具系统
+## 核心架构
 
-MendCode 使用 `Agent Runtime + ToolRegistry + PermissionPolicy` 作为核心工具架构。
+### Agent Runtime
 
-`ToolRegistry` 负责统一注册工具、生成 OpenAI-compatible tool schema、校验参数并绑定本地 executor。`PermissionPolicy` 负责在工具执行前判断当前权限模式、工具风险等级和具体 Shell 风险，避免模型绕过本地安全边界。Agent Runtime 则负责把“模型 tool call -> 本地执行 -> observation -> 下一轮模型输入”串成完整循环。
+MendCode 使用 OpenAI-compatible Tool Calling 作为模型接入方式。模型只能通过 provider-visible tool schema 请求本地能力，Runtime 负责执行工具调用、回传 observation、控制 step budget，并在最终回答前检查是否存在失败或缺失证据。
 
-当前已经接入的主要工具包括：
+### ToolRegistry + PermissionPolicy
 
-- 文件与代码：`read_file`、`list_dir`、`glob_file_search`、`rg` / `search_code`
-- 写入与补丁：`write_file`、`edit_file`、`apply_patch`
-- Shell 与验证：`run_shell_command`、`run_command`
-- Git 与项目状态：`git`、`repo_status`、`show_diff`、`detect_project`
-- 会话与工具发现：`session_status`、`tool_search`
-- 记忆与摘要：`memory_search`、`memory_write`、`file_summary_read`、`file_summary_refresh`、`trace_analyze`
-- 后台与语言服务：`process_*`、基础 `lsp`
+所有工具都通过 ToolRegistry 统一描述参数、风险等级、schema 和 executor。ToolPool 会根据当前权限和任务场景裁剪模型可见工具面；PermissionPolicy 则负责在工具执行前处理路径限制、Shell 风险、写入操作和用户确认。
 
-工具并不是一股脑暴露给模型。MendCode 会通过 `ToolPool` 按任务场景和权限模式裁剪工具面：只读问答默认只能看到读取、搜索、Git 状态、记忆查询等低风险工具；写文件、Patch、长期记忆写入、后台进程和危险 Shell 不会出现在普通只读对话里。
+权限模式收敛为三档：
 
-当前权限体系正在收敛到三档：
+- `read-only`：读取、搜索、状态查询等低风险能力。
+- `workspace-write`：允许受控修改工作区，但危险操作仍需确认。
+- `danger-full-access`：用于高风险场景，仍保留策略检查和路径边界。
 
-- `read-only`：只允许读取、搜索、状态查询等低风险工具。
-- `workspace-write`：允许工作区写入和受控修复，但危险命令仍需确认。
-- `danger-full-access`：用于更高风险操作，仍保留策略检查和路径边界。
+### Layered Memory + Evolution
 
-其中 `run_command` 只用于声明过的验证命令，普通诊断命令走 `run_shell_command`。这个区分很重要：修复是否成功必须由明确的 verification gate 证明，不能让模型随便跑一个命令就声称完成。
+MendCode 将任务状态、文件摘要、项目事实、失败经验和运行 trace 分层保存。短期记忆服务当前任务，中期记忆减少重复读取，长期记忆沉淀经过审查的经验。
 
-## 记忆系统
+自进化机制以 JSONL Trace 为依据：失败归因先生成候选，再由用户在 TUI 中审查、编辑、接受或拒绝。被接受的规则和记忆才会影响后续 Agent 行为。
 
-MendCode 已经落地 Layered Memory 的第一切片：本地 JSONL 记忆库、文件摘要缓存、记忆查询工具和失败 trace 分析工具。
+## 当前能力
 
-记忆系统会把不同类型的信息分层保存：
+当前版本已经具备：
 
-- `project_fact`：项目事实，例如技术栈、常用验证命令、重要约定。
-- `task_state`：当前任务状态和阶段性决策。
-- `file_summary`：按文件内容 hash 缓存的文件摘要。
-- `failure_lesson`：失败任务中提炼出的经验候选。
-- `trace_insight`：从运行 trace 中分析出的结构化线索。
+- TUI 自然语言对话入口。
+- OpenAI-compatible 原生 tool call 主链路。
+- 文件读取、目录查看、代码搜索、Patch、Shell、Git、测试验证、进程、LSP、记忆和 trace 分析等工具。
+- 低风险工具自动执行，高风险工具确认或拒绝。
+- Conversation log、JSONL trace、session resume 和离线分析。
+- Layered Memory 第一版和可审查的 evolution rule。
+- PTY live 测试、scenario tests 和 benchmark gate。
 
-这些信息不会直接无限塞进 prompt。Agent Runtime 会在每轮任务开始时按用户问题召回少量相关 memory，并把召回结果作为 runtime context 交给模型；模型也可以在需要时继续通过 `memory_search` 显式查询。文件摘要通过 `file_summary_read` 按 repo-relative path 和内容 hash 校验，conversation log 和 tool result 也会做 compact，避免把完整文件内容、长目录列表和重复 observation 反复塞回上下文。
-
-目前记忆写入保持保守：`memory_write` 和 `file_summary_refresh` 属于长期状态写入能力，按高风险工具处理，默认/guided 工具池不暴露；即使显式调用，`memory_write` 也会拒绝重复记录。`trace_analyze` 默认只读，只能分析 `data/traces/` 内的 trace 文件，并生成可审查的失败经验候选，不会静默写入长期记忆。
-
-后续记忆系统会继续补齐长会话 compact、文件摘要替代全文读取和人工审查入口。当前 prompt context 已开始记录 observation 数量、memory recall 命中数、read_file 次数和重复读文件次数，为后续量化 Token 降低和重复读取下降打基础。
-
-## 自进化方向
-
-MendCode 的长期方向是 `SKILL.md + JSONL Trace-driven Evolution`。
-
-这部分还在演进中，目标是把高频任务流程沉淀成可复用 Skill，例如 Debug、Test-Fix、Review、Repo-Map 等；同时基于每轮运行产生的 JSONL Trace 分析失败原因，反向优化 memory、skill、prompt rule、tool schema 和测试集。
-
-预期闭环是：
-
-```text
-任务执行
--> Trace 记录工具调用、错误和验证结果
--> 失败归因生成 lesson 候选
--> 用户审查后沉淀到 memory / skill / prompt rule
--> Benchmark 和 PTY 场景回归验证收益
-```
-
-这条路线的原则是保守演进：失败经验可以被分析，但不能自动固化；长期记忆和 Skill 更新必须可追溯、可审查、可回滚。
-
-MendCode 也提供了初版 benchmark report 入口，可以从固定任务集的 JSON 结果中统计 case 通过率、工具链路通过率、高风险命令拦截率、Token 降低比例和重复读文件次数。当前这些指标是目标和评估口径，只有接入固定 benchmark 后才会写成已验证成果。
+后续重点会继续推进 tokenizer-aware context management、repo map、SKILL.md 流程沉淀、TUI 审查面板和 benchmark-driven evolution。
 
 ## 快速开始
 
-安装依赖并运行测试：
+运行基础验证：
 
 ```bash
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest -q --ignore=tests/e2e
 PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m ruff check .
 ```
 
-真实 TUI PTY 测试需要配置 OpenAI-compatible provider 环境变量后单独运行：
-
-```bash
-PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt python -m pytest tests/e2e/test_tui_pty_live.py -q
-```
-
-在仓库中启动 TUI：
+启动 TUI：
 
 ```bash
 mendcode
 ```
 
-可以尝试这些自然语言请求：
-
-```text
-帮我查看当前文件夹里的文件
-读取 README.md 的前几行
-看下 git status
-之前记录的 pytest 命令是什么
-pytest 失败了，帮我修复
-/sessions
-/resume <session_id>
-```
-
-直接 CLI 修复仍作为过渡入口保留：
-
-```bash
-mendcode fix "fix the failing test" --test "python -m pytest -q"
-```
-
-## Provider 配置
-
-当前主线使用 OpenAI-compatible chat completions，并要求 provider 支持原生 tool calls。如果 provider 不支持 tools，MendCode 会明确失败，而不是退回普通聊天去编造本地事实。
-
-需要配置的环境变量：
+配置 OpenAI-compatible provider：
 
 ```bash
 export MENDCODE_PROVIDER=openai-compatible
@@ -143,64 +84,24 @@ export MENDCODE_BASE_URL="https://your-provider.example/v1"
 export MENDCODE_API_KEY="your-api-key"
 ```
 
-API key 不应写入项目仓库。优先使用环境变量或用户本地配置。
+运行 benchmark gate：
 
-## 架构地图
-
-```text
-app/
-├── agent/          # Provider adapter、prompt context、兼容层和会话模型
-├── memory/         # Layered Memory、JSONL store、文件摘要缓存
-├── runtime/        # Agent Runtime、运行循环、final response gate、session store
-├── tools/          # ToolRegistry、工具 schema、工具 executor
-├── tui/            # Textual UI、TuiController、slash commands、对话日志
-├── workspace/      # ShellPolicy、ShellExecutor、验证 executor、worktree helper
-├── schemas/        # MendCodeAction、Observation、trace 和 verification schema
-└── tracing/        # JSONL trace recorder
+```bash
+PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.txt \
+  python -m app.runtime.tui_scenario_audit \
+  --benchmark-manifest tests/scenarios/benchmark_manifest.json \
+  --benchmark-output data/benchmark-reports/latest.json \
+  --analysis-report-dir data/analysis-reports
 ```
 
-几个关键约束：
+## 本地产物
 
-- 本地事实必须来自工具 observation，不能来自普通聊天文本。
-- 面向模型的工具 schema 必须来自 `ToolPool`，不能直接暴露完整注册表。
-- 工具执行前必须经过权限策略和路径边界检查。
-- 修复任务必须有验证结果，不能只靠模型描述“已修复”。
-- 对话日志保存摘要和定位指针，完整 payload 放在 trace 中按需查看。
-- 长期记忆必须可审查，不能静默固化错误事实。
-
-## data 目录
-
-`data/` 用于存放本地运行产物，不是源码目录：
-
-- `data/conversations/`：Markdown 和 JSONL 对话日志。
-- `data/traces/`：Agent Runtime trace。
-- `data/memory/`：本地 layered memory JSONL 和文件摘要记录。
-- `data/processes/`：后台进程日志。
-- `data/reference-*` 或其它本地分析 clone：参考材料，默认被 git 忽略。
-
-不要提交运行日志或本地 clone 的参考仓库。
+`data/` 用于保存本地运行产物，包括 conversations、traces、memory、evolution rules、process logs、benchmark reports 和 analysis reports。这些内容默认不提交到仓库。
 
 ## 文档
 
-根目录保留几份长期文档：
+- `MendCode_全局路线图.md`：项目长期方向和阶段规划。
+- `MendCode_开发方案.md`：当前开发状态、模块边界和后续任务。
+- `MendCode_问题记录.md`：关键问题、风险和工程约束记录。
 
-- `README.md`：项目概览、启动方式、当前状态和文档导航。
-- `MendCode_全局路线图.md`：整体方向和阶段优先级。
-- `MendCode_开发方案.md`：详细实现状态、模块契约、测试策略和下一步任务。
-- `MendCode_问题记录.md`：架构相关问题、风险和约束。
-
-每轮开发后，如果实现现实发生变化，需要更新 `MendCode_开发方案.md`。只有高层方向或阶段优先级变化时才更新路线图。发现新的反复风险或架构约束时，更新问题记录。
-
-## 开发原则
-
-任何有意义的改动都必须维护这条主线：
-
-```text
-模型请求工具
--> MendCode 校验权限
--> MendCode 在本地执行
--> Observation 回传模型
--> 最终回答或修复基于证据
-```
-
-如果某项改动削弱了这个闭环，就不应该合入。
+MendCode 的开发原则是：本地事实必须来自工具 observation，高风险操作必须经过权限策略，修复结果必须有验证证据，长期记忆和 Skill 沉淀必须可审查、可追踪、可回滚。

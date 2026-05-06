@@ -1,8 +1,84 @@
 import argparse
 import json
 from pathlib import Path
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+BenchmarkCategory = Literal[
+    "repository_inspection",
+    "file_question",
+    "code_search",
+    "git_status",
+    "patch_repair",
+    "permission_safety",
+    "memory_context",
+]
+
+TARGET_CATEGORIES: tuple[BenchmarkCategory, ...] = (
+    "repository_inspection",
+    "file_question",
+    "code_search",
+    "git_status",
+    "patch_repair",
+    "permission_safety",
+    "memory_context",
+)
+
+
+class BenchmarkCaseSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    category: BenchmarkCategory
+    prompt: str
+    expected_tools: list[str] = Field(default_factory=list)
+    expects_dangerous_block: bool = False
+    max_visible_chars: int | None = Field(default=None, gt=0)
+    pytest_nodeids: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+
+class BenchmarkManifest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    cases: list[BenchmarkCaseSpec] = Field(default_factory=list)
+
+    @property
+    def case_count(self) -> int:
+        return len(self.cases)
+
+    def category_counts(self) -> dict[str, int]:
+        counts = {category: 0 for category in TARGET_CATEGORIES}
+        for case in self.cases:
+            counts[case.category] += 1
+        return {category: count for category, count in counts.items() if count > 0}
+
+    def missing_target_categories(self) -> list[str]:
+        present = {case.category for case in self.cases}
+        return [category for category in TARGET_CATEGORIES if category not in present]
+
+    def to_markdown(self) -> str:
+        lines = [
+            "# MendCode Benchmark Manifest",
+            "",
+            f"- name: {self.name}",
+            f"- case_count: {self.case_count}",
+            f"- missing_target_categories: {_format_missing(self.missing_target_categories())}",
+            "",
+            "## Categories",
+            "",
+        ]
+        for category, count in self.category_counts().items():
+            lines.append(f"- {category}: {count}")
+        lines.extend(["", "## Cases", ""])
+        for case in self.cases:
+            lines.append(
+                f"- {case.id}: category={case.category}, "
+                f"expected_tools={','.join(case.expected_tools)}"
+            )
+        return "\n".join(lines) + "\n"
 
 
 class BenchmarkCaseResult(BaseModel):
@@ -11,10 +87,32 @@ class BenchmarkCaseResult(BaseModel):
     name: str
     passed: bool
     tool_chain_passed: bool
+    expected_tools: list[str] = Field(default_factory=list)
+    observed_tools: list[str] = Field(default_factory=list)
+    missing_tools: list[str] = Field(default_factory=list)
     dangerous_command_blocked: bool | None = None
+    visible_chars: int | None = Field(default=None, ge=0)
+    max_visible_chars: int | None = Field(default=None, gt=0)
     tokens_baseline: int | None = Field(default=None, ge=0)
     tokens_actual: int | None = Field(default=None, ge=0)
     repeated_file_reads: int = Field(default=0, ge=0)
+    route_passed: bool | None = None
+    answer_concise: bool | None = None
+    provider_failed: bool = False
+    trace_exposed: bool = False
+    failure_reasons: list[str] = Field(default_factory=list)
+
+
+class BenchmarkCaseEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    observed_tools: list[str] = Field(default_factory=list)
+    visible_chars: int | None = Field(default=None, ge=0)
+    context_baseline_chars: int | None = Field(default=None, ge=0)
+    context_actual_chars: int | None = Field(default=None, ge=0)
+    repeated_file_reads: int = Field(default=0, ge=0)
+    dangerous_command_blocked: bool | None = None
 
 
 class BenchmarkReport(BaseModel):
@@ -27,6 +125,8 @@ class BenchmarkReport(BaseModel):
         blocked_cases = [
             case for case in self.cases if case.dangerous_command_blocked is not None
         ]
+        route_cases = [case for case in self.cases if case.route_passed is not None]
+        concise_cases = [case for case in self.cases if case.answer_concise is not None]
         baseline_tokens = sum(case.tokens_baseline or 0 for case in self.cases)
         actual_tokens = sum(case.tokens_actual or 0 for case in self.cases)
         token_reduction = 0.0
@@ -48,6 +148,16 @@ class BenchmarkReport(BaseModel):
             ),
             "token_reduction_rate": round(token_reduction, 4),
             "repeated_file_reads": sum(case.repeated_file_reads for case in self.cases),
+            "route_pass_rate": _rate(
+                sum(1 for case in route_cases if case.route_passed),
+                len(route_cases),
+            ),
+            "answer_concise_rate": _rate(
+                sum(1 for case in concise_cases if case.answer_concise),
+                len(concise_cases),
+            ),
+            "provider_failure_count": sum(1 for case in self.cases if case.provider_failed),
+            "trace_exposed_count": sum(1 for case in self.cases if case.trace_exposed),
         }
 
     def to_markdown(self) -> str:
@@ -63,14 +173,20 @@ class BenchmarkReport(BaseModel):
             f"- dangerous_command_block_rate: {metrics['dangerous_command_block_rate']}",
             f"- token_reduction_rate: {metrics['token_reduction_rate']}",
             f"- repeated_file_reads: {metrics['repeated_file_reads']}",
+            f"- route_pass_rate: {metrics['route_pass_rate']}",
+            f"- answer_concise_rate: {metrics['answer_concise_rate']}",
+            f"- provider_failure_count: {metrics['provider_failure_count']}",
+            f"- trace_exposed_count: {metrics['trace_exposed_count']}",
             "",
             "## Cases",
             "",
         ]
         for case in self.cases:
+            reason_text = ",".join(case.failure_reasons) if case.failure_reasons else "none"
             lines.append(
                 f"- {case.name}: passed={case.passed}, "
-                f"tool_chain_passed={case.tool_chain_passed}"
+                f"tool_chain_passed={case.tool_chain_passed}, "
+                f"failure_reasons={reason_text}"
             )
         return "\n".join(lines) + "\n"
 
@@ -84,6 +200,69 @@ def _rate(numerator: int, denominator: int) -> float:
 def load_report(path: Path) -> BenchmarkReport:
     data = json.loads(path.read_text(encoding="utf-8"))
     return BenchmarkReport.model_validate(data)
+
+
+def build_case_result_from_evidence(
+    case: BenchmarkCaseSpec,
+    evidence: BenchmarkCaseEvidence,
+) -> BenchmarkCaseResult:
+    observed_tools = list(dict.fromkeys(evidence.observed_tools))
+    missing_tools = [tool for tool in case.expected_tools if tool not in observed_tools]
+    tool_chain_passed = not missing_tools
+    visible_passed = (
+        True
+        if case.max_visible_chars is None or evidence.visible_chars is None
+        else evidence.visible_chars <= case.max_visible_chars
+    )
+    dangerous_passed = (
+        True
+        if not case.expects_dangerous_block
+        else evidence.dangerous_command_blocked is True
+    )
+    return BenchmarkCaseResult(
+        name=case.id,
+        passed=tool_chain_passed and visible_passed and dangerous_passed,
+        tool_chain_passed=tool_chain_passed,
+        expected_tools=list(case.expected_tools),
+        observed_tools=observed_tools,
+        missing_tools=missing_tools,
+        dangerous_command_blocked=(
+            evidence.dangerous_command_blocked if case.expects_dangerous_block else None
+        ),
+        visible_chars=evidence.visible_chars,
+        max_visible_chars=case.max_visible_chars,
+        tokens_baseline=evidence.context_baseline_chars,
+        tokens_actual=evidence.context_actual_chars,
+        repeated_file_reads=evidence.repeated_file_reads,
+    )
+
+
+def load_manifest(path: Path) -> BenchmarkManifest:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return BenchmarkManifest.model_validate(data)
+
+
+def validate_report_coverage(
+    manifest: BenchmarkManifest,
+    report: BenchmarkReport,
+) -> dict[str, object]:
+    expected_ids = [case.id for case in manifest.cases]
+    expected = set(expected_ids)
+    actual_ids = [case.name for case in report.cases]
+    actual = set(actual_ids)
+    missing = [case_id for case_id in expected_ids if case_id not in actual]
+    unexpected = [case_id for case_id in actual_ids if case_id not in expected]
+    return {
+        "manifest_case_count": len(expected_ids),
+        "result_case_count": len(actual_ids),
+        "missing_case_ids": missing,
+        "unexpected_case_ids": unexpected,
+        "complete": not missing and not unexpected,
+    }
+
+
+def _format_missing(missing: list[str]) -> str:
+    return ", ".join(missing) if missing else "none"
 
 
 def main(argv: list[str] | None = None) -> int:

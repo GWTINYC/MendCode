@@ -76,6 +76,10 @@ class MemoryRuntime:
 
     def accept_candidate(self, candidate_id: str) -> MemoryRecord:
         candidate = self._candidate_for_id(candidate_id)
+        if candidate.target_kind != "memory":
+            raise ValueError(
+                f"cannot promote {candidate.target_kind} candidate to memory: {candidate_id}"
+            )
         existing = self._memory_for_candidate(candidate.id)
         if candidate.status == "accepted":
             if existing is None:

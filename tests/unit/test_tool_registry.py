@@ -1,4 +1,5 @@
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -95,6 +96,36 @@ def test_tool_spec_rejects_invalid_args(tmp_path: Path) -> None:
     assert observation.status == "rejected"
     assert observation.summary == "Invalid tool arguments"
     assert "greater than or equal to 0" in str(observation.error_message)
+
+
+def test_process_start_confirmed_call_allows_confirmation_required_command(
+    tmp_path: Path,
+) -> None:
+    spec = default_tool_registry().get("process_start")
+    command = f"{sys.executable} -c 'print(123)'"
+
+    rejected = spec.execute(
+        {"command": command},
+        ToolExecutionContext(
+            workspace_path=tmp_path,
+            settings=settings_for(tmp_path),
+            verification_commands=[],
+        ),
+    )
+    confirmed = spec.execute(
+        {"command": command},
+        ToolExecutionContext(
+            workspace_path=tmp_path,
+            settings=settings_for(tmp_path),
+            verification_commands=[],
+            pending_confirmation={"tool_name": "process_start"},
+        ),
+    )
+
+    assert rejected.status == "rejected"
+    assert rejected.payload["reason"] == "command is not in the low-risk allowlist"
+    assert confirmed.status == "succeeded"
+    assert confirmed.payload["command"] == command
 
 
 def test_tool_spec_generates_openai_tool_schema() -> None:
@@ -233,9 +264,19 @@ def test_default_registry_generates_openai_schemas() -> None:
 
     names = [tool["function"]["name"] for tool in tools]
     assert "read_file" in names
+    assert "apply_patch_to_worktree" not in names
     read_file_schema = next(tool for tool in tools if tool["function"]["name"] == "read_file")
     assert "path" in read_file_schema["function"]["parameters"]["properties"]
     assert "tail_lines" in read_file_schema["function"]["parameters"]["properties"]
+
+
+def test_default_registry_tool_schema_names_match_registered_tools() -> None:
+    registry = default_tool_registry()
+
+    schema_names = {tool["function"]["name"] for tool in registry.openai_tools()}
+
+    assert schema_names == set(registry.names())
+    assert "apply_patch_to_worktree" not in schema_names
 
 
 def test_registry_filters_openai_schemas_to_allowed_tools() -> None:
@@ -283,6 +324,26 @@ def test_registry_default_pool_does_not_expose_memory_write() -> None:
     assert "file_summary_refresh" not in pool.names()
     assert "memory_write" not in coding_pool.names()
     assert "file_summary_refresh" not in coding_pool.names()
+
+
+def test_registry_default_pool_exposes_review_queue_read_tools_only() -> None:
+    registry = default_tool_registry()
+
+    pool = registry.tool_pool(permission_mode="guided")
+    coding_pool = registry.tool_pool(permission_mode="guided", allowed_tools={"coding_agent"})
+    full_pool = registry.tool_pool(
+        permission_mode="danger-full-access",
+        allowed_tools={"memory"},
+    )
+
+    assert "review_queue_list" in pool.names()
+    assert "review_queue_view" in pool.names()
+    assert "review_queue_accept" not in pool.names()
+    assert "review_queue_reject" not in pool.names()
+    assert "review_queue_accept" not in coding_pool.names()
+    assert "review_queue_reject" not in coding_pool.names()
+    assert "review_queue_accept" in full_pool.names()
+    assert "review_queue_reject" in full_pool.names()
 
 
 def test_registry_expands_tool_groups() -> None:

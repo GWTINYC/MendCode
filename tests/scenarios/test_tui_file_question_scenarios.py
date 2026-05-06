@@ -7,6 +7,7 @@ from tests.scenarios.tui_scenario_runner import (
     TuiScenario,
     TuiScenarioRunner,
     assert_answer_is_concise,
+    assert_benchmark_case_passed,
     assert_did_not_use_chat,
     assert_has_evidence_from_observation,
     assert_no_fabricated_command_claims,
@@ -56,6 +57,13 @@ async def test_file_first_line_question_reads_actual_file(tmp_path):
     assert_no_fabricated_command_claims(transcript)
     assert_no_raw_trace_or_large_json_dump(transcript)
     assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
+    assert_benchmark_case_passed(
+        transcript,
+        case_id="file-last-sentence",
+        category="file_question",
+        expected_tools=["read_file"],
+        max_visible_chars=700,
+    )
 
 
 async def test_document_last_sentence_question_does_not_dump_file_content(tmp_path):
@@ -109,6 +117,13 @@ async def test_document_last_sentence_question_does_not_dump_file_content(tmp_pa
     assert_no_fabricated_command_claims(transcript)
     assert_no_raw_trace_or_large_json_dump(transcript)
     assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
+    assert_benchmark_case_passed(
+        transcript,
+        case_id="file-last-sentence",
+        category="file_question",
+        expected_tools=["read_file"],
+        max_visible_chars=700,
+    )
 
 
 async def test_large_file_read_keeps_conversation_log_compact(tmp_path):
@@ -205,3 +220,10 @@ async def test_provider_config_question_uses_code_search(tmp_path, user_input):
     assert_no_fabricated_command_claims(transcript)
     assert_no_raw_trace_or_large_json_dump(transcript)
     assert_answer_is_concise(transcript, max_lines=10, max_chars=700)
+    assert_benchmark_case_passed(
+        transcript,
+        case_id="code-search-toolpool",
+        category="code_search",
+        expected_tools=["rg"],
+        max_visible_chars=700,
+    )

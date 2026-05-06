@@ -6,6 +6,7 @@ import threading
 from pathlib import Path
 
 import pytest
+from textual.widgets import Input
 
 from app.agent.loop import AgentLoopInput, AgentLoopResult, AgentStep, run_agent_loop
 from app.agent.openai_compatible import (
@@ -14,15 +15,38 @@ from app.agent.openai_compatible import (
     OpenAICompletion,
     OpenAIToolCall,
 )
+from app.agent.provider import AgentProviderStepInput, ProviderResponse
 from app.agent.session import AgentSessionTurn, ReviewSummary, ToolCallSummary
 from app.config.settings import Settings
 from app.schemas.agent_action import FinalResponseAction, Observation, ToolCallAction
-from app.tui.app import MendCodeTextualApp, _is_tool_availability_question
+from app.tools.structured import ToolInvocation
+from app.tui.app import (
+    READ_ONLY_TOOL_AGENT_TOOLS,
+    MendCodeTextualApp,
+    _format_chat_line,
+    _format_completion_panel,
+    _is_tool_availability_question,
+    _status_bar_text,
+)
 from app.tui.chat import ChatResponse
+from app.tui.completions import build_completion_state
 from app.workspace.review_actions import ReviewActionResult
 from app.workspace.shell_executor import ShellCommandResult
 
 pytestmark = pytest.mark.asyncio
+
+
+class NativeToolProvider:
+    def __init__(self, batches: list[list[ToolInvocation]]) -> None:
+        self.batches = batches
+        self.calls: list[AgentProviderStepInput] = []
+
+    def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
+        self.calls.append(step_input)
+        return ProviderResponse(
+            status="succeeded",
+            tool_invocations=self.batches[len(self.calls) - 1],
+        )
 
 
 def init_git_repo(path: Path) -> Path:
@@ -400,6 +424,79 @@ async def test_app_starts_with_repo_header_and_help_hint(tmp_path: Path) -> None
         )
 
 
+async def test_app_renders_claude_style_status_and_message_prefix(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert "mode guided" in _status_bar_text(app.session_state)
+        assert "running idle" in _status_bar_text(app.session_state)
+        assert "test not set" in _status_bar_text(app.session_state)
+        assert _format_chat_line("You", "hello").plain == "You\nhello"
+        assert _format_chat_line("Agent", "done").plain == "MendCode\ndone"
+
+
+async def test_completion_panel_lists_symbol_candidates_and_accepts_selection(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    (repo_path / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        input_widget = app.query_one("#chat-input", Input)
+        input_widget.value = "读取 @app"
+        input_widget.cursor_position = len(input_widget.value)
+        app._set_completion_state(
+            build_completion_state(
+                repo_path=repo_path,
+                text=input_widget.value,
+                cursor_position=input_widget.cursor_position,
+            )
+        )
+
+        assert app._completion_state is not None
+        assert "@app.py" in _format_completion_panel(app._completion_state).plain
+        app._accept_completion()
+
+        assert input_widget.value == "读取 @app.py "
+        assert app._completion_state is None
+
+
+async def test_completion_panel_scrolls_to_keep_selected_candidate_visible(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        input_widget = app.query_one("#chat-input", Input)
+        input_widget.value = "/"
+        input_widget.cursor_position = len(input_widget.value)
+        app._set_completion_state(
+            build_completion_state(
+                repo_path=repo_path,
+                text=input_widget.value,
+                cursor_position=input_widget.cursor_position,
+            )
+        )
+
+        assert app._completion_state is not None
+        for _ in range(6):
+            app._move_completion_selection(1)
+
+        rendered = _format_completion_panel(app._completion_state).plain
+        selected = app._completion_state.items[app._completion_state.selected_index]
+        assert f"▶ {selected.label}" in rendered
+        assert "/apply" not in rendered
+
+
 async def test_app_exposes_only_agent_request_for_normal_text_path(tmp_path: Path) -> None:
     repo_path = init_git_repo(tmp_path)
     app = MendCodeTextualApp(
@@ -643,7 +740,7 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
         assert "intent" in markdown
         assert '"kind": "agent"' in markdown
         assert '"source": "schema_tool_call"' in markdown
-        assert "Tool Result" in markdown
+        assert "Tool Process" in markdown
         assert "README.md" in markdown
         assert "/tmp/tool-trace.jsonl" in markdown
         assert app.session_state.conversation_jsonl_path is not None
@@ -663,6 +760,35 @@ async def test_natural_language_file_listing_uses_tool_agent_not_chat_or_shell(
         assert "observation" not in tool_payload["steps"][0]
 
 
+async def test_tool_result_defaults_to_compact_process_and_tools_expands_details(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    tool_agent_runner = FakeToolAgentRunner()
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=tool_agent_runner,
+    )
+
+    async with app.run_test():
+        app.handle_user_input("帮我查看当前文件夹里的文件")
+        await wait_until(lambda: not app.session_state.running)
+
+        rendered = "\n".join(app.message_texts)
+        assert "Tool Result" not in rendered
+        assert "Tool Process" in rendered
+        assert "1. list_dir: succeeded - Listed ." in rendered
+        assert "  - README.md" not in rendered
+
+        app.handle_user_input("/tools")
+
+        expanded = "\n".join(app.message_texts)
+        assert "Tool Details" in expanded
+        assert "README.md" in expanded
+        assert "content: omitted from chat stream" not in rendered
+
+
 async def test_tool_availability_answer_uses_actual_read_only_tool_pool(
     tmp_path: Path,
 ) -> None:
@@ -677,6 +803,51 @@ async def test_tool_availability_answer_uses_actual_read_only_tool_pool(
     assert "session_status" in result.summary
     assert result.steps[0].tool_invocation is not None
     assert result.steps[0].tool_invocation.source == "openai_tool_call"
+
+
+async def test_tui_tool_agent_allows_evolution_rule_review_tools() -> None:
+    assert {
+        "evolution_rule_list",
+        "evolution_rule_view",
+        "evolution_rule_accept",
+        "evolution_rule_reject",
+        "evolution_rule_accept_with_edits",
+    }.issubset(READ_ONLY_TOOL_AGENT_TOOLS)
+
+
+async def test_evolution_rule_accept_reaches_permission_confirmation(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    settings = make_settings(tmp_path)
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_evolution_rule_accept",
+                    name="evolution_rule_accept",
+                    args={"candidate_id": "rule-candidate-1"},
+                    source="openai_tool_call",
+                )
+            ]
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="接受第一条规则",
+            provider=provider,
+            permission_mode="guided",
+            allowed_tools=READ_ONLY_TOOL_AGENT_TOOLS,
+            use_worktree=False,
+        ),
+        settings,
+    )
+
+    assert result.status == "needs_user_confirmation"
+    assert result.steps[0].action.type == "user_confirmation_request"
+    assert result.steps[0].action.tool_name == "evolution_rule_accept"
 
 
 async def test_tool_availability_detection_does_not_hijack_repo_stack_question() -> None:
@@ -760,6 +931,353 @@ async def test_pending_shell_reply_can_cancel_without_agent_request(tmp_path: Pa
         assert app.session_state.pending_shell is None
 
 
+async def test_pending_tool_cancel_records_rejection(tmp_path: Path) -> None:
+    calls: list[AgentLoopInput] = []
+
+    def runner(
+        *, problem_statement: str, initial_observations=None
+    ) -> AgentLoopResult:
+        calls.append(
+            AgentLoopInput(
+                repo_path=tmp_path,
+                problem_statement=problem_statement,
+                initial_observations=initial_observations or [],
+            )
+        )
+        return AgentLoopResult(
+            run_id="agent-test",
+            status="completed",
+            summary="已取消。",
+            trace_path=None,
+            workspace_path=str(tmp_path),
+            steps=[],
+        )
+
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=runner,
+    )
+    app.session_state.recent_task = "写入记忆"
+
+    async with app.run_test() as pilot:
+        app.session_state.set_pending_tool(
+            tool_name="memory_write",
+            arguments={"kind": "failure_lesson", "title": "lesson", "content": "body"},
+            risk_level="medium",
+            reason="tool memory_write requires confirmation",
+            source="agent_loop",
+            required_mode="workspace-write",
+            preview={"title": "lesson"},
+            tool_call_id="call_memory",
+            tool_call_group_id="provider-1",
+        )
+
+        app.handle_user_input("取消")
+        await pilot.pause()
+
+        assert app.session_state.pending_tool is None
+        assert "已取消待确认的工具调用" in "\n".join(app.message_texts)
+        assert app.session_state.conversation_jsonl_path is not None
+        records = [
+            json.loads(line)
+            for line in app.session_state.conversation_jsonl_path.read_text(
+                encoding="utf-8"
+            ).splitlines()
+        ]
+        assert any(
+            record["event_type"] == "tool_confirmation_rejected"
+            for record in records
+        )
+        assert calls
+        rejection = calls[0].initial_observations[0]
+        assert rejection.tool_invocation is not None
+        assert rejection.tool_invocation.name == "memory_write"
+        assert rejection.tool_invocation.group_id == "provider-1"
+        assert rejection.observation.status == "rejected"
+        assert rejection.observation.error_message == "user rejected tool memory_write"
+
+
+async def test_confirmed_tool_result_is_passed_back_to_agent_loop(tmp_path: Path) -> None:
+    calls: list[AgentLoopInput] = []
+
+    def runner(
+        *, problem_statement: str, initial_observations=None
+    ) -> AgentLoopResult:
+        calls.append(
+            AgentLoopInput(
+                repo_path=tmp_path,
+                problem_statement=problem_statement,
+                initial_observations=initial_observations or [],
+            )
+        )
+        return AgentLoopResult(
+            run_id="agent-test",
+            status="completed",
+            summary="工具已执行。",
+            trace_path=None,
+            workspace_path=str(tmp_path),
+            steps=[],
+        )
+
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=runner,
+    )
+    app.session_state.recent_task = "写入记忆"
+    app.session_state.set_pending_tool(
+        tool_name="memory_write",
+        arguments={"kind": "failure_lesson", "title": "lesson", "content": "body"},
+        risk_level="medium",
+        reason="tool memory_write requires confirmation",
+        source="agent_loop",
+        required_mode="workspace-write",
+        preview={"title": "lesson"},
+        tool_call_id="call_memory",
+        tool_call_group_id="provider-1",
+    )
+
+    async with app.run_test() as pilot:
+        app.handle_user_input("确认")
+        await pilot.pause()
+
+    assert calls
+    assert calls[0].problem_statement == "写入记忆"
+    assert calls[0].initial_observations
+    record = calls[0].initial_observations[0]
+    assert record.action is not None
+    assert record.action.type == "tool_call"
+    assert record.action.action == "memory_write"
+    assert record.action.args == {
+        "kind": "failure_lesson",
+        "title": "lesson",
+        "content": "body",
+    }
+    assert record.tool_invocation is not None
+    assert record.tool_invocation.id == "call_memory"
+    assert record.tool_invocation.name == "memory_write"
+    assert record.tool_invocation.args == record.action.args
+    assert record.tool_invocation.source == "openai_tool_call"
+    assert record.tool_invocation.group_id == "provider-1"
+    assert record.observation.status == "succeeded"
+    assert record.observation.payload["kind"] == "failure_lesson"
+    assert record.observation.payload["title"] == "lesson"
+
+
+async def test_pending_tool_change_mode_updates_permission_and_resumes(
+    tmp_path: Path,
+) -> None:
+    calls: list[AgentLoopInput] = []
+
+    def runner(
+        *, problem_statement: str, initial_observations=None
+    ) -> AgentLoopResult:
+        calls.append(
+            AgentLoopInput(
+                repo_path=tmp_path,
+                problem_statement=problem_statement,
+                initial_observations=initial_observations or [],
+            )
+        )
+        return AgentLoopResult(
+            run_id="agent-test",
+            status="completed",
+            summary="权限模式已切换。",
+            trace_path=None,
+            workspace_path=str(tmp_path),
+            steps=[],
+        )
+
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=runner,
+    )
+    app.session_state.recent_task = "查看会话状态"
+    app.session_state.set_pending_tool(
+        tool_name="session_status",
+        arguments={"include_tools": False, "include_recent_steps": False},
+        risk_level="medium",
+        reason="tool requires higher permission",
+        source="agent_loop",
+        required_mode="danger-full-access",
+        preview={"reason": "tool requires higher permission"},
+        tool_call_id="call_status",
+        tool_call_group_id="provider-1",
+    )
+
+    async with app.run_test() as pilot:
+        app.handle_user_input("切换模式")
+        await pilot.pause()
+
+    assert app.session_state.permission_mode == "danger-full-access"
+    assert calls
+    record = calls[0].initial_observations[0]
+    assert record.tool_invocation is not None
+    assert record.tool_invocation.name == "session_status"
+    assert record.tool_invocation.group_id == "provider-1"
+    assert record.observation.status == "succeeded"
+    assert record.observation.payload["permission_mode"] == "danger-full-access"
+    assert any("权限模式已切换为 danger-full-access" in message for message in app.message_texts)
+
+
+async def test_agent_loop_shell_confirmation_resumes_with_tool_observation(
+    tmp_path: Path,
+) -> None:
+    calls: list[AgentLoopInput] = []
+    repo_path = init_git_repo(tmp_path)
+
+    def runner(
+        *, problem_statement: str, initial_observations=None
+    ) -> AgentLoopResult:
+        calls.append(
+            AgentLoopInput(
+                repo_path=repo_path,
+                problem_statement=problem_statement,
+                initial_observations=initial_observations or [],
+            )
+        )
+        return AgentLoopResult(
+            run_id="agent-test",
+            status="completed",
+            summary="命令已执行。",
+            trace_path=None,
+            workspace_path=str(repo_path),
+            steps=[],
+        )
+
+    shell_executor = FakeShellExecutor()
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        shell_executor=shell_executor,
+        tool_agent_runner=runner,
+    )
+    app.session_state.recent_task = "运行命令"
+    app.session_state.set_pending_tool(
+        tool_name="run_shell_command",
+        arguments={"command": "python -c 'print(123)'"},
+        risk_level="medium",
+        reason="command is not in the low-risk allowlist",
+        source="agent_loop",
+        required_mode="danger-full-access",
+        preview={"command_preview": "python -c 'print(123)'"},
+        tool_call_id="call_shell",
+        tool_call_group_id="provider-1",
+    )
+
+    async with app.run_test() as pilot:
+        app.handle_user_input("确认")
+        await pilot.pause()
+
+    assert shell_executor.calls == []
+    assert calls
+    record = calls[0].initial_observations[0]
+    assert record.tool_invocation is not None
+    assert record.tool_invocation.name == "run_shell_command"
+    assert record.tool_invocation.group_id == "provider-1"
+    assert record.observation.status == "succeeded"
+    assert record.observation.payload["payload"]["status"] == "passed"
+
+
+async def test_pending_tool_blocks_new_task_until_resolved(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    runner = FakeToolAgentRunner()
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        tool_agent_runner=runner,
+    )
+
+    async with app.run_test():
+        app.session_state.set_pending_tool(
+            tool_name="memory_write",
+            arguments={"kind": "failure_lesson", "title": "lesson", "content": "body"},
+            risk_level="medium",
+            reason="tool memory_write requires confirmation",
+            source="agent_loop",
+            required_mode="workspace-write",
+            preview={"title": "lesson"},
+        )
+
+        app.handle_user_input("帮我查看当前目录")
+
+    assert runner.calls == []
+    assert app.session_state.pending_tool is not None
+    assert "请先确认、取消或切换模式来处理待执行的工具调用" in "\n".join(
+        app.message_texts
+    )
+
+
+async def test_json_action_pending_confirmation_recovers_arguments(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="remember this",
+            actions=[
+                {
+                    "type": "tool_call",
+                    "action": "memory_write",
+                    "reason": "Store a lesson",
+                    "args": {
+                        "kind": "failure_lesson",
+                        "title": "lesson",
+                        "content": "body",
+                    },
+                }
+            ],
+            permission_mode="custom",
+            use_worktree=False,
+        ),
+        make_settings(tmp_path),
+    )
+
+    async with app.run_test():
+        assert app._store_pending_tool_from_result(result) is True
+
+    pending = app.session_state.pending_tool
+    assert pending is not None
+    assert pending.arguments == {
+        "kind": "failure_lesson",
+        "title": "lesson",
+        "content": "body",
+    }
+
+
+async def test_pending_shell_compatibility_exposes_command_and_bounded_preview(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    command = "python -c " + "x" * 1000
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+    )
+
+    async with app.run_test():
+        app.session_state.set_pending_shell(
+            command=command,
+            risk_level="high",
+            reason="test pending shell",
+            source="test",
+        )
+
+        pending_shell = app.session_state.pending_shell
+        assert pending_shell is not None
+        assert pending_shell.command == command
+        assert pending_shell.preview["command_chars"] == len(command)
+        assert len(str(pending_shell.preview["command_preview"])) < len(command)
+        assert "command" not in pending_shell.preview
+
+
 async def test_pending_shell_confirmation_runs_command(tmp_path: Path) -> None:
     repo_path = init_git_repo(tmp_path)
     shell_executor = FakeShellExecutor(
@@ -795,6 +1313,87 @@ async def test_pending_shell_confirmation_runs_command(tmp_path: Path) -> None:
         assert shell_executor.calls == [("rm README.md", repo_path, True)]
         assert app.session_state.pending_shell is None
         assert any("risk_level: high" in message for message in app.message_texts)
+
+
+async def test_pending_shell_confirmation_still_runs_command(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    shell_executor = FakeShellExecutor()
+    app = MendCodeTextualApp(
+        repo_path=repo_path,
+        settings=make_settings(tmp_path),
+        shell_executor=shell_executor,
+        tool_agent_runner=FakeToolAgentRunner(),
+    )
+
+    async with app.run_test():
+        app.session_state.set_pending_shell(
+            command="printf hello",
+            risk_level="medium",
+            reason="test pending shell",
+            source="test",
+        )
+        app.handle_user_input("确认")
+        await wait_until(lambda: not app.session_state.running)
+
+        assert app.session_state.pending_tool is None
+        rendered = "\n".join(app.message_texts)
+        assert "Running command: printf hello" in rendered or shell_executor.calls == [
+            ("printf hello", repo_path, True)
+        ]
+
+
+async def test_malformed_pending_tool_result_does_not_crash(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+    result = AgentLoopResult(
+        run_id="agent-test",
+        status="needs_user_confirmation",
+        summary="User confirmation required",
+        trace_path=None,
+        workspace_path=str(repo_path),
+        steps=[
+            AgentStep(
+                index=1,
+                action=FinalResponseAction(
+                    type="final_response",
+                    status="needs_user_confirmation",
+                    summary="User confirmation required",
+                ),
+                observation=Observation(
+                    status="rejected",
+                    summary="User confirmation required",
+                    payload={"pending_confirmation": {"tool_name": "memory_write"}},
+                    error_message="missing fields",
+                ),
+            )
+        ],
+    )
+
+    async with app.run_test():
+        app._complete_tool_request(result)
+
+    assert app.session_state.pending_tool is None
+    assert any("pending confirmation is invalid" in message for message in app.message_texts)
+
+
+async def test_status_displays_pending_tool(tmp_path: Path) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+
+    async with app.run_test():
+        app.session_state.set_pending_tool(
+            tool_name="memory_write",
+            arguments={"title": "lesson"},
+            risk_level="medium",
+            reason="tool memory_write requires confirmation",
+            source="test",
+            required_mode="workspace-write",
+            preview={"title": "lesson"},
+        )
+
+        app.handle_user_input("/status")
+
+    assert "pending_tool: memory_write" in "\n".join(app.message_texts)
 
 
 async def test_natural_fix_request_waits_for_confirmation_then_runs_with_set_test(

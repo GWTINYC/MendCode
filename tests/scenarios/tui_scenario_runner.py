@@ -13,7 +13,19 @@ from typing import Any
 from app.agent.loop import AgentLoopResult, AgentStep
 from app.agent.session import AgentSessionTurn, ReviewSummary
 from app.config.settings import Settings
-from app.schemas.agent_action import FinalResponseAction, Observation, ToolCallAction
+from app.runtime.benchmark import (
+    BenchmarkCaseEvidence,
+    BenchmarkCaseSpec,
+    BenchmarkCategory,
+    BenchmarkManifest,
+    build_case_result_from_evidence,
+)
+from app.schemas.agent_action import (
+    FinalResponseAction,
+    Observation,
+    ToolCallAction,
+    UserConfirmationRequestAction,
+)
 from app.tui.app import MendCodeTextualApp
 from app.tui.chat import ChatResponse
 from app.workspace.shell_executor import ShellCommandResult
@@ -35,6 +47,7 @@ class TuiScenario:
     user_inputs: list[str]
     repo_files: dict[str, str] = field(default_factory=dict)
     tool_steps: list[ScenarioToolStep] = field(default_factory=list)
+    pending_confirmation: dict[str, Any] | None = None
     final_summary: str = "完成。"
     chat_response: str = "chat response"
     shell_stdout: str = "README.md\n"
@@ -49,6 +62,7 @@ class ScenarioTranscript:
     chat_calls: list[str]
     tool_calls: list[str]
     shell_calls: list[tuple[str, Path, bool]]
+    pending_tool: dict[str, Any] | None = None
     chat_history: list[tuple[str, str | None]] = field(default_factory=list)
     chat_contexts: list[list[tuple[str, str | None]]] = field(default_factory=list)
 
@@ -98,8 +112,107 @@ class ScenarioTranscript:
                 f"chat_contexts: {self.chat_contexts}",
                 f"tool_calls: {self.tool_calls}",
                 f"shell_calls: {self.shell_calls}",
+                f"pending_tool: {self.pending_tool}",
                 f"tool_results: {self.tool_results}",
             ]
+        )
+
+    def to_benchmark_evidence(self, case: BenchmarkCaseSpec) -> BenchmarkCaseEvidence:
+        observed_tools: list[str] = []
+        for result in self.tool_results:
+            tool_name = result.get("tool_name")
+            if tool_name is not None:
+                observed_tools.append(str(tool_name))
+            for step in result.get("steps", []):
+                if isinstance(step, dict) and step.get("action") is not None:
+                    action = str(step["action"])
+                    if action != "final_response":
+                        observed_tools.append(action)
+        if not observed_tools:
+            observed_tools = list(self.tool_calls)
+        repeated_file_reads = 0
+        context_actual_chars = len(self.visible_text)
+        for record in self.jsonl_records:
+            payload = record.get("payload")
+            if not isinstance(payload, dict):
+                continue
+            context_summary = payload.get("context_summary")
+            if not isinstance(context_summary, dict):
+                continue
+            metrics = context_summary.get("metrics")
+            if not isinstance(metrics, dict):
+                continue
+            repeated_file_reads = int(metrics.get("repeated_read_file_count") or 0)
+            context_chars = metrics.get("context_chars")
+            if isinstance(context_chars, int):
+                context_actual_chars = context_chars
+        dangerous_blocked = None
+        if case.expects_dangerous_block:
+            dangerous_blocked = any(
+                _compact_tool_result_is_rejected_for(result, case.expected_tools)
+                for result in self.tool_results
+            )
+        return BenchmarkCaseEvidence(
+            case_id=case.id,
+            observed_tools=observed_tools,
+            visible_chars=len(self.visible_text),
+            context_baseline_chars=sum(len(message or "") for _, message in self.chat_history),
+            context_actual_chars=context_actual_chars,
+            repeated_file_reads=repeated_file_reads,
+            dangerous_command_blocked=dangerous_blocked,
+        )
+
+
+def _compact_tool_result_is_rejected_for(
+    result: dict[str, Any],
+    tool_names: list[str],
+) -> bool:
+    if result.get("tool_name") in tool_names and result.get("status") == "rejected":
+        return True
+    for step in result.get("steps", []):
+        if not isinstance(step, dict):
+            continue
+        if step.get("action") in tool_names and step.get("status") == "rejected":
+            return True
+    return False
+
+
+def assert_benchmark_case_passed(
+    transcript: ScenarioTranscript,
+    *,
+    case_id: str,
+    category: BenchmarkCategory,
+    expected_tools: list[str],
+    max_visible_chars: int | None = None,
+    expects_dangerous_block: bool = False,
+) -> None:
+    case = BenchmarkManifest.model_validate(
+        {
+            "name": "scenario-inline",
+            "cases": [
+                {
+                    "id": case_id,
+                    "category": category,
+                    "prompt": transcript.user_inputs[-1] if transcript.user_inputs else "",
+                    "expected_tools": expected_tools,
+                    "max_visible_chars": max_visible_chars,
+                    "expects_dangerous_block": expects_dangerous_block,
+                }
+            ],
+        }
+    ).cases[0]
+    result = build_case_result_from_evidence(case, transcript.to_benchmark_evidence(case))
+    if not result.passed:
+        _fail(
+            transcript,
+            (
+                "benchmark case failed: "
+                f"missing_tools={result.missing_tools}, "
+                f"observed_tools={result.observed_tools}, "
+                f"visible_chars={result.visible_chars}, "
+                f"max_visible_chars={result.max_visible_chars}, "
+                f"dangerous_command_blocked={result.dangerous_command_blocked}"
+            ),
         )
 
 
@@ -142,9 +255,47 @@ class FakeToolAgentRunner:
         self.scenario = scenario
         self.repo_path = repo_path
         self.calls: list[str] = []
+        self.initial_observation_counts: list[int] = []
 
-    def __call__(self, *, problem_statement: str) -> AgentLoopResult:
+    def __call__(
+        self,
+        *,
+        problem_statement: str,
+        initial_observations=None,
+    ) -> AgentLoopResult:
         self.calls.append(problem_statement)
+        self.initial_observation_counts.append(len(initial_observations or []))
+        if self.scenario.pending_confirmation is not None:
+            pending = self.scenario.pending_confirmation
+            return AgentLoopResult(
+                run_id=f"scenario-{self.scenario.name.replace(' ', '-')}",
+                status="needs_user_confirmation",
+                summary="工具调用需要确认",
+                trace_path=str(self.repo_path / "data" / "traces" / "scenario.jsonl"),
+                workspace_path=str(self.repo_path),
+                steps=[
+                    AgentStep(
+                        index=1,
+                        action=UserConfirmationRequestAction(
+                            type="user_confirmation_request",
+                            prompt="工具调用需要确认",
+                            risk_level=pending["risk_level"],
+                            options=["确认", "取消"],
+                            tool_name=pending["tool_name"],
+                            required_mode=pending["required_mode"],
+                            permission_reason=pending["reason"],
+                            confirmation_id=pending["id"],
+                            preview=pending["preview"],
+                        ),
+                        observation=Observation(
+                            status="rejected",
+                            summary="工具调用需要确认",
+                            payload={"pending_confirmation": pending},
+                            error_message=str(pending["reason"]),
+                        ),
+                    )
+                ],
+            )
         steps: list[AgentStep] = []
         for index, item in enumerate(self.scenario.tool_steps, start=1):
             error_message = item.error_message
@@ -153,7 +304,7 @@ class FakeToolAgentRunner:
             steps.append(
                 AgentStep(
                     index=index,
-                    action=ToolCallAction(
+                    action=ToolCallAction.model_construct(
                         type="tool_call",
                         action=item.action,
                         reason="scenario tool step",
@@ -393,6 +544,11 @@ class TuiScenarioRunner:
             chat_contexts=list(chat_responder.contexts),
             tool_calls=list(tool_runner.calls),
             shell_calls=list(shell_executor.calls),
+            pending_tool=(
+                app.session_state.pending_tool.model_dump(mode="json")
+                if app.session_state.pending_tool is not None
+                else None
+            ),
         )
 
 

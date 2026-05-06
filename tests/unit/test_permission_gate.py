@@ -27,14 +27,6 @@ def test_guided_mode_allows_read_only_tools():
     )
 
 
-def test_guided_mode_allows_worktree_patch_but_not_main_workspace_apply():
-    decision = decide_permission(tool_call("apply_patch_to_worktree"), mode="guided")
-
-    assert decision.status == "allow"
-    assert decision.risk_level == "medium"
-    assert "worktree" in decision.reason
-
-
 def test_guided_mode_allows_structured_apply_patch_in_worktree() -> None:
     decision = decide_permission(tool_call("apply_patch"), mode="guided")
 
@@ -94,6 +86,27 @@ def test_build_confirmation_request_includes_action_reason_and_risk():
     assert "run_command" in request.prompt
     assert "Need to call run_command" in request.prompt
     assert request.options == ["allow_once", "deny", "change_permission_mode"]
+
+
+def test_confirmation_request_includes_tool_metadata():
+    action = ToolCallAction(
+        type="tool_call",
+        action="memory_write",
+        reason="Store a lesson",
+        args={"kind": "failure_lesson", "title": "lesson", "content": "body"},
+    )
+    decision = PermissionDecision(
+        status="confirm",
+        reason="tool memory_write requires confirmation",
+        risk_level="medium",
+        required_mode="workspace-write",
+    )
+
+    request = build_confirmation_request(action=action, decision=decision)
+
+    assert request.tool_name == "memory_write"
+    assert request.required_mode == "workspace-write"
+    assert request.permission_reason == "tool memory_write requires confirmation"
 
 
 def test_read_only_allows_read_tools_and_denies_write_tools() -> None:

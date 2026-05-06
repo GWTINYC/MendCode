@@ -2,10 +2,12 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Protocol
 
+from pydantic import ValidationError
 from rich.text import Text
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.css.query import NoMatches
+from textual.events import Key
 from textual.widgets import Input, RichLog, Static
 
 from app.agent.loop import AgentLoopInput, AgentLoopResult, run_agent_loop
@@ -15,9 +17,16 @@ from app.agent.provider_factory import ProviderConfigurationError, build_agent_p
 from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import Settings
 from app.runtime.session_store import SessionNotFoundError, SessionStore
-from app.tools.structured import ToolInvocation
+from app.runtime.tool_confirmation import (
+    PendingToolConfirmation,
+    build_tool_rejected_observation,
+)
+from app.schemas.agent_action import ToolCallAction
+from app.tools.registry import default_tool_registry
+from app.tools.structured import ToolExecutionContext, ToolInvocation
 from app.tui.chat import ChatContext, ChatResponder, ChatResponse, build_chat_responder
 from app.tui.commands import ChatCommand
+from app.tui.completions import CompletionState, build_completion_state, insert_completion
 from app.tui.controller import TuiController
 from app.tui.conversation_log import ConversationLog
 from app.tui.log_summarizer import compact_agent_loop_result, compact_agent_session_turn
@@ -33,9 +42,16 @@ from app.workspace.review_actions import (
 from app.workspace.shell_executor import ShellCommandResult, execute_shell_command
 from app.workspace.shell_policy import ShellPolicy
 
-READ_ONLY_TOOL_AGENT_TOOLS = {
+_VISIBLE_COMPLETION_ROWS = 5
+
+TUI_TOOL_AGENT_TOOLS = {
     "glob_file_search",
     "git",
+    "evolution_rule_accept",
+    "evolution_rule_accept_with_edits",
+    "evolution_rule_list",
+    "evolution_rule_reject",
+    "evolution_rule_view",
     "file_summary_read",
     "list_dir",
     "lsp",
@@ -46,6 +62,7 @@ READ_ONLY_TOOL_AGENT_TOOLS = {
     "session_status",
     "tool_search",
 }
+READ_ONLY_TOOL_AGENT_TOOLS = TUI_TOOL_AGENT_TOOLS
 
 _TOOL_AVAILABILITY_TERMS = (
     "哪些工具",
@@ -62,11 +79,28 @@ ToolAgentRunner = Callable[..., AgentLoopResult]
 
 _CONFIRM_TERMS = {"start", "yes", "y", "confirm", "开始", "确认", "可以", "执行", "好", "好的"}
 _CANCEL_TERMS = {"cancel", "no", "n", "stop", "取消", "不用", "停止", "算了"}
+_CHANGE_MODE_TERMS = {
+    "change mode",
+    "change permission",
+    "change permission mode",
+    "change_permission_mode",
+    "切换模式",
+    "切换权限",
+    "提升权限",
+}
 
 
 def _is_tool_availability_question(message: str) -> bool:
     normalized = message.casefold()
     return any(term in normalized for term in _TOOL_AVAILABILITY_TERMS)
+
+
+def _pending_tool_arguments_from_step(step) -> dict[str, object]:
+    if step.tool_invocation is not None:
+        return dict(step.tool_invocation.args)
+    if isinstance(step.action, ToolCallAction):
+        return dict(step.action.args)
+    return {}
 
 
 class ToolAvailabilityProvider:
@@ -179,14 +213,98 @@ def _build_header_text(repo_path: Path, settings: Settings) -> str:
     provider = settings.provider_model or settings.provider
     return "\n".join(
         [
-            "MendCode",
-            f"repo: {repo_path}",
-            f"branch: {branch}",
-            f"status: {_repo_dirty_status(repo_path)}",
-            "mode: guided",
-            f"provider: {provider}",
+            f"MendCode  repo: {repo_path}",
+            (
+                f"branch: {branch}  "
+                f"status: {_repo_dirty_status(repo_path)}  "
+                "mode: guided  "
+                f"provider: {provider}"
+            ),
         ]
     )
+
+
+def _status_bar_text(state: TuiSessionState) -> str:
+    running = state.running_kind or "idle"
+    pending = state.pending_tool.tool_name if state.pending_tool is not None else "none"
+    verification = state.verification_command or "not set"
+    return (
+        f"mode {state.permission_mode} | "
+        f"state {state.last_turn_status} | "
+        f"running {running} | "
+        f"pending {pending} | "
+        f"test {verification}"
+    )
+
+
+def _role_style(role: str) -> str:
+    return {
+        "You": "bold cyan",
+        "MendCode": "bold green",
+        "Agent": "bold green",
+        "Shell": "bold yellow",
+        "System": "dim",
+        "Error": "bold red",
+    }.get(role, "white")
+
+
+def _role_label(role: str) -> str:
+    return {
+        "You": "You",
+        "MendCode": "MendCode",
+        "Agent": "MendCode",
+        "Shell": "Shell",
+        "System": "System",
+        "Error": "Error",
+    }.get(role, role)
+
+
+def _format_chat_line(role: str, message: str) -> Text:
+    label = _role_label(role)
+    text = Text()
+    text.append(f"{label}\n", style=_role_style(role))
+    text.append(message)
+    return text
+
+
+def _format_completion_panel(state: CompletionState | None) -> Text:
+    text = Text()
+    if state is None:
+        text.append("Type @ for files, $ for context shortcuts, / for commands.", style="dim")
+        return text
+    start = _completion_window_start(
+        selected_index=state.selected_index,
+        item_count=len(state.items),
+        visible_rows=_VISIBLE_COMPLETION_ROWS,
+    )
+    end = min(len(state.items), start + _VISIBLE_COMPLETION_ROWS)
+    if start > 0:
+        text.append("  ↑ more\n", style="dim")
+    for index in range(start, end):
+        item = state.items[index]
+        prefix = "▶" if index == state.selected_index else " "
+        text.append(
+            f"{prefix} {item.label}  ",
+            style="bold" if index == state.selected_index else "white",
+        )
+        text.append(f"{item.description}\n", style="dim")
+    if end < len(state.items):
+        text.append("  ↓ more\n", style="dim")
+    return text
+
+
+def _completion_window_start(
+    *,
+    selected_index: int,
+    item_count: int,
+    visible_rows: int,
+) -> int:
+    if item_count <= visible_rows:
+        return 0
+    half_window = visible_rows // 2
+    start = selected_index - half_window
+    max_start = item_count - visible_rows
+    return min(max(start, 0), max_start)
 
 
 def _available_review_actions(turn: AgentSessionTurn) -> list[str]:
@@ -257,22 +375,43 @@ class MendCodeTextualApp(App[None]):
     CSS = """
     Screen {
         layout: vertical;
+        background: $surface;
     }
 
     #repo-header {
         height: auto;
-        padding: 0 1;
-        border-bottom: solid $primary;
+        padding: 0 2;
+        color: $text-muted;
+        background: $panel;
+        border-bottom: tall $primary-background;
     }
 
     #chat-log {
         height: 1fr;
-        padding: 0 1;
-        border-bottom: solid $primary;
+        padding: 1 2;
+        background: $surface;
+        border-bottom: tall $primary-background;
+    }
+
+    #completion-panel {
+        height: auto;
+        max-height: 6;
+        padding: 0 2;
+        color: $text-muted;
+        background: $surface;
+    }
+
+    #status-bar {
+        height: 1;
+        padding: 0 2;
+        color: $text-muted;
+        background: $panel;
     }
 
     #chat-input {
         dock: bottom;
+        height: 3;
+        padding: 0 1;
     }
     """
 
@@ -293,6 +432,7 @@ class MendCodeTextualApp(App[None]):
         self.session_state = TuiSessionState()
         self.header_text = _build_header_text(repo_path, settings)
         self.message_texts: list[str] = []
+        self._completion_state: CompletionState | None = None
         self._agent_session = agent_session
         self._chat_responder = chat_responder
         self._review_action_executor = review_action_executor
@@ -311,7 +451,9 @@ class MendCodeTextualApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Static(self.header_text, id="repo-header")
         yield RichLog(id="chat-log", wrap=True, highlight=False)
-        yield Input(placeholder="Message or /help", id="chat-input")
+        yield Static(_format_completion_panel(None), id="completion-panel")
+        yield Static(_status_bar_text(self.session_state), id="status-bar")
+        yield Input(placeholder="Ask MendCode anything about this repo", id="chat-input")
 
     def on_mount(self) -> None:
         self.append_message(
@@ -323,9 +465,40 @@ class MendCodeTextualApp(App[None]):
 
     @on(Input.Submitted, "#chat-input")
     def on_chat_submitted(self, event: Input.Submitted) -> None:
+        if self._completion_state is not None:
+            self._accept_completion()
+            return
         value = event.value
         event.input.value = ""
+        self._clear_completion_state()
         self.handle_user_input(value)
+
+    @on(Input.Changed, "#chat-input")
+    def on_chat_changed(self, event: Input.Changed) -> None:
+        cursor_position = getattr(event.input, "cursor_position", len(event.value))
+        self._set_completion_state(
+            build_completion_state(
+                repo_path=self.repo_path,
+                text=event.value,
+                cursor_position=cursor_position,
+            )
+        )
+
+    def on_key(self, event: Key) -> None:
+        if self._completion_state is None:
+            return
+        if event.key == "escape":
+            self._clear_completion_state()
+            event.stop()
+            return
+        if event.key in {"up", "down"}:
+            self._move_completion_selection(-1 if event.key == "up" else 1)
+            event.stop()
+            return
+        if event.key in {"tab", "enter"}:
+            self._accept_completion()
+            event.stop()
+            return
 
     def append_message(self, role: str, message: str) -> None:
         line = f"{role}: {message}"
@@ -335,17 +508,88 @@ class MendCodeTextualApp(App[None]):
             chat_log = self.query_one("#chat-log", RichLog)
         except NoMatches:
             return
-        chat_log.write(Text(line))
+        chat_log.write(_format_chat_line(role, message))
+        self._refresh_status_bar()
+
+    def _set_completion_state(self, state: CompletionState | None) -> None:
+        self._completion_state = state
+        self._refresh_completion_panel()
+
+    def _clear_completion_state(self) -> None:
+        self._completion_state = None
+        self._refresh_completion_panel()
+
+    def _move_completion_selection(self, delta: int) -> None:
+        if self._completion_state is None:
+            return
+        selected = (self._completion_state.selected_index + delta) % len(
+            self._completion_state.items
+        )
+        self._completion_state = CompletionState(
+            trigger=self._completion_state.trigger,
+            query=self._completion_state.query,
+            selected_index=selected,
+            items=self._completion_state.items,
+        )
+        self._refresh_completion_panel()
+
+    def _accept_completion(self) -> None:
+        if self._completion_state is None:
+            return
+        input_widget = self.query_one("#chat-input", Input)
+        current_text = input_widget.value
+        cursor_position = getattr(input_widget, "cursor_position", len(current_text))
+        item = self._completion_state.items[self._completion_state.selected_index]
+        updated_text, new_cursor = insert_completion(current_text, cursor_position, item)
+        input_widget.value = updated_text
+        try:
+            input_widget.cursor_position = new_cursor
+        except Exception:
+            pass
+        self._clear_completion_state()
+
+    def _refresh_completion_panel(self) -> None:
+        try:
+            panel = self.query_one("#completion-panel", Static)
+        except NoMatches:
+            return
+        panel.update(_format_completion_panel(self._completion_state))
+
+    def _refresh_status_bar(self) -> None:
+        try:
+            status_bar = self.query_one("#status-bar", Static)
+        except NoMatches:
+            return
+        status_bar.update(_status_bar_text(self.session_state))
 
     def handle_user_input(self, raw_text: str) -> None:
+        text = raw_text.strip()
+        normalized = text.lower()
+        if text and self.session_state.pending_tool is not None:
+            if normalized in _CONFIRM_TERMS | _CANCEL_TERMS | _CHANGE_MODE_TERMS:
+                self.append_message("You", text)
+                self._handle_pending_tool_reply(text)
+                return
+            if normalized != "/status":
+                self.append_message("You", text)
+                self.append_message("System", "请先确认、取消或切换模式来处理待执行的工具调用。")
+                return
+        if text and normalized in _CONFIRM_TERMS | _CANCEL_TERMS:
+            if self.session_state.pending_fix is not None:
+                self.append_message("You", text)
+                self._handle_pending_fix_reply(text)
+                return
         self._controller.handle_user_input(raw_text)
 
     @property
     def conversation_log(self) -> ConversationLog:
         return self._conversation_log
 
+    def handle_pending_tool_reply(self, message: str) -> bool:
+        return self._handle_pending_tool_reply(message)
+
     def handle_pending_shell_reply(self, message: str) -> bool:
-        return self._handle_pending_shell_reply(message)
+        return self._handle_pending_tool_reply(message)
 
     def handle_pending_fix_reply(self, message: str) -> bool:
         return self._handle_pending_fix_reply(message)
@@ -381,6 +625,9 @@ class MendCodeTextualApp(App[None]):
         if command.name in {"diff", "trace", "apply", "discard"}:
             self._run_review_action(command.name)
             return
+        if command.name == "tools":
+            self._show_latest_tool_details()
+            return
         if command.name == "sessions":
             self._show_sessions()
             return
@@ -402,6 +649,7 @@ class MendCodeTextualApp(App[None]):
                 "slash commands control the TUI.",
                 "/diff - show latest worktree diff",
                 "/trace - show latest trace excerpt",
+                "/tools - expand latest tool-call details",
                 "/sessions - list saved conversation sessions",
                 "/resume [session_id] - show compact context from a saved session",
                 "/apply - apply latest verified worktree changes",
@@ -418,8 +666,10 @@ class MendCodeTextualApp(App[None]):
             if self.session_state.last_turn is not None
             else self.session_state.last_turn_status
         )
-        pending_shell = (
-            self.session_state.pending_shell.command if self.session_state.pending_shell else "none"
+        pending_tool = (
+            self.session_state.pending_tool.tool_name
+            if self.session_state.pending_tool is not None
+            else "none"
         )
         conversation_log = self.session_state.conversation_markdown_path or "not set"
         return "\n".join(
@@ -431,8 +681,9 @@ class MendCodeTextualApp(App[None]):
                 f"recent_task: {recent_task}",
                 f"running: {self.session_state.running}",
                 f"running_kind: {self.session_state.running_kind or 'none'}",
+                f"permission_mode: {self.session_state.permission_mode}",
                 f"pending_fix: {self.session_state.pending_fix is not None}",
-                f"pending_shell: {pending_shell}",
+                f"pending_tool: {pending_tool}",
                 f"last_turn: {last_turn}",
                 f"conversation_log: {conversation_log}",
             ]
@@ -557,21 +808,56 @@ class MendCodeTextualApp(App[None]):
             return True
         return False
 
-    def _handle_pending_shell_reply(self, message: str) -> bool:
-        pending = self.session_state.pending_shell
+    def _handle_pending_tool_reply(self, message: str) -> bool:
+        pending = self.session_state.pending_tool
         if pending is None:
             return False
         normalized = message.strip().lower()
         if normalized in _CANCEL_TERMS:
-            self.session_state.clear_pending_shell()
-            self.append_message("System", "已取消待确认的 shell 命令。")
+            rejected_record = self._rejected_pending_tool_record(pending, user_reply=message)
+            self._conversation_log.append_event(
+                "tool_confirmation_rejected",
+                {
+                    "pending": pending.safe_payload(),
+                    "observation": rejected_record.observation.model_dump(mode="json"),
+                },
+            )
+            self.session_state.clear_pending_tool()
+            self.append_message("System", "已取消待确认的工具调用。")
+            if pending.source == "agent_loop":
+                task = (
+                    self.session_state.recent_task
+                    or f"Continue after rejecting {pending.tool_name}"
+                )
+                self.session_state.mark_tool_started(task)
+                self._run_tool_worker(task, initial_observations=[rejected_record])
+            return True
+        if normalized in _CHANGE_MODE_TERMS:
+            if self.session_state.running:
+                self.append_message("Error", "A request is already running.")
+                return True
+            self.session_state.permission_mode = pending.required_mode
+            self.append_message("System", f"权限模式已切换为 {pending.required_mode}。")
+            self.session_state.clear_pending_tool()
+            self._start_confirmed_tool(pending, permission_mode=pending.required_mode)
             return True
         if normalized in _CONFIRM_TERMS:
-            command = pending.command
-            self.session_state.clear_pending_shell()
-            self._start_shell_command(command, confirmed=True)
+            if self.session_state.running:
+                self.append_message("Error", "A request is already running.")
+                return True
+            tool_name = pending.tool_name
+            if tool_name == "run_shell_command" and pending.source != "agent_loop":
+                command = str(pending.arguments.get("command", ""))
+                self.session_state.clear_pending_tool()
+                self._start_shell_command(command, confirmed=True)
+                return True
+            self.session_state.clear_pending_tool()
+            self._start_confirmed_tool(pending)
             return True
         return False
+
+    def _handle_pending_shell_reply(self, message: str) -> bool:
+        return self._handle_pending_tool_reply(message)
 
     def _shell_policy(self) -> ShellPolicy:
         return ShellPolicy(
@@ -640,6 +926,95 @@ class MendCodeTextualApp(App[None]):
         self.append_message("Shell", f"Running command: {command}")
         self._run_shell_worker(command, confirmed)
 
+    def _start_confirmed_tool(
+        self,
+        pending: PendingToolConfirmation,
+        *,
+        permission_mode: str = "danger-full-access",
+    ) -> None:
+        if self.session_state.running:
+            self.append_message("Error", "A request is already running.")
+            return
+        try:
+            confirmed_record = self._execute_pending_tool(
+                pending,
+                permission_mode=permission_mode,
+            )
+        except Exception as exc:
+            self.append_message("Error", str(exc))
+            return
+        self._conversation_log.append_event(
+            "tool_confirmation_executed",
+            {
+                "pending": pending.safe_payload(),
+                "observation": confirmed_record.observation.model_dump(mode="json"),
+            },
+        )
+        task = self.session_state.recent_task or f"Summarize {pending.tool_name} result"
+        self.session_state.mark_tool_started(task)
+        self._run_tool_worker(task, initial_observations=[confirmed_record])
+
+    def _execute_pending_tool(
+        self,
+        pending: PendingToolConfirmation,
+        *,
+        permission_mode: str = "danger-full-access",
+    ) -> AgentObservationRecord:
+        action = ToolCallAction(
+            type="tool_call",
+            action=pending.tool_name,
+            reason=f"user approved pending tool {pending.tool_name}",
+            args=pending.arguments,
+        )
+        invocation = ToolInvocation(
+            id=pending.tool_call_id,
+            name=pending.tool_name,
+            args=pending.arguments,
+            source="openai_tool_call" if pending.tool_call_id is not None else "json_action",
+            group_id=pending.tool_call_group_id,
+        )
+        spec = default_tool_registry().get(pending.tool_name)
+        observation = spec.execute(
+            pending.arguments,
+            ToolExecutionContext(
+                workspace_path=self.repo_path,
+                settings=self.settings,
+                verification_commands=self.session_state.verification_commands,
+                permission_mode=permission_mode,
+                pending_confirmation=pending.safe_payload(),
+            ),
+        )
+        return AgentObservationRecord(
+            action=action,
+            tool_invocation=invocation,
+            observation=observation,
+        )
+
+    def _rejected_pending_tool_record(
+        self,
+        pending: PendingToolConfirmation,
+        *,
+        user_reply: str,
+    ) -> AgentObservationRecord:
+        action = ToolCallAction(
+            type="tool_call",
+            action=pending.tool_name,
+            reason=f"user rejected pending tool {pending.tool_name}",
+            args=pending.arguments,
+        )
+        invocation = ToolInvocation(
+            id=pending.tool_call_id,
+            name=pending.tool_name,
+            args=pending.arguments,
+            source="openai_tool_call" if pending.tool_call_id is not None else "json_action",
+            group_id=pending.tool_call_group_id,
+        )
+        return AgentObservationRecord(
+            action=action,
+            tool_invocation=invocation,
+            observation=build_tool_rejected_observation(pending, user_reply=user_reply),
+        )
+
     def _start_chat(self, message: str) -> None:
         if self.session_state.running:
             self.append_message("Error", "A request is already running.")
@@ -689,16 +1064,37 @@ class MendCodeTextualApp(App[None]):
         self.call_from_thread(self._complete_shell, result)
 
     @work(thread=True, exclusive=True, exit_on_error=False)
-    def _run_tool_worker(self, task: str) -> None:
+    def _run_tool_worker(
+        self,
+        task: str,
+        initial_observations: list[AgentObservationRecord] | None = None,
+    ) -> None:
         try:
             runner = self._tool_agent_runner or self._run_tool_agent_loop
-            result = runner(problem_statement=task)
+            try:
+                result = runner(
+                    problem_statement=task,
+                    initial_observations=initial_observations,
+                )
+            except TypeError as exc:
+                is_unexpected_kwarg = (
+                    "initial_observations" in str(exc)
+                    and "unexpected keyword" in str(exc)
+                )
+                if initial_observations is not None or not is_unexpected_kwarg:
+                    raise
+                result = runner(problem_statement=task)
         except Exception as exc:  # pragma: no cover - exercised through UI behavior
             self.call_from_thread(self._complete_tool_error, exc)
             return
         self.call_from_thread(self._complete_tool_request, result)
 
-    def _run_tool_agent_loop(self, *, problem_statement: str) -> AgentLoopResult:
+    def _run_tool_agent_loop(
+        self,
+        *,
+        problem_statement: str,
+        initial_observations: list[AgentObservationRecord] | None = None,
+    ) -> AgentLoopResult:
         if _is_tool_availability_question(problem_statement):
             provider = ToolAvailabilityProvider()
         else:
@@ -709,8 +1105,9 @@ class MendCodeTextualApp(App[None]):
                 problem_statement=problem_statement,
                 provider=provider,
                 verification_commands=[],
-                allowed_tools=READ_ONLY_TOOL_AGENT_TOOLS,
-                permission_mode="guided",
+                initial_observations=initial_observations or [],
+                allowed_tools=TUI_TOOL_AGENT_TOOLS,
+                permission_mode=self.session_state.permission_mode,
                 step_budget=12,
                 use_worktree=False,
             ),
@@ -740,11 +1137,53 @@ class MendCodeTextualApp(App[None]):
 
     def _complete_tool_request(self, result: AgentLoopResult) -> None:
         self.session_state.mark_tool_completed(result.status)
+        self.session_state.set_last_tool_result(result)
         self._conversation_log.append_event(
             "tool_result",
             compact_agent_loop_result(result),
         )
         self._render_tool_result(result)
+        if result.status == "needs_user_confirmation":
+            self._store_pending_tool_from_result(result)
+
+    def _store_pending_tool_from_result(self, result: AgentLoopResult) -> bool:
+        for step in result.steps:
+            pending = step.observation.payload.get("pending_confirmation")
+            if not isinstance(pending, dict):
+                continue
+            try:
+                pending_confirmation = PendingToolConfirmation.model_validate(pending)
+            except ValidationError as exc:
+                self._conversation_log.append_event(
+                    "tool_confirmation_invalid",
+                    {
+                        "error": str(exc),
+                        "keys": sorted(str(key) for key in pending.keys()),
+                    },
+                )
+                self.append_message("Error", "pending confirmation is invalid.")
+                return False
+            self.session_state.set_pending_tool(
+                tool_name=pending_confirmation.tool_name,
+                arguments=_pending_tool_arguments_from_step(step),
+                risk_level=pending_confirmation.risk_level,
+                reason=pending_confirmation.reason,
+                source=pending_confirmation.source,
+                required_mode=pending_confirmation.required_mode,
+                preview=pending_confirmation.preview,
+                tool_call_id=pending_confirmation.tool_call_id,
+                tool_call_group_id=pending_confirmation.tool_call_group_id,
+                confirmation_id=pending_confirmation.id,
+            )
+            self.append_message(
+                "System",
+                (
+                    "工具调用需要确认。回复“确认”或 yes 执行一次，"
+                    "回复“取消”放弃，回复“切换模式”提升到所需权限后执行。"
+                ),
+            )
+            return True
+        return False
 
     def _complete_turn_error(self, exc: Exception) -> None:
         self.session_state.mark_turn_failed()
@@ -825,6 +1264,31 @@ class MendCodeTextualApp(App[None]):
                 f"{step.index}. {action_name}: "
                 f"{step.observation.status} - {step.observation.summary}"
             )
+            content = step.observation.payload.get("content")
+            if isinstance(content, str) and content:
+                lines.append(_content_metadata_line(content, step.observation.payload))
+        self.append_message("Agent", "Tool Process\n" + "\n".join(lines))
+
+    def _show_latest_tool_details(self) -> None:
+        result = self.session_state.last_tool_result
+        if result is None:
+            self.append_message("System", "No tool details available yet.")
+            return
+        self._render_tool_details(result)
+
+    def _render_tool_details(self, result: AgentLoopResult) -> None:
+        lines = [
+            f"status: {result.status}",
+            f"summary: {result.summary}",
+        ]
+        for step in result.steps:
+            if step.action.type != "tool_call":
+                continue
+            action_name = getattr(step.action, "action", "tool_call")
+            lines.append(
+                f"{step.index}. {action_name}: "
+                f"{step.observation.status} - {step.observation.summary}"
+            )
             entries = step.observation.payload.get("entries")
             if isinstance(entries, list):
                 for entry in entries[:20]:
@@ -840,7 +1304,7 @@ class MendCodeTextualApp(App[None]):
             stdout = step.observation.payload.get("stdout_excerpt")
             if isinstance(stdout, str) and stdout:
                 lines.extend(["stdout:", stdout])
-        self.append_message("Agent", "Tool Result\n" + "\n".join(lines))
+        self.append_message("Agent", "Tool Details\n" + "\n".join(lines))
 
     def _render_turn(self, turn: AgentSessionTurn) -> None:
         if turn.tool_summaries:

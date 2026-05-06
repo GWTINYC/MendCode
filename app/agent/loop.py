@@ -12,8 +12,10 @@ from app.agent.permission import (
     build_confirmation_request,
     decide_permission,
 )
+from app.agent.provider import AgentObservationRecord
 from app.config.settings import Settings
 from app.memory.store import MemoryStore
+from app.runtime.tool_confirmation import build_pending_tool_confirmation
 from app.schemas.agent_action import (
     FinalResponseAction,
     MendCodeAction,
@@ -24,7 +26,6 @@ from app.schemas.agent_action import (
     parse_mendcode_action,
 )
 from app.schemas.trace import TraceEvent
-from app.tools.patch import apply_patch
 from app.tools.read_only import glob_file_search, list_dir, read_file, search_code
 from app.tools.registry import default_tool_registry
 from app.tools.schemas import ToolResult
@@ -37,9 +38,7 @@ from app.workspace.shell_executor import ShellCommandResult, execute_shell_comma
 from app.workspace.shell_policy import ShellPolicy
 
 AgentLoopStatus = str
-_BUILTIN_TOOL_NAMES = {
-    "apply_patch_to_worktree",
-}
+_BUILTIN_TOOL_NAMES: set[str] = set()
 
 
 class AgentLoopInput(BaseModel):
@@ -51,6 +50,7 @@ class AgentLoopInput(BaseModel):
     provider: Any | None = None
     verification_commands: list[str] = Field(default_factory=list)
     provider_context: str | None = None
+    initial_observations: list[AgentObservationRecord] = Field(default_factory=list)
     allowed_tools: set[str] | None = None
     permission_mode: PermissionMode = "guided"
     step_budget: int = Field(default=12, ge=1)
@@ -562,15 +562,6 @@ def _execute_tool_call(
         return _run_git(repo_path, settings, action.args)
     if action.action == "apply_patch":
         return _apply_patch_tool(action.args, repo_path)
-    if action.action == "apply_patch_to_worktree":
-        result = apply_patch(
-            workspace_path=repo_path,
-            relative_path=str(action.args.get("relative_path", "")),
-            target_text=str(action.args.get("target_text", "")),
-            replacement_text=str(action.args.get("replacement_text", "")),
-            replace_all=bool(action.args.get("replace_all", False)),
-        )
-        return _tool_result_to_observation(result)
     if action.action == "show_diff":
         return _show_diff(repo_path)
 
@@ -632,8 +623,29 @@ def _confirmation_handled_action(
     index: int,
     payload: dict[str, Any],
     error_message: str | None,
+    tool_invocation: ToolInvocation | None = None,
 ) -> _HandledAction:
-    confirmation = build_confirmation_request(action=action, decision=decision)
+    effective_invocation = tool_invocation
+    if effective_invocation is None:
+        effective_invocation = ToolInvocation(
+            name=action.action,
+            args=_registry_args_for_json_action(action),
+            source="json_action",
+        )
+    pending = build_pending_tool_confirmation(
+        action=action,
+        decision=decision,
+        tool_invocation=effective_invocation,
+        source="agent_loop",
+    )
+    payload = dict(payload)
+    payload["pending_confirmation"] = pending.safe_payload()
+    confirmation = build_confirmation_request(
+        action=action,
+        decision=decision,
+        confirmation_id=pending.id,
+        preview=pending.preview,
+    )
     observation = Observation(
         status="rejected",
         summary="User confirmation required",
@@ -644,7 +656,12 @@ def _confirmation_handled_action(
         stop=True,
         status="needs_user_confirmation",
         summary=observation.summary,
-        step=AgentStep(index=index, action=confirmation, observation=observation),
+        step=AgentStep(
+            index=index,
+            action=confirmation,
+            observation=observation,
+            tool_invocation=effective_invocation,
+        ),
     )
 
 
@@ -663,6 +680,7 @@ def _handle_tool_call_action(
     process_registry: Any | None = None,
     memory_store: MemoryStore | None = None,
     allow_legacy_git: bool = True,
+    tool_invocation: ToolInvocation | None = None,
 ) -> _HandledAction:
     shell_policy_command = (
         _shell_policy_command_for_action(action)
@@ -692,6 +710,7 @@ def _handle_tool_call_action(
             index=index,
             payload=payload,
             error_message=decision.reason,
+            tool_invocation=tool_invocation,
         )
     if decision.status == "deny":
         payload = {"permission_decision": decision.model_dump(mode="json")}
@@ -835,6 +854,7 @@ def _handle_tool_invocation(
         process_registry=process_registry,
         memory_store=memory_store,
         allow_legacy_git=False,
+        tool_invocation=invocation,
     )
 
 

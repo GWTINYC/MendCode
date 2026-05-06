@@ -8,6 +8,10 @@ from app.tools.arguments import (
     ApplyPatchArgs,
     EditFileArgs,
     EmptyToolArgs,
+    EvolutionRuleAcceptWithEditsArgs,
+    EvolutionRuleActionArgs,
+    EvolutionRuleListArgs,
+    EvolutionRuleViewArgs,
     FileSummaryReadArgs,
     FileSummaryRefreshArgs,
     GitArgs,
@@ -21,6 +25,9 @@ from app.tools.arguments import (
     ProcessStopArgs,
     ProcessWriteArgs,
     ReadFileArgs,
+    ReviewQueueActionArgs,
+    ReviewQueueListArgs,
+    ReviewQueueViewArgs,
     RgArgs,
     RunCommandArgs,
     RunShellCommandArgs,
@@ -30,12 +37,23 @@ from app.tools.arguments import (
     TraceAnalyzeArgs,
     WriteFileArgs,
 )
+from app.tools.evolution_tools import (
+    evolution_rule_accept,
+    evolution_rule_accept_with_edits,
+    evolution_rule_list,
+    evolution_rule_reject,
+    evolution_rule_view,
+)
 from app.tools.lsp_tool import lsp
 from app.tools.memory_tools import (
     file_summary_read,
     file_summary_refresh,
     memory_search,
     memory_write,
+    review_queue_accept,
+    review_queue_list,
+    review_queue_reject,
+    review_queue_view,
     trace_analyze,
 )
 from app.tools.observations import observation_from_tool_result, tool_observation
@@ -370,7 +388,12 @@ def _run_shell_command(args: RunShellCommandArgs, context: ToolExecutionContext)
         allowed_root=context.workspace_path,
         timeout_seconds=context.settings.verification_timeout_seconds,
     )
-    result = execute_shell_command(command=args.command, cwd=context.workspace_path, policy=policy)
+    result = execute_shell_command(
+        command=args.command,
+        cwd=context.workspace_path,
+        policy=policy,
+        confirmed=_is_confirmed_tool_call(context, "run_shell_command"),
+    )
     return _shell_result_to_observation(result)
 
 
@@ -406,6 +429,11 @@ def _run_command(args: RunCommandArgs, context: ToolExecutionContext) -> Observa
         stderr_excerpt=result.stderr_excerpt,
         duration_ms=result.duration_ms,
     )
+
+
+def _is_confirmed_tool_call(context: ToolExecutionContext, tool_name: str) -> bool:
+    pending = context.pending_confirmation
+    return isinstance(pending, dict) and pending.get("tool_name") == tool_name
 
 
 def _strip_patch_prefix(path: str) -> str:
@@ -856,6 +884,78 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=TraceAnalyzeArgs,
                 risk_level=ToolRisk.READ_ONLY,
                 executor=trace_analyze,
+            ),
+            ToolSpec(
+                name="review_queue_list",
+                description=(
+                    "List compact pending, accepted, rejected, or all memory/skill "
+                    "review candidates."
+                ),
+                args_model=ReviewQueueListArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=review_queue_list,
+            ),
+            ToolSpec(
+                name="review_queue_view",
+                description=(
+                    "Read one review candidate with evidence before accepting or "
+                    "rejecting it."
+                ),
+                args_model=ReviewQueueViewArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=review_queue_view,
+            ),
+            ToolSpec(
+                name="review_queue_accept",
+                description="Accept a review candidate and promote it to long-term memory.",
+                args_model=ReviewQueueActionArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=review_queue_accept,
+            ),
+            ToolSpec(
+                name="review_queue_reject",
+                description="Reject a review candidate without writing long-term memory.",
+                args_model=ReviewQueueActionArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=review_queue_reject,
+            ),
+            ToolSpec(
+                name="evolution_rule_list",
+                description="List pending evolution rule candidates for TUI review.",
+                args_model=EvolutionRuleListArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=evolution_rule_list,
+            ),
+            ToolSpec(
+                name="evolution_rule_view",
+                description="View one evolution rule candidate with bounded evidence.",
+                args_model=EvolutionRuleViewArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=evolution_rule_view,
+            ),
+            ToolSpec(
+                name="evolution_rule_accept",
+                description="Accept an evolution rule candidate and persist an active rule.",
+                args_model=EvolutionRuleActionArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=evolution_rule_accept,
+            ),
+            ToolSpec(
+                name="evolution_rule_reject",
+                description="Reject an evolution rule candidate without changing active rules.",
+                args_model=EvolutionRuleActionArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=evolution_rule_reject,
+            ),
+            ToolSpec(
+                name="evolution_rule_accept_with_edits",
+                description=(
+                    "Accept an evolution rule candidate with edited rule text, scope, "
+                    "and activation hint."
+                ),
+                args_model=EvolutionRuleAcceptWithEditsArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=evolution_rule_accept_with_edits,
             ),
             ToolSpec(
                 name="process_start",

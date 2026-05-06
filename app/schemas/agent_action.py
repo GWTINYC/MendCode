@@ -21,7 +21,6 @@ ToolName = Literal[
     "rg",
     "git",
     "apply_patch",
-    "apply_patch_to_worktree",
     "write_file",
     "edit_file",
     "todo_write",
@@ -39,6 +38,15 @@ ToolName = Literal[
     "file_summary_read",
     "file_summary_refresh",
     "trace_analyze",
+    "review_queue_list",
+    "review_queue_view",
+    "review_queue_accept",
+    "review_queue_reject",
+    "evolution_rule_list",
+    "evolution_rule_view",
+    "evolution_rule_accept",
+    "evolution_rule_reject",
+    "evolution_rule_accept_with_edits",
 ]
 ObservationStatus = Literal["succeeded", "failed", "rejected"]
 RiskLevel = Literal["low", "medium", "high", "critical"]
@@ -77,6 +85,11 @@ class UserConfirmationRequestAction(BaseModel):
     prompt: str
     risk_level: RiskLevel
     options: list[str]
+    tool_name: ToolName | None = None
+    required_mode: str | None = None
+    permission_reason: str | None = None
+    confirmation_id: str | None = None
+    preview: dict[str, Any] = Field(default_factory=dict)
 
 
 class FinalResponseAction(BaseModel):

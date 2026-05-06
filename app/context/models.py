@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 ContextItemKind = Literal[
     "base_context",
     "memory_recall",
+    "evolution_rule",
     "context_warning",
     "context_metrics",
     "observation",
@@ -27,8 +28,10 @@ class ContextItem(StrictContextModel):
 
 class ContextBudget(StrictContextModel):
     max_memory_items: int = Field(default=5, ge=0)
+    max_evolution_rules: int = Field(default=3, ge=0)
     max_context_chars: int = Field(default=16000, ge=1000)
     max_memory_chars: int = Field(default=4000, ge=0)
+    max_evolution_rule_chars: int = Field(default=1200, ge=0)
     max_observation_chars: int = Field(default=8000, ge=0)
     max_file_summary_chars: int = Field(default=3000, ge=0)
     max_observation_items: int = Field(default=12, ge=0)

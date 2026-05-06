@@ -6,6 +6,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from app.runtime.benchmark import BenchmarkManifest, BenchmarkReport, load_manifest
+from app.runtime.benchmark_gate import (
+    PytestRunResult,
+    build_gate_report,
+    select_pytest_nodeids,
+    write_failure_analysis_reports,
+)
+
 _OUTPUT_LIMIT = 12_000
 _DEFAULT_TUI_SCENARIO_TARGETS = ["tests/scenarios", "tests/e2e"]
 
@@ -32,7 +40,15 @@ def extract_pytest_failures(output: str) -> list[str]:
     return failures
 
 
-def default_tui_scenario_audit_command() -> list[str]:
+def default_tui_scenario_audit_command(
+    *,
+    benchmark_manifest: Path | None = None,
+) -> list[str]:
+    if benchmark_manifest is not None:
+        manifest = load_manifest(benchmark_manifest)
+        nodeids = select_pytest_nodeids(manifest)
+        if nodeids:
+            return [sys.executable, "-m", "pytest", "-q", *nodeids]
     return [sys.executable, "-m", "pytest", "-q", *_DEFAULT_TUI_SCENARIO_TARGETS]
 
 
@@ -126,6 +142,44 @@ def write_tui_scenario_audit_report(
     return report_path
 
 
+def build_benchmark_report_from_audit(
+    *,
+    result: ScenarioAuditResult,
+    manifest: BenchmarkManifest,
+) -> BenchmarkReport:
+    return build_gate_report(
+        manifest=manifest,
+        result=PytestRunResult(
+            command=result.command,
+            cwd=result.cwd,
+            exit_code=result.exit_code,
+            stdout=result.stdout,
+            stderr=result.stderr,
+            duration_ms=result.duration_ms,
+        ),
+    )
+
+
+def write_benchmark_report_from_audit(
+    *,
+    output_path: Path,
+    result: ScenarioAuditResult,
+    manifest: BenchmarkManifest,
+    analysis_report_dir: Path | None = None,
+    run_id: str | None = None,
+) -> Path:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    report = build_benchmark_report_from_audit(result=result, manifest=manifest)
+    output_path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
+    if analysis_report_dir is not None:
+        write_failure_analysis_reports(
+            output_dir=analysis_report_dir,
+            report=report,
+            run_id=run_id or output_path.stem,
+        )
+    return output_path
+
+
 def current_git_commit(cwd: Path) -> str:
     completed = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"],
@@ -158,11 +212,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--report-dir", default="data/tui-scenario-reports")
     parser.add_argument("--cwd", default=".")
+    parser.add_argument("--benchmark-manifest")
+    parser.add_argument("--benchmark-output")
+    parser.add_argument("--analysis-report-dir", default="data/analysis-reports")
     args = parser.parse_args(argv)
 
     cwd = Path(args.cwd).resolve()
     run_at = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %z")
-    result = run_tui_scenario_audit_command(cwd=cwd)
+    command = default_tui_scenario_audit_command(
+        benchmark_manifest=Path(args.benchmark_manifest) if args.benchmark_manifest else None
+    )
+    result = run_tui_scenario_audit_command(cwd=cwd, command=command)
     report_path = write_tui_scenario_audit_report(
         report_dir=Path(args.report_dir),
         result=result,
@@ -170,6 +230,14 @@ def main(argv: list[str] | None = None) -> int:
         commit=current_git_commit(cwd),
     )
     print(report_path)
+    if args.benchmark_manifest and args.benchmark_output:
+        benchmark_path = write_benchmark_report_from_audit(
+            output_path=Path(args.benchmark_output),
+            result=result,
+            manifest=load_manifest(Path(args.benchmark_manifest)),
+            analysis_report_dir=Path(args.analysis_report_dir),
+        )
+        print(benchmark_path)
     return result.exit_code
 
 

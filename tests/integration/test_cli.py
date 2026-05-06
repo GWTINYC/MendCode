@@ -1,3 +1,4 @@
+import json
 import shlex
 import subprocess
 import sys
@@ -222,6 +223,101 @@ def test_health_command_reports_agent_directories(monkeypatch, tmp_path: Path) -
     assert "status" in result.stdout
     assert "traces" in result.stdout
     assert "workspace_root" in result.stdout
+
+
+def test_story_next_prints_highest_priority_unpassed_story(tmp_path: Path) -> None:
+    plan_path = tmp_path / "tasks" / "context-v2" / "plan.json"
+    plan_path.parent.mkdir(parents=True)
+    plan_path.write_text(
+        """
+{
+  "branch_name": "feature/context-compaction-v2",
+  "stories": [
+    {
+      "id": "MC-002",
+      "title": "Lower priority",
+      "priority": 20,
+      "passes": false,
+      "acceptance_criteria": ["second story works"],
+      "verification_commands": ["pytest tests/unit/test_second.py -q"]
+    },
+    {
+      "id": "MC-001",
+      "title": "Add tokenizer-aware context budget",
+      "priority": 10,
+      "passes": false,
+      "acceptance_criteria": ["budget uses model window"],
+      "verification_commands": ["pytest tests/unit/test_context_manager.py -q"]
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["story", "next", str(plan_path)])
+
+    assert result.exit_code == 0
+    assert "MC-001" in result.stdout
+    assert "Add tokenizer-aware context budget" in result.stdout
+    assert "pytest tests/unit/test_context_manager.py -q" in result.stdout
+
+
+def test_story_mark_passed_and_append_progress(tmp_path: Path) -> None:
+    plan_path = tmp_path / "tasks" / "context-v2" / "plan.json"
+    plan_path.parent.mkdir(parents=True)
+    plan_path.write_text(
+        """
+{
+  "branch_name": "feature/context-compaction-v2",
+  "progress_path": "tasks/context-v2/progress.md",
+  "stories": [
+    {
+      "id": "MC-001",
+      "title": "Add tokenizer-aware context budget",
+      "priority": 10,
+      "passes": false,
+      "acceptance_criteria": ["budget uses model window"],
+      "verification_commands": ["pytest tests/unit/test_context_manager.py -q"]
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    mark_result = runner.invoke(app, ["story", "mark-passed", str(plan_path), "MC-001"])
+    progress_result = runner.invoke(
+        app,
+        [
+            "story",
+            "append-progress",
+            str(plan_path),
+            "MC-001",
+            "--status",
+            "passed",
+            "--summary",
+            "Implemented tokenizer-aware budget.",
+            "--verification",
+            "pytest tests/unit/test_context_manager.py -q",
+            "--trace",
+            "data/traces/run-123.jsonl",
+            "--commit",
+            "abc1234",
+            "--learning",
+            "Keep provider context compact.",
+        ],
+    )
+
+    assert mark_result.exit_code == 0
+    assert progress_result.exit_code == 0
+    assert '"passes": true' in plan_path.read_text(encoding="utf-8")
+    progress = (tmp_path / "tasks" / "context-v2" / "progress.md").read_text(
+        encoding="utf-8"
+    )
+    assert "## MC-001 - passed" in progress
+    assert "Implemented tokenizer-aware budget." in progress
+    assert "Keep provider context compact." in progress
 
 
 def test_fix_command_runs_agent_loop_and_reports_failure_insight(
@@ -602,3 +698,172 @@ def test_task_command_is_no_longer_registered() -> None:
 
     assert result.exit_code != 0
     assert "No such command" in result.output
+
+
+def test_benchmark_status_prints_manifest_coverage(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "benchmark.json"
+    manifest_path.write_text(json.dumps(_benchmark_manifest_payload()), encoding="utf-8")
+
+    result = runner.invoke(app, ["benchmark", "status", str(manifest_path)])
+
+    assert result.exit_code == 0
+    assert "quick" in result.stdout
+    assert "case_count" in result.stdout
+    assert "repository_inspection" in result.stdout
+    assert "missing_target_categories" in result.stdout
+    assert "none" in result.stdout
+
+
+def test_benchmark_check_prints_result_coverage(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "benchmark.json"
+    manifest_path.write_text(json.dumps(_benchmark_manifest_payload()), encoding="utf-8")
+    result_path = tmp_path / "result.json"
+    result_path.write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "name": "repo-list",
+                        "passed": True,
+                        "tool_chain_passed": True,
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["benchmark", "check", str(manifest_path), str(result_path)])
+
+    assert result.exit_code == 0
+    assert "Benchmark Coverage" in result.stdout
+    assert "missing_case_ids" in result.stdout
+    assert "file-answer" in result.stdout
+    assert "complete" in result.stdout
+    assert "false" in result.stdout
+
+
+def test_trace_analyze_session_writes_json_and_markdown(tmp_path: Path) -> None:
+    conversation = tmp_path / "conversation.md"
+    conversation.write_text(
+        "\n".join(
+            [
+                "## User",
+                "帮我查看当前文件夹里的文件",
+                "## Assistant",
+                "当前目录有 README.md。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "reports"
+
+    result = runner.invoke(
+        app,
+        ["trace", "analyze-session", str(conversation), "--output-dir", str(output_dir)],
+    )
+
+    assert result.exit_code == 0
+    assert "Analysis reports written" in result.stdout
+    assert (output_dir / "conversation.json").exists()
+    assert (output_dir / "conversation.md").exists()
+    assert "missing_directory_listing" in (
+        output_dir / "conversation.json"
+    ).read_text(encoding="utf-8")
+
+
+def test_trace_analyze_session_json_format_only(tmp_path: Path) -> None:
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(
+        json.dumps(
+            {
+                "run_id": "run-1",
+                "event_type": "agent.user_message",
+                "message": "user",
+                "payload": {"message": "查看 git status"},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "reports"
+
+    result = runner.invoke(
+        app,
+        [
+            "trace",
+            "analyze-session",
+            str(trace),
+            "--output-dir",
+            str(output_dir),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (output_dir / "trace.json").exists()
+    assert not (output_dir / "trace.md").exists()
+
+
+def test_trace_analyze_session_rejects_llm_flag_for_first_version(
+    tmp_path: Path,
+) -> None:
+    conversation = tmp_path / "conversation.md"
+    conversation.write_text("## User\n列文件\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["trace", "analyze-session", str(conversation), "--llm"])
+
+    assert result.exit_code != 0
+    assert "--llm is reserved" in result.stdout
+
+
+def _benchmark_manifest_payload() -> dict[str, object]:
+    return {
+        "name": "quick",
+        "cases": [
+            {
+                "id": "repo-list",
+                "category": "repository_inspection",
+                "prompt": "列文件",
+                "expected_tools": ["list_dir"],
+            },
+            {
+                "id": "file-answer",
+                "category": "file_question",
+                "prompt": "最后一句",
+                "expected_tools": ["read_file"],
+            },
+            {
+                "id": "code-search",
+                "category": "code_search",
+                "prompt": "搜索",
+                "expected_tools": ["rg"],
+            },
+            {
+                "id": "git-status",
+                "category": "git_status",
+                "prompt": "git 状态",
+                "expected_tools": ["git"],
+            },
+            {
+                "id": "patch-fix",
+                "category": "patch_repair",
+                "prompt": "修复",
+                "expected_tools": ["apply_patch"],
+            },
+            {
+                "id": "danger",
+                "category": "permission_safety",
+                "prompt": "危险命令",
+                "expected_tools": ["run_shell_command"],
+                "expects_dangerous_block": True,
+            },
+            {
+                "id": "memory",
+                "category": "memory_context",
+                "prompt": "记忆",
+                "expected_tools": ["memory_search"],
+            },
+        ],
+    }

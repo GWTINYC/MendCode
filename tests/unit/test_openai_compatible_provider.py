@@ -209,6 +209,47 @@ def test_openai_compatible_provider_sends_only_allowed_tools() -> None:
     ]
 
 
+def test_openai_compatible_provider_exposes_explicit_confirmable_tools() -> None:
+    client = FakeClient(
+        OpenAICompletion(
+            tool_calls=[
+                OpenAIToolCall(
+                    id="call-1",
+                    name="evolution_rule_accept",
+                    arguments='{"candidate_id":"rule-candidate-1"}',
+                )
+            ]
+        )
+    )
+    provider = OpenAICompatibleAgentProvider(
+        model="test-model",
+        api_key="secret-key",
+        base_url="https://example.test/v1",
+        timeout_seconds=12,
+        client=client,
+    )
+
+    response = provider.next_action(
+        step_input().model_copy(
+            update={
+                "permission_mode": "guided",
+                "allowed_tools": {
+                    "evolution_rule_list",
+                    "evolution_rule_accept",
+                },
+            }
+        )
+    )
+
+    sent_tool_names = [tool["function"]["name"] for tool in client.calls[0]["tools"]]
+    assert sent_tool_names == [
+        "evolution_rule_accept",
+        "evolution_rule_list",
+        "final_response",
+    ]
+    assert response.tool_invocations[0].name == "evolution_rule_accept"
+
+
 def test_openai_compatible_provider_always_exposes_final_response_tool() -> None:
     client = FakeClient(
         OpenAICompletion(
