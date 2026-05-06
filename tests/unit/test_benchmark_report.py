@@ -96,6 +96,17 @@ def test_benchmark_manifest_loads_six_target_categories(tmp_path: Path) -> None:
     assert manifest.missing_target_categories() == []
 
 
+def test_checked_in_benchmark_manifest_has_minimum_v1_coverage() -> None:
+    manifest = load_manifest(Path("tests/scenarios/benchmark_manifest.json"))
+
+    assert manifest.case_count >= 12
+    assert manifest.missing_target_categories() == []
+    prompts = [case.prompt for case in manifest.cases]
+    assert "MendCode问题记录的最后一句话是什么" in prompts
+    assert "查看当前git状态" in prompts
+    assert "帮我查看当前文件夹里的文件" in prompts
+
+
 def test_benchmark_manifest_rejects_unknown_category() -> None:
     with pytest.raises(ValidationError):
         BenchmarkManifest.model_validate(
