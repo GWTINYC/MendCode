@@ -139,7 +139,10 @@ def _missing_tools(
     findings: list[AnalysisFinding] = []
     for item in expected:
         tools = [str(tool) for tool in item.evidence.get("tools", [])]
-        if any(tool in observed for tool in tools):
+        missing_group_tools = [tool for tool in tools if tool not in observed]
+        if item.code != "expected_repair_chain" and len(missing_group_tools) < len(tools):
+            continue
+        if item.code == "expected_repair_chain" and not missing_group_tools:
             continue
         code = {
             "expected_directory_listing": "missing_directory_listing",
@@ -150,7 +153,12 @@ def _missing_tools(
             "expected_risk_event": "missing_risk_event",
         }.get(item.code, "missing_expected_tool")
         findings.append(
-            _finding(code, f"Missing expected tool group: {', '.join(tools)}", tools=tools)
+            _finding(
+                code,
+                f"Missing expected tool group: {', '.join(tools)}",
+                tools=tools,
+                missing_tools=missing_group_tools,
+            )
         )
     return findings
 

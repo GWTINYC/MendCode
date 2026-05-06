@@ -121,6 +121,30 @@ def test_dangerous_confirmation_observation_becomes_risk_event(tmp_path: Path) -
     assert "permission_policy" in _targets(report.recommendations)
 
 
+def test_repair_question_requires_patch_and_verification_tools(tmp_path: Path) -> None:
+    transcript = SessionTranscript(
+        session_id="trace",
+        source_path=tmp_path / "trace.jsonl",
+        input_kind="jsonl_trace",
+        user_messages=["pytest 失败了，帮我修复"],
+        tool_calls=[
+            ToolCallEvent(tool_name="read_file", arguments={"path": "app.py"}, call_index=1)
+        ],
+        observations=[
+            ObservationEvent(tool_name="read_file", status="succeeded", content_excerpt="ok")
+        ],
+        final_answer="已修复。",
+    )
+
+    report = analyze_transcript(transcript)
+
+    assert _codes(report.missing_tools) == ["missing_repair_tool_chain"]
+    assert report.missing_tools[0].evidence["missing_tools"] == [
+        "apply_patch",
+        "run_command",
+    ]
+
+
 def _codes(findings) -> list[str]:
     return [finding.code for finding in findings]
 

@@ -39,13 +39,13 @@ def _parse_markdown(path: Path) -> SessionTranscript:
 
     for title, body in sections:
         normalized = title.casefold()
-        content = compact_text(body.strip(), max_chars=6000)
+        content = compact_text(_markdown_section_body(body), max_chars=6000)
         if not content:
             continue
-        if "user" in normalized or "用户" in normalized:
+        if _is_markdown_user_heading(normalized):
             user_messages.append(content)
             continue
-        if "assistant" in normalized or "mendcode" in normalized or "助手" in normalized:
+        if _is_markdown_assistant_heading(normalized):
             assistant_messages.append(content)
             continue
         if "tool" in normalized or "工具" in normalized or "command" in normalized:
@@ -127,6 +127,10 @@ def _parse_jsonl(path: Path) -> SessionTranscript:
             ) or event.get("message")
             if message:
                 user_messages.append(compact_text(message, max_chars=6000))
+        if event_type == "agent.run.started":
+            message = _first_text(payload, ["problem_statement"])
+            if message:
+                user_messages.append(compact_text(message, max_chars=6000))
         if "assistant" in event_type and "tool" not in event_type:
             message = _first_text(payload, ["message", "content", "text"]) or event.get("message")
             if message:
@@ -135,6 +139,10 @@ def _parse_jsonl(path: Path) -> SessionTranscript:
             tool_calls.append(_tool_call_from_payload(payload, len(tool_calls) + 1, event))
         if "observation" in event_type or "tool_result" in event_type:
             observations.append(_observation_from_payload(payload, len(observations) + 1, event))
+        if event_type == "agent.action.completed":
+            call_index = _optional_int(payload.get("index")) or len(tool_calls) + 1
+            tool_calls.append(_tool_call_from_action_payload(payload, call_index, event))
+            observations.append(_observation_from_payload(payload, call_index, event))
         if "final" in event_type or event_type == "agent.run.completed":
             text = _first_text(payload, ["content", "final_response", "response", "summary"])
             if text:
@@ -186,6 +194,43 @@ def _tool_call_from_payload(
     )
 
 
+def _tool_call_from_action_payload(
+    payload: dict[str, Any],
+    call_index: int,
+    raw_event: dict[str, Any],
+) -> ToolCallEvent:
+    action = payload.get("action") if isinstance(payload.get("action"), dict) else {}
+    observation = (
+        payload.get("observation") if isinstance(payload.get("observation"), dict) else {}
+    )
+    observation_payload = (
+        observation.get("payload") if isinstance(observation.get("payload"), dict) else {}
+    )
+    permission_decision = _permission_decision_from(observation_payload)
+    arguments = action.get("args") or action.get("arguments") or {}
+    if not isinstance(arguments, dict):
+        arguments = {}
+    return ToolCallEvent(
+        tool_name=str(action.get("tool_name") or action.get("type") or "unknown"),
+        arguments=arguments,
+        call_index=call_index,
+        status=str(observation.get("status") or payload.get("status") or "unknown"),
+        requires_confirmation=bool(
+            permission_decision.get("requires_confirmation")
+            or observation.get("requires_confirmation")
+            or observation.get("needs_user_confirmation")
+        ),
+        risk_level=str(
+            permission_decision.get("risk_level")
+            or observation.get("risk_level")
+            or payload.get("risk_level")
+            or "unknown"
+        ),
+        duration_ms=_optional_int(payload.get("duration_ms")),
+        raw_excerpt=compact_json(raw_event),
+    )
+
+
 def _observation_from_payload(
     payload: dict[str, Any],
     call_index: int,
@@ -197,8 +242,11 @@ def _observation_from_payload(
     nested_payload = (
         observation.get("payload") if isinstance(observation.get("payload"), dict) else {}
     )
+    action = payload.get("action") if isinstance(payload.get("action"), dict) else {}
+    permission_decision = _permission_decision_from(nested_payload)
     tool_name = (
         observation.get("tool_name")
+        or action.get("tool_name")
         or payload.get("tool_name")
         or payload.get("action")
         or "unknown"
@@ -218,11 +266,68 @@ def _observation_from_payload(
         raw_excerpt=compact_json(raw_event),
         call_index=call_index,
         requires_confirmation=bool(
-            observation.get("requires_confirmation")
+            permission_decision.get("requires_confirmation")
+            or nested_payload.get("pending_confirmation")
+            or nested_payload.get("shell_policy_decision") == "confirm"
+            or nested_payload.get("permission_decision") == "confirm"
+            or observation.get("requires_confirmation")
             or observation.get("needs_user_confirmation")
         ),
-        risk_level=str(observation.get("risk_level") or payload.get("risk_level") or "unknown"),
+        risk_level=str(
+            permission_decision.get("risk_level")
+            or observation.get("risk_level")
+            or payload.get("risk_level")
+            or "unknown"
+        ),
     )
+
+
+def _markdown_section_body(body: str) -> str:
+    lines = body.strip().splitlines()
+    if lines and lines[0].startswith("timestamp:"):
+        lines = lines[1:]
+    while lines and not lines[0].strip():
+        lines = lines[1:]
+    if len(lines) >= 2 and lines[0].startswith("```"):
+        closing_index = _closing_fence_index(lines[1:])
+        if closing_index is not None:
+            return "\n".join(lines[1:closing_index]).strip()
+    return body.strip()
+
+
+def _closing_fence_index(lines_after_opening: list[str]) -> int | None:
+    for index, line in enumerate(lines_after_opening, start=1):
+        if line.startswith("```"):
+            return index
+    return None
+
+
+def _is_markdown_user_heading(normalized: str) -> bool:
+    return (
+        "user" in normalized
+        or "用户" in normalized
+        or normalized.endswith(" - you")
+        or normalized.endswith("- you")
+    )
+
+
+def _is_markdown_assistant_heading(normalized: str) -> bool:
+    return (
+        "assistant" in normalized
+        or "助手" in normalized
+        or normalized.endswith(" - agent")
+        or normalized.endswith("- agent")
+    )
+
+
+def _permission_decision_from(payload: dict[str, Any]) -> dict[str, Any]:
+    permission_decision = payload.get("permission_decision")
+    if isinstance(permission_decision, dict):
+        return permission_decision
+    shell_decision = payload.get("shell_policy_decision")
+    if isinstance(shell_decision, dict):
+        return shell_decision
+    return {}
 
 
 def _extract_regex(pattern: re.Pattern[str], text: str, group: str) -> str | None:
