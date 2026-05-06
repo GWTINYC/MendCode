@@ -157,6 +157,15 @@ python -m app.runtime.tui_scenario_audit \
   --benchmark-output data/benchmark-reports/latest.json
 ```
 
+离线复盘 conversation / trace：
+
+```bash
+mendcode trace analyze-session data/conversations/session.md
+mendcode trace analyze-session data/traces/session.jsonl --format json
+```
+
+默认报告写入 `data/analysis-reports/`，包含 expected tools、observed tools、missing/repeated/failed tools、oversized outputs、unsupported claims、risk events、root causes 和 recommendations。第一版使用规则化分析；`--llm` 入口保留给后续基于证据的自然语言归因。
+
 ## Provider 配置
 
 当前主线使用 OpenAI-compatible chat completions，并要求 provider 支持原生 tool calls。如果 provider 不支持 tools，MendCode 会明确失败，而不是退回普通聊天去编造本地事实。

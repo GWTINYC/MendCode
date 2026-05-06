@@ -298,17 +298,21 @@ User Message
 - [x] `/resume [session_id]` 会把 compact context 注入后续 chat history
 - [x] trace viewer helper 能读取工具事件摘要并保留完整 payload 入口
 - [x] conversation compact `tool_result` 保留安全的 tool args 摘要、memory matches 样本和 session tool surface 样本，便于测试和复盘工具调用真实参数
+- [x] `mendcode trace analyze-session <path>` 支持离线分析 conversation Markdown 和 JSONL trace，并输出 JSON / Markdown 复盘报告
+- [x] Session analysis 报告包含 expected tools、observed tools、missing/repeated/failed tools、oversized outputs、unsupported claims、risk events、root causes 和 recommendations
 
 当前不足：
 
 - [ ] 没有 compact summary
 - [ ] 没有 session health probe
 - [ ] 还没有 TUI 独立 viewer 从 trace 中按需展开完整工具输出
+- [ ] 离线 session analysis 仍是规则化第一版，尚未接入 benchmark 失败自动归因、review queue 或 `--llm` 证据摘要
 
 下一步：
 
 - 对长会话生成跨轮 compact summary，保留关键工具结果和决策。
 - 把 trace viewer helper 接到 TUI 展开界面，用于查看 conversation log 中被压缩掉的完整工具 payload。
+- 将 `analyze-session` 接入 PTY / benchmark 失败路径，自动生成 `data/analysis-reports/` 下的归因报告。
 
 ### 3.7 Layered Memory
 
@@ -360,6 +364,7 @@ User Message
 - [x] `MemoryRuntime` 包装 `MemoryStore`，提供自动 recall、显式 memory promotion 和 review queue 入口。
 - [x] `EvolutionRuntime` 在 turn 结束后根据失败、rejected tool、重复读取和验证恢复生成 lesson candidate。
 - [x] `EvolutionRuntime.after_turn()` 是 best-effort；review queue 写入失败会进入 `evolution_summary.error`，不会覆盖已完成的用户回答。
+- [x] 离线 Session Analysis 可把 conversation / trace 转成结构化失败证据，为后续 EvolutionRuntime 生成 Memory / SKILL / Prompt Rule / Tool Schema 候选提供输入。
 
 当前不足：
 
@@ -369,6 +374,7 @@ User Message
 - [ ] review queue 还没有专用 TUI 审查面板。
 - [ ] lesson candidate 不会自动更新 SKILL、prompt 或长期 memory。
 - [ ] `EvolutionRuntime` 仍是轻量规则，不做跨 trace 聚合和收益验证。
+- [ ] Session Analysis 报告尚未被 EvolutionRuntime 自动消费。
 
 下一步：
 
@@ -377,6 +383,7 @@ User Message
 - 为 review queue 增加专用 TUI 面板、筛选和批量操作。
 - 建立 lesson candidate 到 SKILL 更新建议的中间层，但保持人工审查。
 - 用 benchmark report 验证 repeated read、context size 和 token-ish 指标是否真实下降。
+- 让 EvolutionRuntime 读取 `data/analysis-reports/*.json`，生成可审查的 memory / skill / prompt rule 候选。
 
 ### 3.9 Story Runner
 
