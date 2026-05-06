@@ -48,6 +48,34 @@ def test_benchmark_report_computes_rates_and_token_delta() -> None:
     assert metrics["repeated_file_reads"] == 4
 
 
+def test_benchmark_case_result_tracks_tui_quality_failures() -> None:
+    report = BenchmarkReport(
+        cases=[
+            BenchmarkCaseResult(
+                name="git-status",
+                passed=False,
+                tool_chain_passed=True,
+                route_passed=False,
+                answer_concise=True,
+                provider_failed=False,
+                trace_exposed=False,
+                failure_reasons=["missing_schema_tool_call_route"],
+            )
+        ]
+    )
+
+    metrics = report.metrics()
+
+    assert metrics["case_count"] == 1
+    assert metrics["case_pass_rate"] == 0.0
+    assert metrics["tool_chain_pass_rate"] == 1.0
+    assert metrics["route_pass_rate"] == 0.0
+    assert metrics["answer_concise_rate"] == 1.0
+    assert metrics["provider_failure_count"] == 0
+    assert metrics["trace_exposed_count"] == 0
+    assert "missing_schema_tool_call_route" in report.to_markdown()
+
+
 def test_benchmark_manifest_loads_six_target_categories(tmp_path: Path) -> None:
     manifest_path = tmp_path / "benchmark.json"
     manifest_path.write_text(json.dumps(_benchmark_manifest_payload()), encoding="utf-8")

@@ -96,6 +96,11 @@ class BenchmarkCaseResult(BaseModel):
     tokens_baseline: int | None = Field(default=None, ge=0)
     tokens_actual: int | None = Field(default=None, ge=0)
     repeated_file_reads: int = Field(default=0, ge=0)
+    route_passed: bool | None = None
+    answer_concise: bool | None = None
+    provider_failed: bool = False
+    trace_exposed: bool = False
+    failure_reasons: list[str] = Field(default_factory=list)
 
 
 class BenchmarkCaseEvidence(BaseModel):
@@ -120,6 +125,8 @@ class BenchmarkReport(BaseModel):
         blocked_cases = [
             case for case in self.cases if case.dangerous_command_blocked is not None
         ]
+        route_cases = [case for case in self.cases if case.route_passed is not None]
+        concise_cases = [case for case in self.cases if case.answer_concise is not None]
         baseline_tokens = sum(case.tokens_baseline or 0 for case in self.cases)
         actual_tokens = sum(case.tokens_actual or 0 for case in self.cases)
         token_reduction = 0.0
@@ -141,6 +148,16 @@ class BenchmarkReport(BaseModel):
             ),
             "token_reduction_rate": round(token_reduction, 4),
             "repeated_file_reads": sum(case.repeated_file_reads for case in self.cases),
+            "route_pass_rate": _rate(
+                sum(1 for case in route_cases if case.route_passed),
+                len(route_cases),
+            ),
+            "answer_concise_rate": _rate(
+                sum(1 for case in concise_cases if case.answer_concise),
+                len(concise_cases),
+            ),
+            "provider_failure_count": sum(1 for case in self.cases if case.provider_failed),
+            "trace_exposed_count": sum(1 for case in self.cases if case.trace_exposed),
         }
 
     def to_markdown(self) -> str:
@@ -156,14 +173,20 @@ class BenchmarkReport(BaseModel):
             f"- dangerous_command_block_rate: {metrics['dangerous_command_block_rate']}",
             f"- token_reduction_rate: {metrics['token_reduction_rate']}",
             f"- repeated_file_reads: {metrics['repeated_file_reads']}",
+            f"- route_pass_rate: {metrics['route_pass_rate']}",
+            f"- answer_concise_rate: {metrics['answer_concise_rate']}",
+            f"- provider_failure_count: {metrics['provider_failure_count']}",
+            f"- trace_exposed_count: {metrics['trace_exposed_count']}",
             "",
             "## Cases",
             "",
         ]
         for case in self.cases:
+            reason_text = ",".join(case.failure_reasons) if case.failure_reasons else "none"
             lines.append(
                 f"- {case.name}: passed={case.passed}, "
-                f"tool_chain_passed={case.tool_chain_passed}"
+                f"tool_chain_passed={case.tool_chain_passed}, "
+                f"failure_reasons={reason_text}"
             )
         return "\n".join(lines) + "\n"
 
