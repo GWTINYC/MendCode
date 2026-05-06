@@ -22,7 +22,9 @@ from app.tools.structured import ToolInvocation
 from app.tui.app import (
     READ_ONLY_TOOL_AGENT_TOOLS,
     MendCodeTextualApp,
+    _format_chat_line,
     _is_tool_availability_question,
+    _status_bar_text,
 )
 from app.tui.chat import ChatResponse
 from app.workspace.review_actions import ReviewActionResult
@@ -417,6 +419,22 @@ async def test_app_starts_with_repo_header_and_help_hint(tmp_path: Path) -> None
         assert "Message 1 - System" in app.session_state.conversation_markdown_path.read_text(
             encoding="utf-8"
         )
+
+
+async def test_app_renders_claude_style_status_and_message_prefix(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+
+    async with app.run_test() as pilot:
+        await pilot.pause()
+
+        assert "mode guided" in _status_bar_text(app.session_state)
+        assert "running idle" in _status_bar_text(app.session_state)
+        assert "test not set" in _status_bar_text(app.session_state)
+        assert _format_chat_line("You", "hello").plain == "You\nhello"
+        assert _format_chat_line("Agent", "done").plain == "MendCode\ndone"
 
 
 async def test_app_exposes_only_agent_request_for_normal_text_path(tmp_path: Path) -> None:
