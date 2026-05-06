@@ -14,6 +14,11 @@ from app.config.settings import get_settings
 from app.core.paths import ensure_data_directories
 from app.orchestrator.failure_parser import FailureInsight, extract_failure_insight
 from app.runtime.benchmark import load_manifest, load_report, validate_report_coverage
+from app.runtime.session_analysis import (
+    analyze_transcript,
+    parse_session_file,
+    write_analysis_report,
+)
 from app.runtime.story_runner import (
     Story,
     StoryStatus,
@@ -34,8 +39,10 @@ from app.workspace.review_actions import (
 app = typer.Typer(help="MendCode CLI", invoke_without_command=True)
 story_app = typer.Typer(help="Ralph-style story plan utilities")
 benchmark_app = typer.Typer(help="Benchmark manifest and report utilities")
+trace_app = typer.Typer(help="Trace and conversation analysis utilities")
 app.add_typer(story_app, name="story")
 app.add_typer(benchmark_app, name="benchmark")
+app.add_typer(trace_app, name="trace")
 console = Console()
 
 
@@ -466,6 +473,24 @@ def benchmark_status(manifest: Path) -> None:
 @benchmark_app.command("check")
 def benchmark_check(manifest: Path, result: Path) -> None:
     _render_benchmark_coverage(manifest, result)
+
+
+@trace_app.command("analyze-session")
+def trace_analyze_session(
+    path: Path,
+    output_dir: Path = typer.Option(Path("data/analysis-reports"), "--output-dir"),
+    output_format: str = typer.Option("both", "--format"),
+    llm: bool = typer.Option(False, "--llm"),
+) -> None:
+    if llm:
+        console.print("--llm is reserved for a later evidence-grounded summary layer")
+        raise typer.Exit(code=1)
+    transcript = parse_session_file(path)
+    report = analyze_transcript(transcript)
+    written = write_analysis_report(report, output_dir, output_format=output_format)
+    console.print("Analysis reports written")
+    for item in written:
+        console.print(str(item))
 
 
 @story_app.command("next")

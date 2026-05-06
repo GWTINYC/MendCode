@@ -743,6 +743,81 @@ def test_benchmark_check_prints_result_coverage(tmp_path: Path) -> None:
     assert "false" in result.stdout
 
 
+def test_trace_analyze_session_writes_json_and_markdown(tmp_path: Path) -> None:
+    conversation = tmp_path / "conversation.md"
+    conversation.write_text(
+        "\n".join(
+            [
+                "## User",
+                "帮我查看当前文件夹里的文件",
+                "## Assistant",
+                "当前目录有 README.md。",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "reports"
+
+    result = runner.invoke(
+        app,
+        ["trace", "analyze-session", str(conversation), "--output-dir", str(output_dir)],
+    )
+
+    assert result.exit_code == 0
+    assert "Analysis reports written" in result.stdout
+    assert (output_dir / "conversation.json").exists()
+    assert (output_dir / "conversation.md").exists()
+    assert "missing_directory_listing" in (
+        output_dir / "conversation.json"
+    ).read_text(encoding="utf-8")
+
+
+def test_trace_analyze_session_json_format_only(tmp_path: Path) -> None:
+    trace = tmp_path / "trace.jsonl"
+    trace.write_text(
+        json.dumps(
+            {
+                "run_id": "run-1",
+                "event_type": "agent.user_message",
+                "message": "user",
+                "payload": {"message": "查看 git status"},
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    output_dir = tmp_path / "reports"
+
+    result = runner.invoke(
+        app,
+        [
+            "trace",
+            "analyze-session",
+            str(trace),
+            "--output-dir",
+            str(output_dir),
+            "--format",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert (output_dir / "trace.json").exists()
+    assert not (output_dir / "trace.md").exists()
+
+
+def test_trace_analyze_session_rejects_llm_flag_for_first_version(
+    tmp_path: Path,
+) -> None:
+    conversation = tmp_path / "conversation.md"
+    conversation.write_text("## User\n列文件\n", encoding="utf-8")
+
+    result = runner.invoke(app, ["trace", "analyze-session", str(conversation), "--llm"])
+
+    assert result.exit_code != 0
+    assert "--llm is reserved" in result.stdout
+
+
 def _benchmark_manifest_payload() -> dict[str, object]:
     return {
         "name": "quick",
