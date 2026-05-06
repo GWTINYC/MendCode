@@ -224,6 +224,101 @@ def test_health_command_reports_agent_directories(monkeypatch, tmp_path: Path) -
     assert "workspace_root" in result.stdout
 
 
+def test_story_next_prints_highest_priority_unpassed_story(tmp_path: Path) -> None:
+    plan_path = tmp_path / "tasks" / "context-v2" / "plan.json"
+    plan_path.parent.mkdir(parents=True)
+    plan_path.write_text(
+        """
+{
+  "branch_name": "feature/context-compaction-v2",
+  "stories": [
+    {
+      "id": "MC-002",
+      "title": "Lower priority",
+      "priority": 20,
+      "passes": false,
+      "acceptance_criteria": ["second story works"],
+      "verification_commands": ["pytest tests/unit/test_second.py -q"]
+    },
+    {
+      "id": "MC-001",
+      "title": "Add tokenizer-aware context budget",
+      "priority": 10,
+      "passes": false,
+      "acceptance_criteria": ["budget uses model window"],
+      "verification_commands": ["pytest tests/unit/test_context_manager.py -q"]
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["story", "next", str(plan_path)])
+
+    assert result.exit_code == 0
+    assert "MC-001" in result.stdout
+    assert "Add tokenizer-aware context budget" in result.stdout
+    assert "pytest tests/unit/test_context_manager.py -q" in result.stdout
+
+
+def test_story_mark_passed_and_append_progress(tmp_path: Path) -> None:
+    plan_path = tmp_path / "tasks" / "context-v2" / "plan.json"
+    plan_path.parent.mkdir(parents=True)
+    plan_path.write_text(
+        """
+{
+  "branch_name": "feature/context-compaction-v2",
+  "progress_path": "tasks/context-v2/progress.md",
+  "stories": [
+    {
+      "id": "MC-001",
+      "title": "Add tokenizer-aware context budget",
+      "priority": 10,
+      "passes": false,
+      "acceptance_criteria": ["budget uses model window"],
+      "verification_commands": ["pytest tests/unit/test_context_manager.py -q"]
+    }
+  ]
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    mark_result = runner.invoke(app, ["story", "mark-passed", str(plan_path), "MC-001"])
+    progress_result = runner.invoke(
+        app,
+        [
+            "story",
+            "append-progress",
+            str(plan_path),
+            "MC-001",
+            "--status",
+            "passed",
+            "--summary",
+            "Implemented tokenizer-aware budget.",
+            "--verification",
+            "pytest tests/unit/test_context_manager.py -q",
+            "--trace",
+            "data/traces/run-123.jsonl",
+            "--commit",
+            "abc1234",
+            "--learning",
+            "Keep provider context compact.",
+        ],
+    )
+
+    assert mark_result.exit_code == 0
+    assert progress_result.exit_code == 0
+    assert '"passes": true' in plan_path.read_text(encoding="utf-8")
+    progress = (tmp_path / "tasks" / "context-v2" / "progress.md").read_text(
+        encoding="utf-8"
+    )
+    assert "## MC-001 - passed" in progress
+    assert "Implemented tokenizer-aware budget." in progress
+    assert "Keep provider context compact." in progress
+
+
 def test_fix_command_runs_agent_loop_and_reports_failure_insight(
     monkeypatch,
     tmp_path: Path,

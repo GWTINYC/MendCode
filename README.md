@@ -132,6 +132,16 @@ pytest 失败了，帮我修复
 mendcode fix "fix the failing test" --test "python -m pytest -q"
 ```
 
+MendCode 也提供了 Ralph 风格的 Story Runner，用于把大任务拆成可持续推进的小 story：
+
+```bash
+mendcode story next tasks/context-v2/plan.json
+mendcode story mark-passed tasks/context-v2/plan.json MC-001
+mendcode story append-progress tasks/context-v2/plan.json MC-001 --status passed --summary "Implemented tokenizer-aware budget."
+```
+
+Story Runner 第一版只负责计划读取、优先级选择、通过标记和 compact progress 记录；不会绕过 Agent Runtime 自动执行高风险操作。格式说明见 `docs/story-runner.md`。
+
 ## Provider 配置
 
 当前主线使用 OpenAI-compatible chat completions，并要求 provider 支持原生 tool calls。如果 provider 不支持 tools，MendCode 会明确失败，而不是退回普通聊天去编造本地事实。

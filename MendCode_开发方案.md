@@ -45,6 +45,7 @@ User Message
 5. Layered Memory 第一切片：本地记忆、文件摘要缓存、失败 trace 经验候选和可控 recall 工具
 6. TUI 真实体验测试：用 PTY 启动真实 TUI 进程，覆盖真实 provider/tool-call 闭环和高频自然语言问题
 7. TUI 工作台体验：让 Textual UI 成为 runtime 的薄展示层
+8. Story Runner：借鉴 Ralph 的小 story / fresh context / progress log 循环，把长期开发任务拆成可验证、可恢复的 story plan
 
 当前重构设计：
 
@@ -379,6 +380,31 @@ User Message
 - 建立 lesson candidate 到 SKILL 更新建议的中间层，但保持人工审查。
 - 用 benchmark report 验证 repeated read、context size 和 token-ish 指标是否真实下降。
 
+### 3.9 Story Runner
+
+已完成：
+
+- [x] `app.runtime.story_runner` 定义 story plan schema，支持 `branch_name`、`progress_path`、`stories`、`priority`、`passes`、验收标准和验证命令
+- [x] 支持选择最高优先级且 `passes=false` 的下一条 story
+- [x] 支持把 story 标记为 passed，并回写 plan JSON
+- [x] 支持追加 compact progress Markdown，记录 summary、verification、trace 指针、commit 和 learnings
+- [x] CLI 增加 `mendcode story status|next|mark-passed|append-progress`
+- [x] 文档记录在 `docs/story-runner.md`
+
+当前边界：
+
+- [ ] 第一版不自动调用模型实现 story
+- [ ] 第一版不自动创建 worktree、commit 或 push
+- [ ] 第一版不自动运行 verification commands
+- [ ] Story Runner 尚未接入 TUI、AgentLoop、MemoryRuntime 或 benchmark report
+
+下一步：
+
+- 将 story plan 作为 AgentLoop 输入上下文：用户选择 story 后，MendCode 自动把 title、acceptance criteria 和 verification commands 注入任务。
+- 在 story 执行结束后，从 trace / benchmark / verification 中生成 progress entry 草稿，用户确认后再写入。
+- 为 story runner 增加 TUI 面板：当前 plan、next story、执行状态、验证结果和 progress 摘要。
+- 后续把通过的 story learnings 作为 review queue candidate，而不是直接写长期 memory。
+
 ## 4. 当前重点任务队列
 
 ### 任务 1：统一 PermissionPolicy
@@ -563,6 +589,24 @@ export MENDCODE_API_KEY=<api-key>
 - 定义 6 类本地任务 benchmark manifest，并把现有 `tests/scenarios` / `tests/e2e` 映射到 case result。
 - 在 benchmark case 中记录 baseline token、actual token、工具证据和危险命令断言。
 - 将 benchmark report 写入 `data/benchmark-reports/`，并在文档中只引用已跑出的真实指标。
+
+### 任务 9：Story Runner 接入开发闭环
+
+目标：
+
+将 Ralph 风格的“PRD/story manifest -> fresh context -> progress log”应用到 MendCode 自身开发，但保留 MendCode 的 ToolRegistry、PermissionPolicy 和 verification gate。
+
+状态：
+
+- [x] 第一版 story plan runtime 和 CLI 已完成
+- [x] 支持 next / status / mark-passed / append-progress
+- [x] progress 只记录摘要、验证命令、trace 指针、commit 和 learnings，不写入大 payload
+
+下一步：
+
+- 增加 `story run` 草案：读取 next story，构造 AgentLoop problem statement，但默认只 dry-run 展示，不直接修改工作区。
+- 接入 TUI：`/story <plan>`、`/next-story`、`/story-progress`。
+- 将 story progress 与 `data/traces`、review queue 和 benchmark report 建立引用关系。
 
 ## 5. 测试策略
 

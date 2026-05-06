@@ -13,6 +13,14 @@ from app.agent.session import AgentSession, AgentSessionTurn
 from app.config.settings import get_settings
 from app.core.paths import ensure_data_directories
 from app.orchestrator.failure_parser import FailureInsight, extract_failure_insight
+from app.runtime.story_runner import (
+    Story,
+    StoryStatus,
+    append_progress_entry,
+    load_story_plan,
+    mark_story_passed,
+    pick_next_story,
+)
 from app.schemas.verification import VerificationCommandResult
 from app.workspace.review_actions import (
     ReviewActionResult,
@@ -23,6 +31,8 @@ from app.workspace.review_actions import (
 )
 
 app = typer.Typer(help="MendCode CLI", invoke_without_command=True)
+story_app = typer.Typer(help="Ralph-style story plan utilities")
+app.add_typer(story_app, name="story")
 console = Console()
 
 
@@ -137,6 +147,19 @@ def _render_review_action_result(result: ReviewActionResult) -> None:
             console.print(content)
         if result.payload.get("truncated") is True:
             console.print("[trace truncated]")
+
+
+def _render_story(story: Story) -> None:
+    table = Table(title="Story")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("id", story.id)
+    table.add_row("title", story.title)
+    table.add_row("priority", str(story.priority))
+    table.add_row("passes", str(story.passes).lower())
+    table.add_row("acceptance_criteria", "\n".join(story.acceptance_criteria))
+    table.add_row("verification_commands", "\n".join(story.verification_commands))
+    console.print(table)
 
 
 def _execute_review_action(
@@ -384,6 +407,62 @@ def health() -> None:
     table.add_row("traces_dir", str(settings.traces_dir))
     table.add_row("workspace_root", str(settings.workspace_root))
     console.print(table)
+
+
+@story_app.command("status")
+def story_status(plan: Path) -> None:
+    story_plan = load_story_plan(plan)
+    table = Table(title="Story Plan")
+    table.add_column("Field")
+    table.add_column("Value")
+    table.add_row("branch_name", story_plan.branch_name)
+    table.add_row("stories", str(len(story_plan.stories)))
+    table.add_row("completed", str(story_plan.completed_count))
+    table.add_row("remaining", str(story_plan.remaining_count))
+    table.add_row("progress_path", story_plan.progress_path)
+    console.print(table)
+
+
+@story_app.command("next")
+def story_next(plan: Path) -> None:
+    story_plan = load_story_plan(plan)
+    story = pick_next_story(story_plan)
+    if story is None:
+        console.print("No pending stories.")
+        return
+    _render_story(story)
+
+
+@story_app.command("mark-passed")
+def story_mark_passed(plan: Path, story_id: str) -> None:
+    story = mark_story_passed(plan, story_id)
+    console.print(f"Marked story passed: {story.id}")
+
+
+@story_app.command("append-progress")
+def story_append_progress(
+    plan: Path,
+    story_id: str,
+    status: StoryStatus = typer.Option("planned", "--status"),
+    summary: str = typer.Option(..., "--summary"),
+    verification: list[str] = typer.Option([], "--verification"),
+    trace: str | None = typer.Option(None, "--trace"),
+    commit: str | None = typer.Option(None, "--commit"),
+    learning: list[str] = typer.Option([], "--learning"),
+) -> None:
+    story_plan = load_story_plan(plan)
+    progress_path = append_progress_entry(
+        plan_path=plan,
+        plan=story_plan,
+        story_id=story_id,
+        status=status,
+        summary=summary,
+        verification=verification,
+        trace_path=trace,
+        commit=commit,
+        learnings=learning,
+    )
+    console.print(f"Progress appended: {progress_path}")
 
 
 @app.command("fix")
