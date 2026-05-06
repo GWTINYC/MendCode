@@ -209,14 +209,58 @@ def _build_header_text(repo_path: Path, settings: Settings) -> str:
     provider = settings.provider_model or settings.provider
     return "\n".join(
         [
-            "MendCode",
-            f"repo: {repo_path}",
-            f"branch: {branch}",
-            f"status: {_repo_dirty_status(repo_path)}",
-            "mode: guided",
-            f"provider: {provider}",
+            f"MendCode  repo: {repo_path}",
+            (
+                f"branch: {branch}  "
+                f"status: {_repo_dirty_status(repo_path)}  "
+                "mode: guided  "
+                f"provider: {provider}"
+            ),
         ]
     )
+
+
+def _status_bar_text(state: TuiSessionState) -> str:
+    running = state.running_kind or "idle"
+    pending = state.pending_tool.tool_name if state.pending_tool is not None else "none"
+    verification = state.verification_command or "not set"
+    return (
+        f"mode {state.permission_mode} | "
+        f"state {state.last_turn_status} | "
+        f"running {running} | "
+        f"pending {pending} | "
+        f"test {verification}"
+    )
+
+
+def _role_style(role: str) -> str:
+    return {
+        "You": "bold cyan",
+        "MendCode": "bold green",
+        "Agent": "bold green",
+        "Shell": "bold yellow",
+        "System": "dim",
+        "Error": "bold red",
+    }.get(role, "white")
+
+
+def _role_label(role: str) -> str:
+    return {
+        "You": "You",
+        "MendCode": "MendCode",
+        "Agent": "MendCode",
+        "Shell": "Shell",
+        "System": "System",
+        "Error": "Error",
+    }.get(role, role)
+
+
+def _format_chat_line(role: str, message: str) -> Text:
+    label = _role_label(role)
+    text = Text()
+    text.append(f"{label}\n", style=_role_style(role))
+    text.append(message)
+    return text
 
 
 def _available_review_actions(turn: AgentSessionTurn) -> list[str]:
@@ -287,22 +331,35 @@ class MendCodeTextualApp(App[None]):
     CSS = """
     Screen {
         layout: vertical;
+        background: $surface;
     }
 
     #repo-header {
         height: auto;
-        padding: 0 1;
-        border-bottom: solid $primary;
+        padding: 0 2;
+        color: $text-muted;
+        background: $panel;
+        border-bottom: tall $primary-background;
     }
 
     #chat-log {
         height: 1fr;
-        padding: 0 1;
-        border-bottom: solid $primary;
+        padding: 1 2;
+        background: $surface;
+        border-bottom: tall $primary-background;
+    }
+
+    #status-bar {
+        height: 1;
+        padding: 0 2;
+        color: $text-muted;
+        background: $panel;
     }
 
     #chat-input {
         dock: bottom;
+        height: 3;
+        padding: 0 1;
     }
     """
 
@@ -341,7 +398,8 @@ class MendCodeTextualApp(App[None]):
     def compose(self) -> ComposeResult:
         yield Static(self.header_text, id="repo-header")
         yield RichLog(id="chat-log", wrap=True, highlight=False)
-        yield Input(placeholder="Message or /help", id="chat-input")
+        yield Static(_status_bar_text(self.session_state), id="status-bar")
+        yield Input(placeholder="Ask MendCode anything about this repo", id="chat-input")
 
     def on_mount(self) -> None:
         self.append_message(
@@ -365,7 +423,15 @@ class MendCodeTextualApp(App[None]):
             chat_log = self.query_one("#chat-log", RichLog)
         except NoMatches:
             return
-        chat_log.write(Text(line))
+        chat_log.write(_format_chat_line(role, message))
+        self._refresh_status_bar()
+
+    def _refresh_status_bar(self) -> None:
+        try:
+            status_bar = self.query_one("#status-bar", Static)
+        except NoMatches:
+            return
+        status_bar.update(_status_bar_text(self.session_state))
 
     def handle_user_input(self, raw_text: str) -> None:
         text = raw_text.strip()
