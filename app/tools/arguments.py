@@ -218,6 +218,18 @@ class EvolutionRuleAcceptWithEditsArgs(BaseModel):
     activation_hint: str = Field(default="", max_length=600)
 
 
+class AnalysisReportListArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=20, ge=1, le=100)
+
+
+class AnalysisReportIngestArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: int = Field(default=50, ge=1, le=200)
+
+
 class SessionStatusArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

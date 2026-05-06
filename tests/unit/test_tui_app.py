@@ -807,6 +807,8 @@ async def test_tool_availability_answer_uses_actual_read_only_tool_pool(
 
 async def test_tui_tool_agent_allows_evolution_rule_review_tools() -> None:
     assert {
+        "analysis_report_ingest",
+        "analysis_report_list",
         "evolution_rule_list",
         "evolution_rule_view",
         "evolution_rule_accept",

@@ -5,6 +5,8 @@ from pathlib import Path
 
 from app.schemas.agent_action import Observation
 from app.tools.arguments import (
+    AnalysisReportIngestArgs,
+    AnalysisReportListArgs,
     ApplyPatchArgs,
     EditFileArgs,
     EmptyToolArgs,
@@ -38,6 +40,8 @@ from app.tools.arguments import (
     WriteFileArgs,
 )
 from app.tools.evolution_tools import (
+    analysis_report_ingest,
+    analysis_report_list,
     evolution_rule_accept,
     evolution_rule_accept_with_edits,
     evolution_rule_list,
@@ -918,6 +922,26 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=ReviewQueueActionArgs,
                 risk_level=ToolRisk.DANGEROUS,
                 executor=review_queue_reject,
+            ),
+            ToolSpec(
+                name="analysis_report_list",
+                description=(
+                    "List compact benchmark/session analysis reports that can be "
+                    "turned into reviewable evolution candidates."
+                ),
+                args_model=AnalysisReportListArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=analysis_report_list,
+            ),
+            ToolSpec(
+                name="analysis_report_ingest",
+                description=(
+                    "Convert local analysis reports into pending review candidates. "
+                    "This persists local review-queue entries and requires confirmation."
+                ),
+                args_model=AnalysisReportIngestArgs,
+                risk_level=ToolRisk.DANGEROUS,
+                executor=analysis_report_ingest,
             ),
             ToolSpec(
                 name="evolution_rule_list",
