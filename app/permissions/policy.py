@@ -45,11 +45,8 @@ _REGISTRY_REQUIRED_MODE_MAP: dict[ToolRisk, RequiredPermissionMode] = {
 }
 _TOOL_REQUIRED_MODE_OVERRIDES: dict[str, RequiredPermissionMode] = {
     "run_command": "workspace-write",
-    "apply_patch_to_worktree": "workspace-write",
 }
-_BUILTIN_TOOL_RISK: dict[str, RiskLevel] = {
-    "apply_patch_to_worktree": "medium",
-}
+_BUILTIN_TOOL_RISK: dict[str, RiskLevel] = {}
 
 
 class PermissionDecision(BaseModel):

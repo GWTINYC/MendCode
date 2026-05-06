@@ -26,7 +26,6 @@ from app.schemas.agent_action import (
     parse_mendcode_action,
 )
 from app.schemas.trace import TraceEvent
-from app.tools.patch import apply_patch
 from app.tools.read_only import glob_file_search, list_dir, read_file, search_code
 from app.tools.registry import default_tool_registry
 from app.tools.schemas import ToolResult
@@ -39,9 +38,7 @@ from app.workspace.shell_executor import ShellCommandResult, execute_shell_comma
 from app.workspace.shell_policy import ShellPolicy
 
 AgentLoopStatus = str
-_BUILTIN_TOOL_NAMES = {
-    "apply_patch_to_worktree",
-}
+_BUILTIN_TOOL_NAMES: set[str] = set()
 
 
 class AgentLoopInput(BaseModel):
@@ -565,15 +562,6 @@ def _execute_tool_call(
         return _run_git(repo_path, settings, action.args)
     if action.action == "apply_patch":
         return _apply_patch_tool(action.args, repo_path)
-    if action.action == "apply_patch_to_worktree":
-        result = apply_patch(
-            workspace_path=repo_path,
-            relative_path=str(action.args.get("relative_path", "")),
-            target_text=str(action.args.get("target_text", "")),
-            replacement_text=str(action.args.get("replacement_text", "")),
-            replace_all=bool(action.args.get("replace_all", False)),
-        )
-        return _tool_result_to_observation(result)
     if action.action == "show_diff":
         return _show_diff(repo_path)
 

@@ -76,6 +76,18 @@ def test_parse_tool_call_action_rejects_unknown_tool():
         )
 
 
+def test_parse_tool_call_action_rejects_legacy_apply_patch_to_worktree():
+    with pytest.raises(ValidationError):
+        parse_mendcode_action(
+            {
+                "type": "tool_call",
+                "action": "apply_patch_to_worktree",
+                "reason": "legacy patch helper",
+                "args": {},
+            }
+        )
+
+
 def test_build_invalid_action_observation_keeps_error_context():
     observation = build_invalid_action_observation(
         payload={"type": "tool_call", "action": "delete_repo"},

@@ -27,14 +27,6 @@ def test_guided_mode_allows_read_only_tools():
     )
 
 
-def test_guided_mode_allows_worktree_patch_but_not_main_workspace_apply():
-    decision = decide_permission(tool_call("apply_patch_to_worktree"), mode="guided")
-
-    assert decision.status == "allow"
-    assert decision.risk_level == "medium"
-    assert "worktree" in decision.reason
-
-
 def test_guided_mode_allows_structured_apply_patch_in_worktree() -> None:
     decision = decide_permission(tool_call("apply_patch"), mode="guided")
 

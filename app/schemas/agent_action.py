@@ -21,7 +21,6 @@ ToolName = Literal[
     "rg",
     "git",
     "apply_patch",
-    "apply_patch_to_worktree",
     "write_file",
     "edit_file",
     "todo_write",

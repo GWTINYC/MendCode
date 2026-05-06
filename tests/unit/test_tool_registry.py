@@ -264,9 +264,19 @@ def test_default_registry_generates_openai_schemas() -> None:
 
     names = [tool["function"]["name"] for tool in tools]
     assert "read_file" in names
+    assert "apply_patch_to_worktree" not in names
     read_file_schema = next(tool for tool in tools if tool["function"]["name"] == "read_file")
     assert "path" in read_file_schema["function"]["parameters"]["properties"]
     assert "tail_lines" in read_file_schema["function"]["parameters"]["properties"]
+
+
+def test_default_registry_tool_schema_names_match_registered_tools() -> None:
+    registry = default_tool_registry()
+
+    schema_names = {tool["function"]["name"] for tool in registry.openai_tools()}
+
+    assert schema_names == set(registry.names())
+    assert "apply_patch_to_worktree" not in schema_names
 
 
 def test_registry_filters_openai_schemas_to_allowed_tools() -> None:

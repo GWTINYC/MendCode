@@ -212,7 +212,6 @@ def test_gate_does_not_count_non_evidence_tools_for_local_fact() -> None:
 def test_gate_does_not_allow_patch_tools_as_only_evidence_for_local_fact() -> None:
     for action in [
         "apply_patch",
-        "apply_patch_to_worktree",
     ]:
         status, _summary = apply_final_response_gate(
             steps=[tool_step(index=1, action=action)],

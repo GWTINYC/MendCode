@@ -86,7 +86,6 @@ User Message
 - [ ] runtime loop 仍依赖 `app.agent.loop` 中的 action parsing / tool invocation helpers
 - [ ] direct `loop_input.actions` 仍作为 scripted/repair 兼容路径保留
 - [ ] Provider request/response 调试摘要不足
-- [ ] `apply_patch_to_worktree` 仍是 legacy/builtin 工具路径
 
 下一步：
 
@@ -179,7 +178,6 @@ User Message
 | `review_queue_accept` / `review_queue_reject` | 已完成 | 显式采纳或拒绝候选；accept 才提升为长期 memory，默认工具池不暴露 |
 | `process_start` / `process_poll` / `process_write` / `process_stop` / `process_list` | 已完成 | 管理本轮后台进程和增量日志；`process_start` 走 ShellPolicy，日志写入 `data/processes/` |
 | `lsp` | 已完成 | 返回语言服务诊断、定义、引用、hover、symbols 等结构化结果；不可用时明确 rejected |
-| `apply_patch_to_worktree` | legacy/builtin | 后续删除或迁移为 `apply_patch` 兼容别名 |
 
 下一步工具：
 
@@ -441,7 +439,8 @@ User Message
 - envelope 顶层保留通用字段；原始工具 payload 保留在 nested `payload`。
 - 与 envelope 顶层键冲突的原始字段，例如 verification `status=passed`，从 nested `payload.status` 读取。
 - AgentSession 和 CLI 已兼容 enveloped `run_command` payload。
-- 后续继续收敛 legacy/builtin tool payload。
+- `apply_patch_to_worktree` legacy 工具名已从 action schema、permission override、final response gate 和公开 OpenAI tool schema 中移除；Patch 统一走 `apply_patch`。
+- 后续继续收敛 direct `loop_input.actions` 和 `app.agent.loop` helper。
 
 建议字段：
 
