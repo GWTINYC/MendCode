@@ -304,7 +304,7 @@ class FakeToolAgentRunner:
             steps.append(
                 AgentStep(
                     index=index,
-                    action=ToolCallAction(
+                    action=ToolCallAction.model_construct(
                         type="tool_call",
                         action=item.action,
                         reason="scenario tool step",

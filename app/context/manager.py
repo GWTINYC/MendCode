@@ -30,14 +30,17 @@ class ContextManager:
         self,
         *,
         memory_runtime: MemoryRuntime,
+        evolution_rule_runtime: object | None = None,
         base_context: str | dict[str, Any] | list[Any] | None = None,
         budget: ContextBudget | None = None,
     ) -> None:
         self.memory_runtime = memory_runtime
+        self.evolution_rule_runtime = evolution_rule_runtime
         self.base_context = base_context
         self.budget = budget or ContextBudget()
         self._observations: list[AgentObservationRecord] = []
         self._memory_recall: list[MemoryRecallHit] = []
+        self._evolution_rules: list[dict[str, object]] = []
         self._warnings: list[ContextWarning] = []
         self._latest_bundle: ContextBundle | None = None
         self._repo_path: Path | None = None
@@ -45,6 +48,7 @@ class ContextManager:
     def begin_turn(self, *, user_message: str, repo_path: Path) -> ContextBundle:
         self._observations = []
         self._memory_recall = []
+        self._evolution_rules = []
         self._warnings = []
         self._repo_path = repo_path
         try:
@@ -62,6 +66,26 @@ class ContextManager:
                     source="memory_runtime",
                 )
             )
+        if self.evolution_rule_runtime is not None and self.budget.max_evolution_rules > 0:
+            try:
+                recall_for_turn = getattr(self.evolution_rule_runtime, "recall_for_turn")
+                recall = recall_for_turn(
+                    user_message,
+                    max_rules=self.budget.max_evolution_rules,
+                    max_chars=self.budget.max_evolution_rule_chars,
+                )
+                self._evolution_rules = [
+                    self._compact_evolution_rule(rule)
+                    for rule in getattr(recall, "rules", [])
+                ]
+            except Exception as exc:  # pragma: no cover - defensive integration guard.
+                self._warnings.append(
+                    ContextWarning(
+                        code="evolution_rule_recall_failed",
+                        message=str(exc),
+                        source="evolution_rule_runtime",
+                    )
+                )
         return self.build_provider_context()
 
     def record_observation(self, observation: AgentObservationRecord) -> ContextBundle:
@@ -124,6 +148,7 @@ class ContextManager:
                 compact_memory_hit(hit, max_chars=self.budget.max_memory_chars)
                 for hit in self._memory_recall
             ],
+            "evolution_rules": list(self._evolution_rules),
             "observations": [
                 item.model_dump(mode="json", exclude_none=True)
                 for item in observation_items
@@ -184,6 +209,19 @@ class ContextManager:
                 metadata={"id": hit.id, "kind": hit.kind, "score": hit.score},
             )
             for hit in self._memory_recall
+        )
+        items.extend(
+            ContextItem(
+                kind="evolution_rule",
+                title=f"Evolution rule: {rule.get('rule_type', 'rule')}",
+                content=str(rule.get("rule_text") or ""),
+                metadata={
+                    key: value
+                    for key, value in rule.items()
+                    if key != "rule_text" and value not in {None, ""}
+                },
+            )
+            for rule in self._evolution_rules
         )
         items.extend(observation_items)
         items.extend(file_summary_items)
@@ -260,6 +298,15 @@ class ContextManager:
             if counts[path] > 1 and path not in repeated:
                 repeated.append(path)
         return repeated
+
+    def _compact_evolution_rule(self, rule: object) -> dict[str, object]:
+        return {
+            "rule_id": str(getattr(rule, "rule_id")),
+            "rule_type": str(getattr(rule, "rule_type")),
+            "rule_text": str(getattr(rule, "rule_text")),
+            "scope": str(getattr(rule, "scope", "")),
+            "activation_hint": str(getattr(rule, "activation_hint", "")),
+        }
 
     def _with_compaction_metrics(
         self,

@@ -105,8 +105,10 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
     repetition_tracker = RepetitionTracker()
     memory_store = MemoryStore(settings.data_dir / "memory")
     memory_runtime = MemoryRuntime(memory_store)
+    evolution_rule_runtime = _build_evolution_rule_runtime(settings)
     context_manager = ContextManager(
         memory_runtime=memory_runtime,
+        evolution_rule_runtime=evolution_rule_runtime,
         base_context=loop_input.provider_context,
     )
     context_manager.begin_turn(
@@ -390,6 +392,21 @@ def _compact_context_summary(context_bundle: ContextBundle) -> dict[str, object]
             for item in context_bundle.items
         ],
     }
+
+
+def _build_evolution_rule_runtime(settings: Settings) -> object | None:
+    try:
+        from app.evolution.rules import EvolutionRuleRuntime, EvolutionRuleStore
+    except ImportError as exc:
+        if exc.name == "app.evolution.rules":
+            return None
+        if "EvolutionRuleRuntime" in str(exc) or "EvolutionRuleStore" in str(exc):
+            return None
+        raise
+    return EvolutionRuleRuntime(
+        None,
+        EvolutionRuleStore(settings.data_dir / "evolution"),
+    )
 
 
 def _content_excerpt(content: str | None, max_chars: int = 240) -> str | None:
