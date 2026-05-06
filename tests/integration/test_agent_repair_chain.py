@@ -6,6 +6,11 @@ from pathlib import Path
 from app.agent.loop import AgentLoopInput, run_agent_loop
 from app.agent.provider import AgentProviderStepInput, ProviderResponse
 from app.config.settings import Settings
+from app.runtime.benchmark import (
+    BenchmarkCaseEvidence,
+    BenchmarkManifest,
+    build_case_result_from_evidence,
+)
 from app.tools.structured import ToolInvocation
 
 PYTHON = shlex.quote(sys.executable)
@@ -165,6 +170,35 @@ def test_fake_provider_repair_chain_applies_patch_in_worktree_and_completes(
     assert "calculator.py" in result.steps[1].observation.payload["paths"]
     assert "calculator.py" in result.steps[3].observation.payload["diff_stat"]
     assert len(provider.calls) == 5
+    case = BenchmarkManifest.model_validate(
+        {
+            "name": "repair",
+            "cases": [
+                {
+                    "id": "patch-repair-failing-test",
+                    "category": "patch_repair",
+                    "prompt": "fix add",
+                    "expected_tools": ["run_command", "apply_patch"],
+                }
+            ],
+        }
+    ).cases[0]
+    benchmark_result = build_case_result_from_evidence(
+        case,
+        BenchmarkCaseEvidence(
+            case_id=case.id,
+            observed_tools=[
+                str(getattr(step.action, "action", step.action.type))
+                for step in result.steps
+                if step.action.type == "tool_call"
+            ],
+            repeated_file_reads=(
+                result.context_summary or {}
+            ).get("metrics", {}).get("repeated_read_file_count", 0),
+        ),
+    )
+    assert benchmark_result.passed is True
+    assert benchmark_result.missing_tools == []
 
 
 def test_fake_provider_repair_chain_cannot_complete_after_failed_patch_verification(

@@ -1,12 +1,12 @@
 import pytest
 
-from app.runtime.benchmark import BenchmarkManifest, build_case_result_from_evidence
 from tests.scenarios.tui_scenario_runner import (
     ScenarioToolStep,
     ScenarioTranscript,
     TuiScenario,
     TuiScenarioRunner,
     assert_answer_is_concise,
+    assert_benchmark_case_passed,
     assert_did_not_use_chat,
     assert_has_evidence_from_any_observation,
     assert_has_evidence_from_observation,
@@ -61,24 +61,13 @@ async def test_directory_listing_is_tool_backed_and_concise(tmp_path):
     assert_visible_answer_contains(transcript, "app")
     assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
     assert_no_raw_trace_or_large_json_dump(transcript)
-    case = BenchmarkManifest.model_validate(
-        {
-            "name": "quick",
-            "cases": [
-                {
-                    "id": "repo-list",
-                    "category": "repository_inspection",
-                    "prompt": "列文件",
-                    "expected_tools": ["list_dir"],
-                    "max_visible_chars": 900,
-                }
-            ],
-        }
-    ).cases[0]
-    result = build_case_result_from_evidence(case, transcript.to_benchmark_evidence(case))
-    assert result.passed is True
-    assert result.observed_tools == ["list_dir"]
-    assert result.visible_chars is not None
+    assert_benchmark_case_passed(
+        transcript,
+        case_id="repo-list-current-directory",
+        category="repository_inspection",
+        expected_tools=["list_dir"],
+        max_visible_chars=900,
+    )
 
 
 async def test_observation_evidence_requires_successful_meaningful_tool_step():
@@ -188,6 +177,13 @@ async def test_git_status_request_uses_safe_shell_and_stays_compact(tmp_path):
     assert_visible_answer_contains(transcript, "git status")
     assert_answer_is_concise(transcript, max_lines=12, max_chars=900)
     assert_no_raw_trace_or_large_json_dump(transcript)
+    assert_benchmark_case_passed(
+        transcript,
+        case_id="git-status",
+        category="git_status",
+        expected_tools=["git"],
+        max_visible_chars=900,
+    )
 
 
 async def test_chinese_git_state_request_uses_safe_shell_not_chat(tmp_path):
@@ -377,6 +373,13 @@ async def test_memory_recall_question_uses_memory_search(tmp_path):
     )
     assert_visible_answer_contains(transcript, "python -m pytest -q")
     assert_answer_is_concise(transcript, max_lines=8, max_chars=500)
+    assert_benchmark_case_passed(
+        transcript,
+        case_id="memory-recall-verification-command",
+        category="memory_context",
+        expected_tools=["memory_search"],
+        max_visible_chars=500,
+    )
 
 
 async def test_tui_stores_pending_tool_from_agent_loop_confirmation(tmp_path):

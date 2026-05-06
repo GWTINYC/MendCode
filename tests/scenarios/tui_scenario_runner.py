@@ -13,7 +13,13 @@ from typing import Any
 from app.agent.loop import AgentLoopResult, AgentStep
 from app.agent.session import AgentSessionTurn, ReviewSummary
 from app.config.settings import Settings
-from app.runtime.benchmark import BenchmarkCaseEvidence, BenchmarkCaseSpec
+from app.runtime.benchmark import (
+    BenchmarkCaseEvidence,
+    BenchmarkCaseSpec,
+    BenchmarkCategory,
+    BenchmarkManifest,
+    build_case_result_from_evidence,
+)
 from app.schemas.agent_action import (
     FinalResponseAction,
     Observation,
@@ -169,6 +175,45 @@ def _compact_tool_result_is_rejected_for(
         if step.get("action") in tool_names and step.get("status") == "rejected":
             return True
     return False
+
+
+def assert_benchmark_case_passed(
+    transcript: ScenarioTranscript,
+    *,
+    case_id: str,
+    category: BenchmarkCategory,
+    expected_tools: list[str],
+    max_visible_chars: int | None = None,
+    expects_dangerous_block: bool = False,
+) -> None:
+    case = BenchmarkManifest.model_validate(
+        {
+            "name": "scenario-inline",
+            "cases": [
+                {
+                    "id": case_id,
+                    "category": category,
+                    "prompt": transcript.user_inputs[-1] if transcript.user_inputs else "",
+                    "expected_tools": expected_tools,
+                    "max_visible_chars": max_visible_chars,
+                    "expects_dangerous_block": expects_dangerous_block,
+                }
+            ],
+        }
+    ).cases[0]
+    result = build_case_result_from_evidence(case, transcript.to_benchmark_evidence(case))
+    if not result.passed:
+        _fail(
+            transcript,
+            (
+                "benchmark case failed: "
+                f"missing_tools={result.missing_tools}, "
+                f"observed_tools={result.observed_tools}, "
+                f"visible_chars={result.visible_chars}, "
+                f"max_visible_chars={result.max_visible_chars}, "
+                f"dangerous_command_blocked={result.dangerous_command_blocked}"
+            ),
+        )
 
 
 class FakeChatResponder:
