@@ -3,6 +3,7 @@ from pathlib import Path
 from app.runtime.benchmark import BenchmarkManifest
 from app.runtime.benchmark_gate import (
     PytestRunResult,
+    build_case_result_from_live_records,
     build_gate_report,
     select_pytest_nodeids,
 )
@@ -71,3 +72,48 @@ def test_build_gate_report_maps_failed_nodeid_to_case() -> None:
     assert report.cases[0].passed is False
     assert report.cases[0].tool_chain_passed is False
     assert "pytest_node_failed" in report.cases[0].failure_reasons
+
+
+def test_build_case_result_from_live_records_tracks_tool_route_and_concision() -> None:
+    records = [
+        {
+            "event_type": "intent",
+            "payload": {"source": "schema_tool_call"},
+        },
+        {
+            "event_type": "tool_result",
+            "payload": {
+                "steps": [
+                    {"action": "git", "status": "succeeded"},
+                    {"action": "final_response", "status": "succeeded"},
+                ]
+            },
+        },
+        {
+            "event_type": "message",
+            "payload": {"role": "agent", "message": "当前有未跟踪文件 work.txt。"},
+        },
+    ]
+    case = BenchmarkManifest.model_validate(
+        {
+            "name": "gate",
+            "cases": [
+                {
+                    "id": "git-status",
+                    "category": "git_status",
+                    "prompt": "查看 git 状态",
+                    "expected_tools": ["git"],
+                    "max_visible_chars": 80,
+                }
+            ],
+        }
+    ).cases[0]
+
+    result = build_case_result_from_live_records(case=case, records=records)
+
+    assert result.passed is True
+    assert result.tool_chain_passed is True
+    assert result.route_passed is True
+    assert result.answer_concise is True
+    assert result.observed_tools == ["git"]
+    assert result.failure_reasons == []
