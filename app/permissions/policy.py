@@ -56,6 +56,9 @@ class PermissionDecision(BaseModel):
     reason: str
     risk_level: RiskLevel
     required_mode: RequiredPermissionMode = "read-only"
+    target: str = ""
+    effect: str = ""
+    risk_reason: str = ""
 
 
 def normalize_permission_mode(
@@ -94,6 +97,7 @@ class PermissionPolicy:
         if shell_decision is not None:
             shell_override = self._decision_from_shell_classifier(
                 tool_name=tool_name,
+                args=action.args,
                 shell_decision=shell_decision,
                 fallback_required_mode=required_mode,
             )
@@ -181,6 +185,7 @@ class PermissionPolicy:
         self,
         *,
         tool_name: str,
+        args: dict[str, object],
         shell_decision: ShellPolicyDecision,
         fallback_required_mode: RequiredPermissionMode,
     ) -> PermissionDecision | None:
@@ -190,6 +195,9 @@ class PermissionPolicy:
                 reason=shell_decision.reason or "critical shell command denied",
                 risk_level="critical",
                 required_mode="danger-full-access",
+                target=_decision_target(tool_name, args),
+                effect="deny shell command",
+                risk_reason=shell_decision.reason or "critical shell command denied",
             )
         if shell_decision.requires_confirmation:
             return PermissionDecision(
@@ -197,6 +205,9 @@ class PermissionPolicy:
                 reason=shell_decision.reason or "shell command requires confirmation",
                 risk_level=shell_decision.risk_level,
                 required_mode="danger-full-access",
+                target=_decision_target(tool_name, args),
+                effect="run shell command",
+                risk_reason=shell_decision.reason or "shell command requires confirmation",
             )
         if shell_decision.allowed and shell_decision.risk_level == "low":
             return PermissionDecision(
@@ -211,5 +222,20 @@ class PermissionPolicy:
                 reason=shell_decision.reason or "shell command denied by policy",
                 risk_level=shell_decision.risk_level,
                 required_mode=fallback_required_mode,
+                target=_decision_target(tool_name, args),
+                effect="deny shell command",
+                risk_reason=shell_decision.reason or "shell command denied by policy",
             )
         return None
+
+
+def _decision_target(tool_name: str, args: dict[str, object]) -> str:
+    if tool_name in {"run_shell_command", "process_start"}:
+        return str(args.get("command", ""))
+    if tool_name in {"write_file", "edit_file"}:
+        return str(args.get("path", ""))
+    if tool_name == "apply_patch":
+        files = args.get("files_to_modify", [])
+        if isinstance(files, list):
+            return ", ".join(str(item) for item in files[:3])
+    return ""

@@ -138,6 +138,36 @@ def test_pending_confirmation_payload_omits_raw_arguments() -> None:
     assert payload["preview"]["paths"] == ["secret.txt"]
     assert payload["preview"]["diff_stat"] == {"files": 1, "additions": 1, "deletions": 0}
     assert payload["preview"]["requires_confirmation"] is True
+    assert payload["target"] == "secret.txt"
+    assert payload["effect"] == "write file"
+    assert payload["risk_reason"] == "tool write_file requires confirmation"
+
+
+def test_pending_confirmation_payload_includes_edit_target_and_effect() -> None:
+    action = ToolCallAction(
+        type="tool_call",
+        action="edit_file",
+        reason="Need to edit file",
+        args={"path": "README.md", "old_string": "old", "new_string": "new"},
+    )
+    decision = PermissionDecision(
+        status="confirm",
+        reason="tool edit_file requires confirmation",
+        risk_level="medium",
+        required_mode="workspace-write",
+    )
+
+    pending = build_pending_tool_confirmation(
+        action=action,
+        decision=decision,
+        tool_invocation=None,
+        source="agent_loop",
+    )
+    payload = pending.safe_payload()
+
+    assert payload["target"] == "README.md"
+    assert payload["effect"] == "edit file"
+    assert payload["risk_reason"] == "tool edit_file requires confirmation"
 
 
 def test_build_pending_tool_confirmation_bounds_shell_command_preview() -> None:
