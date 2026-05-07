@@ -63,6 +63,13 @@ def _last_trace_event(trace_path: Path) -> dict[str, object]:
     return json.loads(lines[-1])
 
 
+def _trace_events(trace_path: Path) -> list[dict[str, object]]:
+    return [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
+
+
 class RecordingProvider:
     def __init__(self, actions: list[dict[str, object]]) -> None:
         self.actions = actions
@@ -1653,6 +1660,59 @@ def test_agent_loop_executes_native_transitional_tool_invocation(tmp_path: Path)
     assert len(provider.calls) == 2
     assert provider.calls[1].observations[0].tool_invocation is not None
     assert provider.calls[1].observations[0].tool_invocation.id == "call_1"
+
+
+def test_agent_loop_trace_records_provider_tool_roundtrip_summary(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "calculator.py").write_text(
+        "def add(a, b):\n    return a + b\n",
+        encoding="utf-8",
+    )
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_1",
+                    name="rg",
+                    args={
+                        "query": "def add" + ("x" * 2000),
+                        "glob": "*.py",
+                    },
+                    source="openai_tool_call",
+                )
+            ],
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="find add",
+            provider=provider,
+            step_budget=4,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    roundtrip_events = [
+        event
+        for event in _trace_events(Path(result.trace_path))
+        if event["event_type"] == "agent.provider.tool_roundtrip"
+    ]
+    assert len(roundtrip_events) == 1
+    payload = roundtrip_events[0]["payload"]
+    assert "rg" in payload["tool_schema_names"]
+    assert payload["tool_call_name"] == "rg"
+    assert payload["permission_status"] == "allow"
+    assert payload["observation_status"] == "succeeded"
+    assert payload["observation_summary"].startswith("Searched for def add")
+    assert len(payload["observation_summary"]) < 200
+    assert payload["tool_call_args_excerpt"]["query"].startswith("def add")
+    assert len(payload["tool_call_args_excerpt"]["query"]) < 200
+    assert "x" * 500 not in json.dumps(payload)
 
 
 def test_agent_loop_fails_when_native_batch_exhausts_step_budget(tmp_path: Path) -> None:
