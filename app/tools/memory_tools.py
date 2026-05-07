@@ -260,7 +260,7 @@ def review_queue_view(
         tool_name="review_queue_view",
         status="succeeded",
         summary=f"Read review candidate {candidate.id}",
-        payload={"candidate": candidate.model_dump(mode="json")},
+        payload={"candidate": _view_candidate(candidate)},
     )
 
 
@@ -379,10 +379,36 @@ def _compact_candidate(candidate) -> dict[str, object]:
         "suggested_skill": candidate.suggested_skill,
         "confidence": candidate.confidence,
         "status": candidate.status,
+        "source_report": _candidate_source_report(candidate),
         "source_trace_path": candidate.source_trace_path,
         "created_at": candidate.created_at.isoformat(),
         "updated_at": candidate.updated_at.isoformat(),
     }
+
+
+def _view_candidate(candidate) -> dict[str, object]:
+    payload = _compact_candidate(candidate)
+    payload["evidence"] = _bounded_evidence(candidate.evidence)
+    return payload
+
+
+def _candidate_source_report(candidate) -> str | None:
+    value = candidate.evidence.get("source_report")
+    return str(value) if value else None
+
+
+def _bounded_evidence(evidence: dict[str, object]) -> dict[str, object]:
+    return {str(key): _bounded_value(value) for key, value in list(evidence.items())[:20]}
+
+
+def _bounded_value(value):
+    if isinstance(value, str):
+        return value if len(value) <= 1000 else f"{value[:1000]}..."
+    if isinstance(value, list):
+        return [_bounded_value(item) for item in value[:20]]
+    if isinstance(value, dict):
+        return {str(key): _bounded_value(item) for key, item in list(value.items())[:20]}
+    return value
 
 
 def _duplicate_memory_record(

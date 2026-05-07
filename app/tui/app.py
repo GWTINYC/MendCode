@@ -105,6 +105,31 @@ def _pending_tool_arguments_from_step(step) -> dict[str, object]:
     return {}
 
 
+def _format_pending_tool_confirmation_message(
+    pending: PendingToolConfirmation,
+) -> str:
+    lines = [
+        (
+            "工具调用需要确认。回复“确认”或 yes 执行一次，回复“取消”放弃，"
+            "回复“切换模式”提升到所需权限后执行。"
+        ),
+        f"tool: {pending.tool_name}",
+        f"risk: {pending.risk_level}",
+        f"required_mode: {pending.required_mode}",
+    ]
+    for key in [
+        "candidate_id",
+        "target_kind",
+        "effect",
+        "source_report",
+        "source_trace",
+    ]:
+        value = pending.preview.get(key)
+        if value not in {None, ""}:
+            lines.append(f"{key}: {value}")
+    return "\n".join(lines)
+
+
 class ToolAvailabilityProvider:
     def next_action(self, step_input: AgentProviderStepInput) -> ProviderResponse:
         if step_input.step_index == 1:
@@ -1179,10 +1204,7 @@ class MendCodeTextualApp(App[None]):
             )
             self.append_message(
                 "System",
-                (
-                    "工具调用需要确认。回复“确认”或 yes 执行一次，"
-                    "回复“取消”放弃，回复“切换模式”提升到所需权限后执行。"
-                ),
+                _format_pending_tool_confirmation_message(pending_confirmation),
             )
             return True
         return False

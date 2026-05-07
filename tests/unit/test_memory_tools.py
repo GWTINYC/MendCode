@@ -224,6 +224,41 @@ def test_review_queue_tools_list_view_accept_and_reject_candidates(
     assert context.memory_store.list_records()[0].metadata["candidate_id"] == first.id
 
 
+def test_review_queue_list_and_view_are_review_friendly_without_raw_evidence(
+    tmp_path: Path,
+) -> None:
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+    assert context.memory_store is not None
+    candidate = LessonCandidate(
+        kind="skill_lesson",
+        target_kind="skill",
+        summary="Refine the test-fix workflow.",
+        evidence={
+            "case_id": "patch-repair-test-fix",
+            "source_report": "data/analysis-reports/run.json",
+            "large_payload": "x" * 5000,
+        },
+        source_trace_path="data/traces/run.jsonl",
+        suggested_skill="test-fix",
+        confidence=0.7,
+    )
+    MemoryRuntime(context.memory_store).enqueue_candidate(candidate)
+
+    listed = registry.get("review_queue_list").execute({"status": "pending"}, context)
+    viewed = registry.get("review_queue_view").execute({"candidate_id": candidate.id}, context)
+
+    listed_candidate = listed.payload["candidates"][0]
+    assert listed_candidate["target_kind"] == "skill"
+    assert listed_candidate["source_report"] == "data/analysis-reports/run.json"
+    assert listed_candidate["source_trace_path"] == "data/traces/run.jsonl"
+    assert "evidence" not in listed_candidate
+    viewed_candidate = viewed.payload["candidate"]
+    assert viewed_candidate["target_kind"] == "skill"
+    assert viewed_candidate["evidence"]["large_payload"].endswith("...")
+    assert len(viewed_candidate["evidence"]["large_payload"]) < 5000
+
+
 def test_review_queue_accepts_non_memory_candidate_without_memory_promotion(
     tmp_path: Path,
 ) -> None:
