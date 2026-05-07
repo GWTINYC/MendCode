@@ -1759,6 +1759,115 @@ def test_agent_loop_native_failed_observation_blocks_completed_final_response(
     assert result.steps[1].action.type == "final_response"
 
 
+def test_agent_loop_blocks_local_fact_final_response_without_observation(
+    tmp_path: Path,
+) -> None:
+    provider = NativeToolProvider(
+        [
+            {"type": "final_response", "status": "completed", "summary": "clean"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="查看 git 状态",
+            provider=provider,
+            step_budget=2,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.summary == "Final response requires tool evidence for local repository facts"
+    assert result.task_state is not None
+    assert result.task_state.phase == "failed"
+    assert result.task_state.blocked_reason == result.summary
+
+
+def test_agent_loop_allows_local_fact_final_response_with_successful_observation(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    provider = NativeToolProvider(
+        [
+            [
+                ToolInvocation(
+                    id="call_status",
+                    name="repo_status",
+                    args={},
+                    source="openai_tool_call",
+                )
+            ],
+            {"type": "final_response", "status": "completed", "summary": "clean"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=repo_path,
+            problem_statement="查看 git 状态",
+            provider=provider,
+            step_budget=3,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.steps[0].observation.status == "succeeded"
+    assert result.summary == "clean"
+
+
+def test_agent_loop_rejected_initial_observation_blocks_completed_final_response(
+    tmp_path: Path,
+) -> None:
+    invocation = ToolInvocation(
+        id="call_write",
+        name="memory_write",
+        args={"kind": "failure_lesson", "title": "lesson", "content": "body"},
+        source="openai_tool_call",
+        group_id="provider-1",
+    )
+    action = ToolCallAction(
+        type="tool_call",
+        action="memory_write",
+        reason="cancelled by user",
+        args={"kind": "failure_lesson", "title": "lesson", "content": "body"},
+    )
+    observation = Observation(
+        status="rejected",
+        summary="User cancelled tool execution",
+        payload={"cancelled": True},
+        error_message="user cancelled pending confirmation",
+    )
+    provider = RecordingProvider(
+        [
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="remember this lesson",
+            provider=provider,
+            initial_observations=[
+                AgentObservationRecord(
+                    action=action,
+                    tool_invocation=invocation,
+                    observation=observation,
+                )
+            ],
+            step_budget=2,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "failed"
+    assert result.summary == "Agent loop ended with failed observations"
+    assert provider.calls[0].observations[0].observation.status == "rejected"
+
+
 def test_agent_loop_turns_provider_failure_into_failed_result(tmp_path: Path) -> None:
     result = run_agent_loop(
         AgentLoopInput(

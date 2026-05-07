@@ -309,7 +309,11 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 )
                 record_handled_action(handled)
                 if handled.stop:
-                    status, summary = apply_final_response_gate(steps=steps[:-1], handled=handled)
+                    status, summary = apply_final_response_gate(
+                        steps=steps[:-1],
+                        handled=handled,
+                        problem_statement=loop_input.problem_statement,
+                    )
                     break
                 index += 1
             if (
@@ -337,7 +341,11 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 )
                 record_handled_action(handled)
                 if handled.stop:
-                    status, summary = apply_final_response_gate(steps=steps[:-1], handled=handled)
+                    status, summary = apply_final_response_gate(
+                        steps=steps[:-1],
+                        handled=handled,
+                        problem_statement=loop_input.problem_statement,
+                    )
                     break
     finally:
         process_registry.stop_all()

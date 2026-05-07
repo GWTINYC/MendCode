@@ -110,6 +110,17 @@ def test_gate_blocks_local_fact_final_without_successful_tool_observation() -> N
     assert "requires tool evidence" in summary
 
 
+def test_gate_blocks_local_fact_request_without_successful_tool_observation() -> None:
+    status, summary = apply_final_response_gate(
+        steps=[],
+        handled=handled_final(index=1, summary="clean"),
+        problem_statement="查看 git 状态",
+    )
+
+    assert status == "failed"
+    assert "requires tool evidence" in summary
+
+
 def test_gate_blocks_current_project_fact_without_successful_tool_observation() -> None:
     status, summary = apply_final_response_gate(
         steps=[],
