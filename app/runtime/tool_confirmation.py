@@ -26,6 +26,9 @@ class PendingToolConfirmation(BaseModel):
     reason: str
     risk_level: RiskLevel
     required_mode: RequiredPermissionMode
+    target: str = ""
+    effect: str = ""
+    risk_reason: str = ""
     preview: dict[str, Any] = Field(default_factory=dict)
     source: str
     created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
@@ -43,6 +46,7 @@ class PendingToolConfirmation(BaseModel):
             preview = dict(payload.get("preview", {}))
             preview.pop("command_preview", None)
             payload["preview"] = preview
+            payload["target"] = ""
         return payload
 
 
@@ -61,6 +65,9 @@ def build_pending_tool_confirmation(
         reason=decision.reason,
         risk_level=decision.risk_level,
         required_mode=decision.required_mode,
+        target=decision.target or _target_for_tool(action.action, action.args),
+        effect=decision.effect or _effect_for_tool(action.action),
+        risk_reason=decision.risk_reason or decision.reason,
         preview=_preview_for_tool(action.action, action.args, decision.reason),
         source=source,
     )
@@ -81,6 +88,9 @@ def build_tool_rejected_observation(
             "tool_name": pending.tool_name,
             "risk_level": pending.risk_level,
             "required_mode": pending.required_mode,
+            "target": pending.target,
+            "effect": pending.effect,
+            "risk_reason": pending.risk_reason,
             "reason": pending.reason,
             "user_reply": user_reply,
         },
@@ -159,6 +169,41 @@ def _preview_for_tool(
         "argument_keys": sorted(str(key) for key in args.keys())[:_MAX_PREVIEW_ITEMS],
         "reason": reason,
     }
+
+
+def _target_for_tool(tool_name: str, args: dict[str, Any]) -> str:
+    if tool_name in {"run_shell_command", "process_start"}:
+        return str(args.get("command", ""))
+    if tool_name in {"write_file", "edit_file"}:
+        return str(args.get("path", ""))
+    if tool_name == "apply_patch":
+        files = args.get("files_to_modify", [])
+        if isinstance(files, list):
+            return ", ".join(str(path) for path in files[:_MAX_PREVIEW_ITEMS])
+        return ""
+    if tool_name == "git":
+        path = args.get("path")
+        return str(path) if path not in {None, ""} else str(args.get("operation", ""))
+    if tool_name in {"review_queue_accept", "review_queue_reject"}:
+        return str(args.get("candidate_id", ""))
+    if tool_name == "memory_write":
+        return str(args.get("title", ""))
+    return ""
+
+
+def _effect_for_tool(tool_name: str) -> str:
+    effects = {
+        "run_shell_command": "run shell command",
+        "process_start": "start process",
+        "apply_patch": "apply patch",
+        "write_file": "write file",
+        "edit_file": "edit file",
+        "git": "run git operation",
+        "memory_write": "write memory",
+        "review_queue_accept": "accept review candidate",
+        "review_queue_reject": "reject review candidate",
+    }
+    return effects.get(tool_name, f"run {tool_name}")
 
 
 def _bounded_list(value: object) -> list[object]:

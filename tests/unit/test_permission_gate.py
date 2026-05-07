@@ -142,6 +142,12 @@ def test_workspace_write_allows_write_edit_and_todo_tools() -> None:
 
 def test_workspace_write_prompts_for_dangerous_shell() -> None:
     policy = PermissionPolicy(active_mode="workspace-write")
+    action = ToolCallAction(
+        type="tool_call",
+        action="run_shell_command",
+        reason="Need to remove generated file",
+        args={"command": "rm README.md"},
+    )
     shell_decision = ShellPolicyDecision(
         allowed=False,
         requires_confirmation=True,
@@ -149,12 +155,15 @@ def test_workspace_write_prompts_for_dangerous_shell() -> None:
         reason="shell command requires confirmation",
     )
 
-    decision = policy.decide(tool_call("run_shell_command"), shell_decision=shell_decision)
+    decision = policy.decide(action, shell_decision=shell_decision)
 
     assert decision.status == "confirm"
     assert decision.risk_level == "high"
     assert decision.required_mode == "danger-full-access"
     assert "shell command requires confirmation" in decision.reason
+    assert decision.target == "rm README.md"
+    assert decision.effect == "run shell command"
+    assert decision.risk_reason == "shell command requires confirmation"
 
 
 def test_danger_full_access_allows_registered_tools() -> None:
@@ -197,3 +206,5 @@ def test_critical_shell_decision_denies_even_in_danger_full_access() -> None:
     assert decision.status == "deny"
     assert decision.risk_level == "critical"
     assert "redirection target escapes allowed workspace root" in decision.reason
+    assert decision.effect == "deny shell command"
+    assert decision.risk_reason == "redirection target escapes allowed workspace root"

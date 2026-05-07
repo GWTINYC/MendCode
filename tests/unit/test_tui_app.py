@@ -1311,6 +1311,64 @@ async def test_pending_review_candidate_confirmation_displays_effect_preview(
     assert "data/analysis-reports/run.json" in rendered
 
 
+async def test_pending_write_confirmation_displays_single_line_summary(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+    pending = {
+        "id": "confirm-write",
+        "tool_name": "write_file",
+        "reason": "tool write_file requires confirmation",
+        "risk_level": "medium",
+        "required_mode": "workspace-write",
+        "source": "agent_loop",
+        "target": "README.md",
+        "effect": "write file",
+        "risk_reason": "tool write_file requires confirmation",
+        "preview": {
+            "paths": ["README.md"],
+            "diff_stat": {"files": 1, "additions": 3, "deletions": 0},
+            "requires_confirmation": True,
+        },
+    }
+    result = AgentLoopResult(
+        run_id="pending-write",
+        status="needs_user_confirmation",
+        summary="User confirmation required",
+        trace_path=None,
+        steps=[
+            AgentStep(
+                index=1,
+                action=ToolCallAction(
+                    type="tool_call",
+                    action="write_file",
+                    reason="write README",
+                    args={"path": "README.md", "content": "body"},
+                ),
+                observation=Observation(
+                    status="rejected",
+                    summary="User confirmation required",
+                    payload={"pending_confirmation": pending},
+                    error_message="confirmation required",
+                ),
+            )
+        ],
+    )
+
+    async with app.run_test():
+        assert app._store_pending_tool_from_result(result) is True
+
+    rendered = app.message_texts[-1]
+    assert "\n" not in rendered
+    assert "write_file" in rendered
+    assert "medium" in rendered
+    assert "README.md" in rendered
+    assert "write file" in rendered
+    assert "workspace-write" in rendered
+    assert "tool write_file requires confirmation" in rendered
+
+
 async def test_pending_shell_compatibility_exposes_command_and_bounded_preview(
     tmp_path: Path,
 ) -> None:

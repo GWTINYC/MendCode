@@ -108,26 +108,42 @@ def _pending_tool_arguments_from_step(step) -> dict[str, object]:
 def _format_pending_tool_confirmation_message(
     pending: PendingToolConfirmation,
 ) -> str:
-    lines = [
-        (
-            "工具调用需要确认。回复“确认”或 yes 执行一次，回复“取消”放弃，"
-            "回复“切换模式”提升到所需权限后执行。"
-        ),
-        f"tool: {pending.tool_name}",
-        f"risk: {pending.risk_level}",
-        f"required_mode: {pending.required_mode}",
+    details = [
+        "工具调用需要确认",
+        f"tool={pending.tool_name}",
+        f"risk={pending.risk_level}",
+        f"mode={pending.required_mode}",
     ]
+    target = pending.target or _preview_target(pending.preview)
+    effect = pending.effect or str(pending.preview.get("effect", ""))
+    risk_reason = pending.risk_reason or pending.reason
+    if target:
+        details.append(f"target={target}")
+    if effect:
+        details.append(f"effect={effect}")
+    if risk_reason:
+        details.append(f"reason={risk_reason}")
     for key in [
         "candidate_id",
         "target_kind",
-        "effect",
         "source_report",
         "source_trace",
     ]:
         value = pending.preview.get(key)
         if value not in {None, ""}:
-            lines.append(f"{key}: {value}")
-    return "\n".join(lines)
+            details.append(f"{key}={value}")
+    details.append("回复“确认”执行一次，回复“取消”放弃，回复“切换模式”提升权限后执行")
+    return " | ".join(details)
+
+
+def _preview_target(preview: dict[str, object]) -> str:
+    paths = preview.get("paths")
+    if isinstance(paths, list) and paths:
+        return ", ".join(str(path) for path in paths[:3])
+    candidate_id = preview.get("candidate_id")
+    if candidate_id not in {None, ""}:
+        return str(candidate_id)
+    return ""
 
 
 class ToolAvailabilityProvider:
