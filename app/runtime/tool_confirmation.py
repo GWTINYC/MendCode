@@ -147,7 +147,15 @@ def _preview_for_tool(
             "reason": reason,
         }
     if tool_name in {"review_queue_accept", "review_queue_reject"}:
-        return {"candidate_id": str(args.get("candidate_id", "")), "reason": reason}
+        effect = "accept_candidate" if tool_name == "review_queue_accept" else "reject_candidate"
+        return {
+            "candidate_id": str(args.get("candidate_id", "")),
+            "target_kind": str(args.get("target_kind", "")),
+            "source_report": str(args.get("source_report", "")),
+            "source_trace": str(args.get("source_trace", "")),
+            "effect": effect,
+            "reason": reason,
+        }
     return {
         "argument_keys": sorted(str(key) for key in args.keys())[:_MAX_PREVIEW_ITEMS],
         "reason": reason,

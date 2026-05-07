@@ -58,6 +58,9 @@ def build_candidates_from_analysis_report(report: AnalysisReport) -> list[Lesson
         rule_candidate = _rule_candidate_for_root_cause(report, root_cause)
         if rule_candidate is not None:
             candidates.append(rule_candidate)
+        review_candidate = _review_candidate_for_root_cause(report, root_cause)
+        if review_candidate is not None:
+            candidates.append(review_candidate)
     candidates.append(_memory_candidate_for_report(report))
     return candidates
 
@@ -158,6 +161,8 @@ def _rule_candidate_for_root_cause(
         )
     if root_cause == "unknown":
         return None
+    if root_cause in {"verification_recovered", "test_fix_gap"}:
+        return None
     return _rule_lesson_candidate(
         report,
         root_cause=root_cause,
@@ -168,6 +173,50 @@ def _rule_candidate_for_root_cause(
         scope=report.case_id,
         activation_hint=root_cause,
     )
+
+
+def _review_candidate_for_root_cause(
+    report: AnalysisReport,
+    root_cause: str,
+) -> LessonCandidate | None:
+    if root_cause == "tool_selection_gap":
+        tools = ", ".join(report.expected_tools) or "expected local tools"
+        return _typed_review_candidate(
+            report,
+            root_cause=root_cause,
+            target_kind="tool_schema_hint",
+            kind="tool_schema_hint",
+            summary=(
+                f"Tool schema hint candidate: {report.case_id} should steer "
+                f"the model toward {tools}."
+            ),
+            confidence=0.7,
+        )
+    if root_cause == "answer_style_gap":
+        return _typed_review_candidate(
+            report,
+            root_cause=root_cause,
+            target_kind="prompt_rule",
+            kind="prompt_rule_lesson",
+            summary=(
+                f"Prompt rule candidate: {report.case_id} should keep answers "
+                "concise and observation-grounded."
+            ),
+            confidence=0.69,
+        )
+    if root_cause in {"verification_recovered", "test_fix_gap"} or _looks_like_test_fix(report):
+        return _typed_review_candidate(
+            report,
+            root_cause=root_cause,
+            target_kind="skill",
+            kind="skill_lesson",
+            summary=(
+                f"Skill candidate: {report.case_id} should refine the test-fix workflow."
+            ),
+            suggested_skill="test-fix",
+            confidence=0.66,
+        )
+    return None
 
 
 def _rule_lesson_candidate(
@@ -215,6 +264,41 @@ def _rule_lesson_candidate(
     )
 
 
+def _typed_review_candidate(
+    report: AnalysisReport,
+    *,
+    root_cause: str,
+    target_kind: str,
+    kind: str,
+    summary: str,
+    confidence: float,
+    suggested_skill: str | None = None,
+) -> LessonCandidate:
+    candidate_id = _candidate_id(
+        {
+            "target": target_kind,
+            "kind": kind,
+            "case_id": report.case_id,
+            "root_cause": root_cause,
+            "suggested_skill": suggested_skill,
+            "recommendations": report.recommendations,
+        }
+    )
+    return LessonCandidate(
+        id=candidate_id,
+        kind=kind,  # type: ignore[arg-type]
+        summary=summary,
+        evidence=_evidence(report),
+        source_trace_path=report.source_trace,
+        suggested_memory_kind="trace_insight",
+        suggested_skill=suggested_skill,
+        confidence=confidence,
+        target_kind=target_kind,  # type: ignore[arg-type]
+        created_at=_DETERMINISTIC_CREATED_AT,
+        updated_at=_DETERMINISTIC_CREATED_AT,
+    )
+
+
 def _memory_candidate_for_report(report: AnalysisReport) -> LessonCandidate:
     root_cause = ", ".join(report.root_causes) or "unknown"
     candidate_id = _candidate_id(
@@ -235,6 +319,16 @@ def _memory_candidate_for_report(report: AnalysisReport) -> LessonCandidate:
         confidence=0.68,
         created_at=_DETERMINISTIC_CREATED_AT,
         updated_at=_DETERMINISTIC_CREATED_AT,
+    )
+
+
+def _looks_like_test_fix(report: AnalysisReport) -> bool:
+    haystack = " ".join(
+        [report.case_id, *report.failure_reasons, *report.recommendations]
+    ).casefold()
+    return any(
+        token in haystack
+        for token in ["test-fix", "test_fix", "pytest", "verification"]
     )
 
 

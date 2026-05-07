@@ -57,7 +57,11 @@ def test_build_candidates_maps_tool_selection_gap_to_rule_and_memory(
 
     candidates = build_candidates_from_analysis_report(report)
 
-    assert [candidate.target_kind for candidate in candidates] == ["rule", "memory"]
+    assert [candidate.target_kind for candidate in candidates] == [
+        "rule",
+        "tool_schema_hint",
+        "memory",
+    ]
     rule_candidate = candidates[0]
     assert rule_candidate.rule_candidate is not None
     assert rule_candidate.rule_candidate.rule_type == "tool_required"
@@ -66,6 +70,10 @@ def test_build_candidates_maps_tool_selection_gap_to_rule_and_memory(
     assert rule_candidate.evidence["case_id"] == "git-status-natural-language"
     assert "recommendations" in rule_candidate.evidence
     memory_candidate = candidates[1]
+    assert memory_candidate.target_kind == "tool_schema_hint"
+    assert memory_candidate.kind == "tool_schema_hint"
+    assert memory_candidate.suggested_skill is None
+    memory_candidate = candidates[2]
     assert memory_candidate.kind == "failure_lesson"
     assert memory_candidate.suggested_memory_kind == "failure_lesson"
 
@@ -87,10 +95,38 @@ def test_build_candidates_maps_answer_style_gap_to_answer_style_rule(
 
     candidates = build_candidates_from_analysis_report(report)
 
-    assert len(candidates) == 2
+    assert len(candidates) == 3
     assert candidates[0].rule_candidate is not None
     assert candidates[0].rule_candidate.rule_type == "answer_style"
     assert "简洁" in candidates[0].rule_candidate.rule_text
+    assert candidates[1].target_kind == "prompt_rule"
+    assert candidates[1].kind == "prompt_rule_lesson"
+    assert "answer_style_gap" in candidates[1].evidence["root_causes"]
+    assert candidates[2].target_kind == "memory"
+
+
+def test_build_candidates_maps_test_fix_failure_to_skill_candidate(
+    tmp_path: Path,
+) -> None:
+    report_dir = tmp_path / "analysis-reports"
+    report_dir.mkdir()
+    report = load_analysis_report(
+        _write_report(
+            report_dir / "run-1-test-fix.json",
+            case_id="patch-repair-test-fix",
+            root_causes=["verification_recovered"],
+            failure_reasons=["test_failed_then_passed"],
+        ),
+        reports_dir=report_dir,
+    )
+
+    candidates = build_candidates_from_analysis_report(report)
+
+    assert [candidate.target_kind for candidate in candidates] == ["skill", "memory"]
+    skill_candidate = candidates[0]
+    assert skill_candidate.kind == "skill_lesson"
+    assert skill_candidate.suggested_skill == "test-fix"
+    assert skill_candidate.evidence["case_id"] == "patch-repair-test-fix"
 
 
 def test_analysis_ingestion_runtime_enqueues_reports_once(tmp_path: Path) -> None:
@@ -104,11 +140,11 @@ def test_analysis_ingestion_runtime_enqueues_reports_once(tmp_path: Path) -> Non
     second = runtime.ingest_reports()
 
     assert first.report_count == 1
-    assert first.generated_count == 2
-    assert first.enqueued_count == 2
-    assert second.generated_count == 2
+    assert first.generated_count == 3
+    assert first.enqueued_count == 3
+    assert second.generated_count == 3
     assert second.enqueued_count == 0
-    assert len(memory_runtime.list_candidates()) == 2
+    assert len(memory_runtime.list_candidates()) == 3
 
 
 def test_evolution_runtime_ingests_analysis_reports(tmp_path: Path) -> None:
@@ -121,8 +157,9 @@ def test_evolution_runtime_ingests_analysis_reports(tmp_path: Path) -> None:
     result = runtime.ingest_analysis_reports(reports_dir)
 
     assert result.report_count == 1
-    assert result.enqueued_count == 2
+    assert result.enqueued_count == 3
     assert {candidate.target_kind for candidate in memory_runtime.list_candidates()} == {
         "memory",
         "rule",
+        "tool_schema_hint",
     }

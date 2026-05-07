@@ -2,6 +2,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from app.evolution.accepted import AcceptedGuidanceStore
+from app.evolution.rules import EvolutionRuleRuntime, EvolutionRuleStore
 from app.memory.file_summary import build_file_summary, summary_record_for_file
 from app.memory.models import MemoryKind, MemoryRecord
 from app.memory.runtime import MemoryRuntime
@@ -258,7 +260,7 @@ def review_queue_view(
         tool_name="review_queue_view",
         status="succeeded",
         summary=f"Read review candidate {candidate.id}",
-        payload={"candidate": candidate.model_dump(mode="json")},
+        payload={"candidate": _view_candidate(candidate)},
     )
 
 
@@ -268,7 +270,39 @@ def review_queue_accept(
 ) -> Observation:
     runtime = _memory_runtime(context)
     try:
-        record = runtime.accept_candidate(args.candidate_id)
+        candidate = _candidate_for_id(runtime, args.candidate_id)
+        if candidate.target_kind == "memory":
+            record = runtime.accept_candidate(args.candidate_id)
+            accepted_candidate = _candidate_for_id(runtime, args.candidate_id)
+            memory_record = {
+                "id": record.id,
+                "kind": record.kind,
+                "title": record.title,
+                "source": record.source,
+                "tags": record.tags,
+            }
+            rule = None
+            accepted_guidance = None
+        elif candidate.target_kind == "rule":
+            rule = EvolutionRuleRuntime(
+                runtime.review_queue,
+                EvolutionRuleStore(context.settings.data_dir / "evolution"),
+            ).accept(args.candidate_id)
+            accepted_candidate = _candidate_for_id(runtime, args.candidate_id)
+            memory_record = None
+            accepted_guidance = None
+        else:
+            guidance = AcceptedGuidanceStore(
+                context.settings.data_dir / "evolution",
+                skills_root=context.settings.data_dir / "skills",
+            ).accept_candidate(candidate)
+            accepted_candidate = runtime.review_queue.update_status(
+                args.candidate_id,
+                "accepted",
+            )
+            memory_record = None
+            rule = None
+            accepted_guidance = guidance.model_dump(mode="json")
     except (KeyError, ValueError) as exc:
         return tool_observation(
             tool_name="review_queue_accept",
@@ -283,13 +317,10 @@ def review_queue_accept(
         summary=f"Accepted review candidate {args.candidate_id}",
         payload={
             "candidate_id": args.candidate_id,
-            "memory_record": {
-                "id": record.id,
-                "kind": record.kind,
-                "title": record.title,
-                "source": record.source,
-                "tags": record.tags,
-            },
+            "candidate": _compact_candidate(accepted_candidate),
+            "memory_record": memory_record,
+            "rule": rule.model_dump(mode="json") if rule is not None else None,
+            "accepted_guidance": accepted_guidance,
         },
     )
 
@@ -342,15 +373,42 @@ def _compact_candidate(candidate) -> dict[str, object]:
     return {
         "id": candidate.id,
         "kind": candidate.kind,
+        "target_kind": candidate.target_kind,
         "summary": candidate.summary,
         "suggested_memory_kind": candidate.suggested_memory_kind,
         "suggested_skill": candidate.suggested_skill,
         "confidence": candidate.confidence,
         "status": candidate.status,
+        "source_report": _candidate_source_report(candidate),
         "source_trace_path": candidate.source_trace_path,
         "created_at": candidate.created_at.isoformat(),
         "updated_at": candidate.updated_at.isoformat(),
     }
+
+
+def _view_candidate(candidate) -> dict[str, object]:
+    payload = _compact_candidate(candidate)
+    payload["evidence"] = _bounded_evidence(candidate.evidence)
+    return payload
+
+
+def _candidate_source_report(candidate) -> str | None:
+    value = candidate.evidence.get("source_report")
+    return str(value) if value else None
+
+
+def _bounded_evidence(evidence: dict[str, object]) -> dict[str, object]:
+    return {str(key): _bounded_value(value) for key, value in list(evidence.items())[:20]}
+
+
+def _bounded_value(value):
+    if isinstance(value, str):
+        return value if len(value) <= 1000 else f"{value[:1000]}..."
+    if isinstance(value, list):
+        return [_bounded_value(item) for item in value[:20]]
+    if isinstance(value, dict):
+        return {str(key): _bounded_value(item) for key, item in list(value.items())[:20]}
+    return value
 
 
 def _duplicate_memory_record(

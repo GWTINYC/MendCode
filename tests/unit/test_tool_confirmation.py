@@ -211,6 +211,39 @@ def test_rejected_observation_mentions_tool_and_decision() -> None:
     assert observation.error_message == "user rejected tool memory_write"
 
 
+def test_review_queue_accept_preview_includes_effect_and_source() -> None:
+    action = ToolCallAction(
+        type="tool_call",
+        action="review_queue_accept",
+        reason="Accept skill candidate",
+        args={
+            "candidate_id": "candidate-1",
+            "target_kind": "skill",
+            "source_report": "data/analysis-reports/run.json",
+            "source_trace": "data/traces/run.jsonl",
+        },
+    )
+    decision = PermissionDecision(
+        status="confirm",
+        reason="tool review_queue_accept requires confirmation",
+        risk_level="high",
+        required_mode="workspace-write",
+    )
+
+    pending = build_pending_tool_confirmation(
+        action=action,
+        decision=decision,
+        tool_invocation=None,
+        source="agent_loop",
+    )
+
+    assert pending.preview["candidate_id"] == "candidate-1"
+    assert pending.preview["target_kind"] == "skill"
+    assert pending.preview["source_report"] == "data/analysis-reports/run.json"
+    assert pending.preview["source_trace"] == "data/traces/run.jsonl"
+    assert pending.preview["effect"] == "accept_candidate"
+
+
 def test_confirmation_match_prevents_replay() -> None:
     pending = PendingToolConfirmation(
         id="confirm-123",

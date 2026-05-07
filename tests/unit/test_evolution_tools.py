@@ -166,6 +166,6 @@ def test_analysis_report_ingest_enqueues_review_candidates(tmp_path: Path) -> No
 
     assert result.status == "succeeded"
     assert result.payload["report_count"] == 1
-    assert result.payload["enqueued_count"] == 2
+    assert result.payload["enqueued_count"] == 3
     assert result.payload["candidate_ids"]
     assert MemoryRuntime(context.memory_store).list_candidates()[0].id.startswith("analysis-")
