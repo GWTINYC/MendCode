@@ -44,6 +44,14 @@ class StatArgs(BaseModel):
     path: str = Field(description="Repo-relative file or directory path to inspect.")
 
 
+class TreeArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(default=".", description="Repo-relative directory path to summarize.")
+    max_depth: int = Field(default=2, ge=0, le=20)
+    max_entries: int = Field(default=200, ge=0, le=2000)
+
+
 class GlobFileSearchArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

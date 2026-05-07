@@ -7,6 +7,7 @@ SNAPSHOT_PATH = Path(__file__).parents[1] / "fixtures" / "tool_schema_snapshot.j
 CORE_TOOL_NAMES = {
     "read_file",
     "stat",
+    "tree",
     "list_dir",
     "rg",
     "apply_patch",

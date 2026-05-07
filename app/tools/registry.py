@@ -40,6 +40,7 @@ from app.tools.arguments import (
     TodoWriteArgs,
     ToolSearchArgs,
     TraceAnalyzeArgs,
+    TreeArgs,
     WriteFileArgs,
 )
 from app.tools.evolution_tools import (
@@ -77,6 +78,7 @@ from app.tools.read_only import (
     read_file,
     search_code,
     stat_path,
+    tree,
 )
 from app.tools.schemas import (
     ToolResult,
@@ -167,6 +169,17 @@ def _execute_list_dir(args: ListDirArgs, context: ToolExecutionContext) -> Obser
 
 def _execute_stat(args: StatArgs, context: ToolExecutionContext) -> Observation:
     return tool_result_to_observation(stat_path(context.workspace_path, args.path))
+
+
+def _execute_tree(args: TreeArgs, context: ToolExecutionContext) -> Observation:
+    return tool_result_to_observation(
+        tree(
+            context.workspace_path,
+            args.path,
+            max_depth=args.max_depth,
+            max_entries=args.max_entries,
+        )
+    )
 
 
 def _execute_glob_file_search(
@@ -898,6 +911,16 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=StatArgs,
                 risk_level=ToolRisk.READ_ONLY,
                 executor=_execute_stat,
+            ),
+            ToolSpec(
+                name="tree",
+                description=(
+                    "Summarize a bounded repo-relative directory tree with depth and "
+                    "entry limits. Excludes runtime and cache directories by default."
+                ),
+                args_model=TreeArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=_execute_tree,
             ),
             ToolSpec(
                 name="read_file",

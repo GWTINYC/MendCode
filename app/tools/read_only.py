@@ -7,6 +7,7 @@ from app.tools.guard import resolve_workspace_file, resolve_workspace_path
 from app.tools.schemas import ToolResult
 
 _DEFAULT_SEARCH_EXCLUDED_DIRS = frozenset({".git", ".worktrees", "data"})
+_DEFAULT_TREE_EXCLUDED_DIRS = frozenset({".git", ".worktrees", "data", "__pycache__"})
 _BINARY_CHECK_BYTES = 8192
 
 
@@ -255,6 +256,106 @@ def _reject_stat(relative_path: str, workspace_path: Path, message: str) -> Tool
         summary=f"Unable to stat {relative_path}",
         payload={"relative_path": relative_path},
         error_message=message,
+        workspace_path=str(workspace_path),
+    )
+
+
+def _reject_tree(relative_path: str, workspace_path: Path, message: str) -> ToolResult:
+    return ToolResult(
+        tool_name="tree",
+        status="rejected",
+        summary=f"Unable to build tree for {relative_path}",
+        payload={
+            "relative_path": relative_path,
+            "total_entries": 0,
+            "returned_entries": 0,
+            "truncated": False,
+            "entries": [],
+        },
+        error_message=message,
+        workspace_path=str(workspace_path),
+    )
+
+
+def tree(
+    workspace_path: Path,
+    relative_path: str = ".",
+    max_depth: int = 2,
+    max_entries: int = 200,
+) -> ToolResult:
+    if max_depth < 0:
+        return _reject_tree(
+            relative_path,
+            workspace_path,
+            "max_depth must be greater than or equal to 0",
+        )
+    if max_entries < 0:
+        return _reject_tree(
+            relative_path,
+            workspace_path,
+            "max_entries must be greater than or equal to 0",
+        )
+
+    try:
+        root = resolve_workspace_path(workspace_path, relative_path)
+    except ValueError as exc:
+        return _reject_tree(relative_path, workspace_path, str(exc))
+
+    if not root.exists():
+        return _reject_tree(relative_path, workspace_path, "path does not exist")
+    if not root.is_dir():
+        return _reject_tree(relative_path, workspace_path, "path is not a directory")
+
+    entries: list[dict[str, object]] = []
+    total_entries = 0
+    truncated = False
+    pending: list[tuple[Path, int]] = [(root, 0)]
+    while pending:
+        current, depth = pending.pop()
+        if depth >= max_depth:
+            continue
+        try:
+            children = sorted(current.iterdir(), key=lambda item: (not item.is_dir(), item.name))
+        except OSError:
+            continue
+        directories_to_visit: list[Path] = []
+        for child in children:
+            if child.is_dir() and child.name in _DEFAULT_TREE_EXCLUDED_DIRS:
+                continue
+            entry_type = "directory" if child.is_dir() else "file"
+            if child.is_symlink():
+                entry_type = "symlink"
+            total_entries += 1
+            if len(entries) < max_entries:
+                entries.append(
+                    {
+                        "relative_path": _relative_posix(workspace_path, child),
+                        "name": child.name,
+                        "type": entry_type,
+                        "depth": depth + 1,
+                        "size_bytes": child.stat().st_size if child.is_file() else None,
+                    }
+                )
+            else:
+                truncated = True
+            if child.is_dir() and depth + 1 < max_depth:
+                directories_to_visit.append(child)
+        pending.extend((child, depth + 1) for child in reversed(directories_to_visit))
+
+    return ToolResult(
+        tool_name="tree",
+        status="passed",
+        summary=f"Built tree for {relative_path}",
+        payload={
+            "relative_path": _relative_posix(workspace_path, root),
+            "max_depth": max_depth,
+            "total_entries": total_entries,
+            "returned_entries": len(entries),
+            "truncated": truncated,
+            "entries": entries,
+            "excluded_dirs": sorted(_DEFAULT_TREE_EXCLUDED_DIRS),
+        },
+        error_message=None,
         workspace_path=str(workspace_path),
     )
 
