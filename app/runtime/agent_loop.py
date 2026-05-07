@@ -396,17 +396,63 @@ def _compact_context_summary(context_bundle: ContextBundle) -> dict[str, object]
 
 def _build_evolution_rule_runtime(settings: Settings) -> object | None:
     try:
+        from app.evolution.accepted import AcceptedGuidanceStore, EvolutionGuidanceRuntime
         from app.evolution.rules import EvolutionRuleRuntime, EvolutionRuleStore
     except ImportError as exc:
-        if exc.name == "app.evolution.rules":
+        if exc.name in {"app.evolution.rules", "app.evolution.accepted"}:
             return None
-        if "EvolutionRuleRuntime" in str(exc) or "EvolutionRuleStore" in str(exc):
+        if (
+            "EvolutionRuleRuntime" in str(exc)
+            or "EvolutionRuleStore" in str(exc)
+            or "EvolutionGuidanceRuntime" in str(exc)
+        ):
             return None
         raise
-    return EvolutionRuleRuntime(
+    rule_runtime = EvolutionRuleRuntime(
         None,
         EvolutionRuleStore(settings.data_dir / "evolution"),
     )
+    guidance_runtime = EvolutionGuidanceRuntime(
+        AcceptedGuidanceStore(
+            settings.data_dir / "evolution",
+            skills_root=settings.data_dir / "skills",
+        )
+    )
+    return _CombinedEvolutionRuntime(rule_runtime, guidance_runtime)
+
+
+class _CombinedEvolutionRuntime:
+    def __init__(self, rule_runtime: object, guidance_runtime: object) -> None:
+        self.rule_runtime = rule_runtime
+        self.guidance_runtime = guidance_runtime
+
+    def recall_for_turn(
+        self,
+        user_message: str,
+        *,
+        max_rules: int = 3,
+        max_chars: int = 1200,
+    ) -> object:
+        rule_recall = self.rule_runtime.recall_for_turn(
+            user_message,
+            max_rules=max_rules,
+            max_chars=max_chars,
+        )
+        guidance_recall = self.guidance_runtime.recall_for_turn(
+            user_message,
+            max_rules=max_rules,
+            max_chars=max_chars,
+        )
+        return _CombinedEvolutionRecall(
+            rules=getattr(rule_recall, "rules", []),
+            guidance=getattr(guidance_recall, "guidance", []),
+        )
+
+
+class _CombinedEvolutionRecall:
+    def __init__(self, *, rules: object, guidance: object) -> None:
+        self.rules = rules
+        self.guidance = guidance
 
 
 def _content_excerpt(content: str | None, max_chars: int = 240) -> str | None:

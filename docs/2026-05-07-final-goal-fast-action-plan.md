@@ -12,12 +12,13 @@
 - ToolRegistry / ToolPool / PermissionPolicy 已经形成主链路。
 - JSONL Trace、conversation log、benchmark manifest、analysis report 和 review queue 已有基础。
 - EvolutionRuntime 已能把失败、重复读取、权限拒绝、benchmark analysis 转成候选。
+- prompt_rule / tool_schema_hint / skill 候选接受后已有本地 accepted guidance store，并能被 runtime context 召回。
 
 核心差距：
 
 - 工具调用已经可控，但写入 preview、权限恢复、provider request/response 证据还不够完整。
 - 上下文已经会 compact，但还不是 tokenizer-aware，也没有稳定 repo map。
-- 经验已经能生成候选，但候选接受后对 runtime 的真实影响和 benchmark proof 还没有闭环。
+- 经验已经能生成候选，prompt_rule / tool_schema_hint / skill 已有 runtime context 影响路径；benchmark proof 还没有闭环。
 
 最快路线：
 
@@ -304,16 +305,18 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 
 开发项：
 
-- 新增 prompt rule store。
-- 新增 tool schema hint store。
-- 新增 skill store / loader。
-- review_queue_accept 根据 target_kind 分发到对应 store。
-- AgentLoop context recall accepted prompt rules / skills。
+- 已完成：新增 prompt rule store。
+- 已完成：新增 tool schema hint store。
+- 已完成：新增 skill store / loader。
+- 已完成：review_queue_accept 根据 target_kind 分发到对应 store。
+- 已完成：AgentLoop context recall accepted prompt rules / skills。
+- 下一步：让 accepted tool_schema_hint 进一步增强 tool_search / ToolPool 的工具选择提示。
 
 验收：
 
 - 接受一个 skill candidate 后，相似任务 provider context 能看到该 skill 摘要。
 - pending/rejected candidate 不影响 runtime。
+- accepted tool_schema_hint 能在工具选择相关请求中被模型看到。
 
 ### 第二轮：TUI Review Loop
 

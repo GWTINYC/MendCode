@@ -2,6 +2,8 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from app.evolution.accepted import AcceptedGuidanceStore
+from app.evolution.rules import EvolutionRuleRuntime, EvolutionRuleStore
 from app.memory.file_summary import build_file_summary, summary_record_for_file
 from app.memory.models import MemoryKind, MemoryRecord
 from app.memory.runtime import MemoryRuntime
@@ -279,12 +281,28 @@ def review_queue_accept(
                 "source": record.source,
                 "tags": record.tags,
             }
+            rule = None
+            accepted_guidance = None
+        elif candidate.target_kind == "rule":
+            rule = EvolutionRuleRuntime(
+                runtime.review_queue,
+                EvolutionRuleStore(context.settings.data_dir / "evolution"),
+            ).accept(args.candidate_id)
+            accepted_candidate = _candidate_for_id(runtime, args.candidate_id)
+            memory_record = None
+            accepted_guidance = None
         else:
+            guidance = AcceptedGuidanceStore(
+                context.settings.data_dir / "evolution",
+                skills_root=context.settings.data_dir / "skills",
+            ).accept_candidate(candidate)
             accepted_candidate = runtime.review_queue.update_status(
                 args.candidate_id,
                 "accepted",
             )
             memory_record = None
+            rule = None
+            accepted_guidance = guidance.model_dump(mode="json")
     except (KeyError, ValueError) as exc:
         return tool_observation(
             tool_name="review_queue_accept",
@@ -301,6 +319,8 @@ def review_queue_accept(
             "candidate_id": args.candidate_id,
             "candidate": _compact_candidate(accepted_candidate),
             "memory_record": memory_record,
+            "rule": rule.model_dump(mode="json") if rule is not None else None,
+            "accepted_guidance": accepted_guidance,
         },
     )
 
