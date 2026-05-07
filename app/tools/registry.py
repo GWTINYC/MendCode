@@ -36,6 +36,7 @@ from app.tools.arguments import (
     RunCommandArgs,
     RunShellCommandArgs,
     SessionStatusArgs,
+    StatArgs,
     TodoWriteArgs,
     ToolSearchArgs,
     TraceAnalyzeArgs,
@@ -75,6 +76,7 @@ from app.tools.read_only import (
     list_dir,
     read_file,
     search_code,
+    stat_path,
 )
 from app.tools.schemas import (
     ToolResult,
@@ -161,6 +163,10 @@ def _execute_list_dir(args: ListDirArgs, context: ToolExecutionContext) -> Obser
             max_entries=args.max_entries,
         )
     )
+
+
+def _execute_stat(args: StatArgs, context: ToolExecutionContext) -> Observation:
+    return tool_result_to_observation(stat_path(context.workspace_path, args.path))
 
 
 def _execute_glob_file_search(
@@ -882,6 +888,16 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=ListDirArgs,
                 risk_level=ToolRisk.READ_ONLY,
                 executor=_execute_list_dir,
+            ),
+            ToolSpec(
+                name="stat",
+                description=(
+                    "Inspect repo-relative file or directory metadata such as size, "
+                    "mtime, line count, and binary status without reading full content."
+                ),
+                args_model=StatArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=_execute_stat,
             ),
             ToolSpec(
                 name="read_file",

@@ -38,6 +38,12 @@ class ListDirArgs(BaseModel):
     max_entries: int | None = Field(default=200, ge=0)
 
 
+class StatArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str = Field(description="Repo-relative file or directory path to inspect.")
+
+
 class GlobFileSearchArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

@@ -42,5 +42,13 @@
       "query"
     ],
     "risk": "read_only"
+  },
+  {
+    "description": "Inspect repo-relative file or directory metadata such as size, mtime, line count, and binary status without reading full content.",
+    "name": "stat",
+    "required": [
+      "path"
+    ],
+    "risk": "read_only"
   }
 ]
