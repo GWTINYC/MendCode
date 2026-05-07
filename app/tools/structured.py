@@ -43,7 +43,7 @@ _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
         "review_queue_accept",
         "review_queue_reject",
     ),
-    "fs_read": ("read_file", "list_dir", "glob_file_search", "rg", "search_code"),
+    "fs_read": ("read_file", "stat", "list_dir", "glob_file_search", "rg", "search_code"),
     "fs_write": ("apply_patch", "write_file", "edit_file"),
     "git_read": ("repo_status", "git", "show_diff"),
     "runtime": ("run_shell_command", "run_command"),

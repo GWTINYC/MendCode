@@ -6,6 +6,7 @@ from app.tools.registry import default_tool_registry
 SNAPSHOT_PATH = Path(__file__).parents[1] / "fixtures" / "tool_schema_snapshot.json"
 CORE_TOOL_NAMES = {
     "read_file",
+    "stat",
     "list_dir",
     "rg",
     "apply_patch",

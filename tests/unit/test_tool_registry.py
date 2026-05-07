@@ -219,6 +219,7 @@ def test_default_registry_contains_read_only_tools() -> None:
         "rg",
         "search_code",
         "show_diff",
+        "stat",
     ]:
         assert tool_name in registry.names()
 
@@ -303,6 +304,7 @@ def test_registry_builds_permission_scoped_tool_pool() -> None:
 
     assert isinstance(pool, ToolPool)
     assert "read_file" in pool.names()
+    assert "stat" in pool.names()
     assert "list_dir" in pool.names()
     assert "tool_search" in pool.names()
     assert "write_file" not in pool.names()
@@ -366,7 +368,7 @@ def test_registry_exposes_analysis_reports_as_review_tools() -> None:
 def test_registry_expands_tool_groups() -> None:
     registry = default_tool_registry()
     names = set(registry.names(allowed_tools={"fs_read", "introspection"}))
-    assert {"read_file", "list_dir", "glob_file_search", "rg", "search_code"} <= names
+    assert {"read_file", "stat", "list_dir", "glob_file_search", "rg", "search_code"} <= names
     assert {"tool_search", "session_status"} <= names
     assert "write_file" not in names
 
@@ -735,6 +737,71 @@ def test_run_command_keeps_verification_allowlist(tmp_path: Path) -> None:
     assert observation.payload["tool_name"] == "run_command"
     assert observation.payload["is_error"] is True
     assert "declared" in str(observation.error_message)
+
+
+def test_stat_returns_text_file_metadata(tmp_path: Path) -> None:
+    target = tmp_path / "notes.txt"
+    content = "alpha\nbeta\n"
+    target.write_text(content, encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("stat").execute({"path": "notes.txt"}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "stat"
+    assert observation.payload["relative_path"] == "notes.txt"
+    assert observation.payload["type"] == "file"
+    assert observation.payload["size_bytes"] == len(content.encode("utf-8"))
+    assert isinstance(observation.payload["mtime"], str)
+    assert observation.payload["line_count"] == 2
+    assert observation.payload["is_binary"] is False
+
+
+def test_stat_returns_directory_metadata_without_reading_children(tmp_path: Path) -> None:
+    directory = tmp_path / "src"
+    directory.mkdir()
+    (directory / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("stat").execute({"path": "src"}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.payload["relative_path"] == "src"
+    assert observation.payload["type"] == "directory"
+    assert observation.payload["line_count"] is None
+    assert observation.payload["is_binary"] is None
+    assert "entries" not in observation.payload
+
+
+def test_stat_rejects_repo_escaping_path(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("stat").execute({"path": "../outside.txt"}, context)
+
+    assert observation.status == "rejected"
+    assert observation.payload["tool_name"] == "stat"
+    assert "escapes workspace root" in str(observation.error_message)
+
+
+def test_stat_tool_is_read_only() -> None:
+    spec = default_tool_registry().get("stat")
+
+    assert spec.risk_level == ToolRisk.READ_ONLY
 
 
 def test_apply_patch_rejects_repo_escaping_path(tmp_path: Path) -> None:

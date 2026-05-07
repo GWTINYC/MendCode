@@ -15,6 +15,7 @@ ToolName = Literal[
     "run_command",
     "run_shell_command",
     "read_file",
+    "stat",
     "list_dir",
     "glob_file_search",
     "search_code",

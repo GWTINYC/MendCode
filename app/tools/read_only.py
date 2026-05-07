@@ -1,5 +1,6 @@
 import subprocess
 from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.tools.guard import resolve_workspace_file, resolve_workspace_path
@@ -243,6 +244,71 @@ def _reject_list_dir(relative_path: str, workspace_path: Path, message: str) -> 
         summary=f"Unable to list {relative_path}",
         payload={"relative_path": relative_path, "total_entries": 0, "entries": []},
         error_message=message,
+        workspace_path=str(workspace_path),
+    )
+
+
+def _reject_stat(relative_path: str, workspace_path: Path, message: str) -> ToolResult:
+    return ToolResult(
+        tool_name="stat",
+        status="rejected",
+        summary=f"Unable to stat {relative_path}",
+        payload={"relative_path": relative_path},
+        error_message=message,
+        workspace_path=str(workspace_path),
+    )
+
+
+def stat_path(workspace_path: Path, relative_path: str) -> ToolResult:
+    try:
+        target = resolve_workspace_path(workspace_path, relative_path)
+    except ValueError as exc:
+        return _reject_stat(relative_path, workspace_path, str(exc))
+
+    if not target.exists():
+        return _reject_stat(relative_path, workspace_path, "path does not exist")
+
+    try:
+        stat_result = target.stat()
+    except OSError as exc:
+        return ToolResult(
+            tool_name="stat",
+            status="failed",
+            summary=f"Unable to stat {relative_path}",
+            payload={"relative_path": relative_path},
+            error_message=str(exc),
+            workspace_path=str(workspace_path),
+        )
+
+    entry_type = "directory" if target.is_dir() else "file"
+    if target.is_symlink():
+        entry_type = "symlink"
+
+    is_binary: bool | None = None
+    line_count: int | None = None
+    if target.is_file():
+        is_binary = _is_binary_file(target)
+        if not is_binary:
+            try:
+                with target.open("r", encoding="utf-8") as handle:
+                    line_count = sum(1 for _ in handle)
+            except (OSError, UnicodeDecodeError):
+                line_count = None
+
+    payload = {
+        "relative_path": _relative_posix(workspace_path, target),
+        "type": entry_type,
+        "size_bytes": stat_result.st_size,
+        "mtime": datetime.fromtimestamp(stat_result.st_mtime, UTC).isoformat(),
+        "line_count": line_count,
+        "is_binary": is_binary,
+    }
+    return ToolResult(
+        tool_name="stat",
+        status="passed",
+        summary=f"Stat {payload['relative_path']}",
+        payload=payload,
+        error_message=None,
         workspace_path=str(workspace_path),
     )
 
