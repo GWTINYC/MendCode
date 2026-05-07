@@ -1,8 +1,10 @@
+import re
 import shlex
 import shutil
 import subprocess
 from pathlib import Path
 
+from app.evolution.accepted import AcceptedGuidanceStore
 from app.schemas.agent_action import Observation
 from app.tools.arguments import (
     AnalysisReportIngestArgs,
@@ -86,6 +88,7 @@ from app.workspace.shell_policy import ShellPolicy
 _OUTPUT_EXCERPT_LIMIT = 2000
 _TEXT_TOOL_MAX_BYTES = 1024 * 1024
 _BINARY_CHECK_BYTES = 8192
+_TOOL_NAME_TOKEN_PATTERN = re.compile(r"^[A-Za-z0-9_-]{2,64}$")
 
 
 def _trim_output(value: str | bytes | None) -> str:
@@ -699,31 +702,111 @@ def _tool_search(args: ToolSearchArgs, context: ToolExecutionContext) -> Observa
         else set(registry.names())
     )
     all_matches: list[dict[str, object]] = []
+    all_matches.extend(
+        _guided_tool_matches(
+            query=query,
+            registry=registry,
+            available_names=available_names,
+            settings=context.settings,
+        )
+    )
     for name in registry.names():
         if name not in available_names:
             continue
         spec = registry.get(name)
         haystack = f"{spec.name} {spec.description}".lower()
-        if query not in haystack:
+        if not _query_matches_haystack(query, haystack):
             continue
         all_matches.append(
             {
                 "name": spec.name,
                 "description": spec.description,
                 "risk_level": spec.risk_level.value,
+                "source": "tool_registry",
             }
         )
-    matches = all_matches[: args.max_results]
+    deduped_matches: list[dict[str, object]] = []
+    seen_names: set[str] = set()
+    for match in all_matches:
+        name = str(match.get("name") or "")
+        if not name or name in seen_names:
+            continue
+        seen_names.add(name)
+        deduped_matches.append(match)
     return tool_observation(
         tool_name="tool_search",
         status="succeeded",
-        summary=f"Found {len(matches)} tools",
+        summary=f"Found {len(deduped_matches[: args.max_results])} tools",
         payload={
             "query": args.query,
-            "matches": matches,
-            "total_matches": len(all_matches),
+            "matches": deduped_matches[: args.max_results],
+            "total_matches": len(deduped_matches),
         },
     )
+
+
+def _query_matches_haystack(query: str, haystack: str) -> bool:
+    if not query:
+        return False
+    if query in haystack:
+        return True
+    tokens = [token for token in re.split(r"[\s,.;:/\\|()\[\]{}<>]+", query) if token]
+    return any(token in haystack for token in tokens if len(token) >= 2)
+
+
+def _guided_tool_matches(
+    *,
+    query: str,
+    registry: ToolRegistry,
+    available_names: set[str],
+    settings,
+) -> list[dict[str, object]]:
+    guidance_store = AcceptedGuidanceStore(settings.data_dir / "evolution")
+    matches: list[dict[str, object]] = []
+    for guidance in guidance_store.list_by_kind("tool_schema_hint"):
+        if guidance.status != "active":
+            continue
+        if not _query_matches_haystack(query, _guidance_search_text(guidance)):
+            continue
+        suggested_tools = _suggested_tools_for_guidance(guidance.content, registry, available_names)
+        for tool_name in suggested_tools:
+            spec = registry.get(tool_name)
+            matches.append(
+                {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "risk_level": spec.risk_level.value,
+                    "source": "tool_schema_hint",
+                    "hint_title": guidance.title,
+                    "activation_hint": guidance.activation_hint,
+                }
+            )
+    return matches
+
+
+def _guidance_search_text(guidance) -> str:
+    return " ".join(
+        str(part)
+        for part in [guidance.title, guidance.content, guidance.activation_hint]
+        if part
+    ).lower()
+
+
+def _suggested_tools_for_guidance(
+    text: str,
+    registry: ToolRegistry,
+    available_names: set[str],
+) -> list[str]:
+    suggested: list[str] = []
+    haystack = text.lower()
+    for name in registry.names():
+        if name not in available_names:
+            continue
+        if not _TOOL_NAME_TOKEN_PATTERN.fullmatch(name):
+            continue
+        if name.lower() in haystack and name not in suggested:
+            suggested.append(name)
+    return suggested
 
 
 def default_tool_registry() -> ToolRegistry:

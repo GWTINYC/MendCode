@@ -310,7 +310,7 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 - 已完成：新增 skill store / loader。
 - 已完成：review_queue_accept 根据 target_kind 分发到对应 store。
 - 已完成：AgentLoop context recall accepted prompt rules / skills。
-- 下一步：让 accepted tool_schema_hint 进一步增强 tool_search / ToolPool 的工具选择提示。
+- 已完成：accepted tool_schema_hint 会进入 provider context，并增强 `tool_search` 的工具选择提示。
 
 验收：
 
