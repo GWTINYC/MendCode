@@ -1,0 +1,46 @@
+[
+  {
+    "description": "Apply a unified diff patch to the workspace.",
+    "name": "apply_patch",
+    "required": [
+      "patch"
+    ],
+    "risk": "write_worktree"
+  },
+  {
+    "description": "Run a structured read-only git operation.",
+    "name": "git",
+    "required": [
+      "operation"
+    ],
+    "risk": "read_only"
+  },
+  {
+    "description": "List entries in a repo-relative directory.",
+    "name": "list_dir",
+    "required": [],
+    "risk": "read_only"
+  },
+  {
+    "description": "Search local layered memory records by query, kind, and tag.",
+    "name": "memory_search",
+    "required": [],
+    "risk": "read_only"
+  },
+  {
+    "description": "Read text content from a repo-relative file. Use tail_lines for questions about the final line, last sentence, or end of a file.",
+    "name": "read_file",
+    "required": [
+      "path"
+    ],
+    "risk": "read_only"
+  },
+  {
+    "description": "Search repo text using ripgrep.",
+    "name": "rg",
+    "required": [
+      "query"
+    ],
+    "risk": "read_only"
+  }
+]
