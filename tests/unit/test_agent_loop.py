@@ -429,6 +429,31 @@ def test_agent_loop_result_includes_context_summary_from_context_manager(
     assert "pytest command" in provider.calls[0].context
 
 
+def test_agent_loop_result_includes_runtime_task_state(tmp_path: Path) -> None:
+    provider = NativeToolProvider(
+        [
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="inspect runtime task state",
+            provider=provider,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert result.task_state is not None
+    assert result.task_state.goal == "inspect runtime task state"
+    assert result.task_state.phase == "completed"
+    assert result.task_state.completed_steps == ["final_response"]
+    assert result.task_state.blocked_reason is None
+    assert result.task_state.verified is False
+
+
 def test_agent_loop_injects_accepted_evolution_guidance_context(
     tmp_path: Path,
 ) -> None:

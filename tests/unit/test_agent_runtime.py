@@ -3,7 +3,12 @@ from pathlib import Path
 from app.agent.loop import AgentLoopInput, AgentLoopResult, AgentStep
 from app.config.settings import Settings
 from app.runtime.agent_runtime import AgentRuntime
-from app.runtime.turn import RuntimeToolStep, RuntimeTurnInput, RuntimeTurnResult
+from app.runtime.turn import (
+    RuntimeTaskState,
+    RuntimeToolStep,
+    RuntimeTurnInput,
+    RuntimeTurnResult,
+)
 from app.schemas.agent_action import FinalResponseAction, Observation
 
 
@@ -50,11 +55,35 @@ def test_runtime_turn_models_capture_tool_step_contract() -> None:
         trace_path=None,
         workspace_path=None,
         steps=[runtime_step],
+        task_state=RuntimeTaskState(goal="inspect", phase="started"),
     )
 
     assert RuntimeTurnInput(problem_statement="inspect").problem_statement == "inspect"
     assert result.status == "completed"
     assert result.steps[0].action.type == "final_response"
+    assert result.task_state is not None
+    assert result.task_state.goal == "inspect"
+    assert result.task_state.phase == "started"
+    assert result.task_state.verified is False
+    assert result.task_state.completed_steps == []
+
+
+def test_runtime_turn_result_can_carry_default_task_state() -> None:
+    task_state = RuntimeTaskState(goal="inspect runtime")
+
+    result = RuntimeTurnResult(
+        run_id="agent-test",
+        status="completed",
+        summary="done",
+        trace_path=None,
+        task_state=task_state,
+    )
+
+    assert result.task_state is not None
+    assert result.task_state.goal == "inspect runtime"
+    assert result.task_state.phase == "started"
+    assert result.task_state.blocked_reason is None
+    assert result.task_state.verified is False
 
 
 def test_agent_runtime_run_turn_delegates_to_runner(tmp_path: Path) -> None:

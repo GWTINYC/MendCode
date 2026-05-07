@@ -16,6 +16,7 @@ from app.agent.provider import AgentObservationRecord
 from app.config.settings import Settings
 from app.memory.store import MemoryStore
 from app.runtime.tool_confirmation import build_pending_tool_confirmation
+from app.runtime.turn import RuntimeTaskState
 from app.schemas.agent_action import (
     FinalResponseAction,
     MendCodeAction,
@@ -76,6 +77,7 @@ class AgentLoopResult(BaseModel):
     trace_path: str | None
     workspace_path: str | None = None
     steps: list[AgentStep] = Field(default_factory=list)
+    task_state: RuntimeTaskState | None = None
     context_summary: dict[str, object] | None = None
     evolution_summary: dict[str, object] | None = None
 

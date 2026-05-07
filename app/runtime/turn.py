@@ -9,6 +9,16 @@ from app.tools.structured import AllowedTools
 RuntimeStatus = Literal["completed", "failed", "needs_user_confirmation"]
 
 
+class RuntimeTaskState(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    goal: str
+    phase: str = "started"
+    completed_steps: list[str] = Field(default_factory=list)
+    blocked_reason: str | None = None
+    verified: bool = False
+
+
 class RuntimeTurnInput(BaseModel):
     model_config = ConfigDict(extra="forbid", arbitrary_types_allowed=True)
 
@@ -36,5 +46,6 @@ class RuntimeTurnResult(BaseModel):
     trace_path: str | None
     workspace_path: str | None = None
     steps: list[RuntimeToolStep] = Field(default_factory=list)
+    task_state: RuntimeTaskState | None = None
     context_summary: dict[str, object] | None = None
     evolution_summary: dict[str, object] | None = None
