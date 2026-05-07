@@ -50,5 +50,11 @@
       "path"
     ],
     "risk": "read_only"
+  },
+  {
+    "description": "Summarize a bounded repo-relative directory tree with depth and entry limits. Excludes runtime and cache directories by default.",
+    "name": "tree",
+    "required": [],
+    "risk": "read_only"
   }
 ]

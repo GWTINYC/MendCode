@@ -114,6 +114,7 @@ def test_read_only_allows_read_tools_and_denies_write_tools() -> None:
 
     read_decision = policy.decide(tool_call("read_file"))
     stat_decision = policy.decide(tool_call("stat"))
+    tree_decision = policy.decide(tool_call("tree"))
     write_decision = policy.decide(tool_call("write_file"))
     tool_search_decision = policy.decide(tool_call("tool_search"))
 
@@ -121,6 +122,8 @@ def test_read_only_allows_read_tools_and_denies_write_tools() -> None:
     assert read_decision.required_mode == "read-only"
     assert stat_decision.status == "allow"
     assert stat_decision.required_mode == "read-only"
+    assert tree_decision.status == "allow"
+    assert tree_decision.required_mode == "read-only"
     assert write_decision.status == "deny"
     assert write_decision.required_mode == "workspace-write"
     assert "requires workspace-write permission" in write_decision.reason

@@ -220,6 +220,7 @@ def test_default_registry_contains_read_only_tools() -> None:
         "search_code",
         "show_diff",
         "stat",
+        "tree",
     ]:
         assert tool_name in registry.names()
 
@@ -305,6 +306,7 @@ def test_registry_builds_permission_scoped_tool_pool() -> None:
     assert isinstance(pool, ToolPool)
     assert "read_file" in pool.names()
     assert "stat" in pool.names()
+    assert "tree" in pool.names()
     assert "list_dir" in pool.names()
     assert "tool_search" in pool.names()
     assert "write_file" not in pool.names()
@@ -368,7 +370,15 @@ def test_registry_exposes_analysis_reports_as_review_tools() -> None:
 def test_registry_expands_tool_groups() -> None:
     registry = default_tool_registry()
     names = set(registry.names(allowed_tools={"fs_read", "introspection"}))
-    assert {"read_file", "stat", "list_dir", "glob_file_search", "rg", "search_code"} <= names
+    assert {
+        "read_file",
+        "stat",
+        "tree",
+        "list_dir",
+        "glob_file_search",
+        "rg",
+        "search_code",
+    } <= names
     assert {"tool_search", "session_status"} <= names
     assert "write_file" not in names
 
@@ -800,6 +810,75 @@ def test_stat_rejects_repo_escaping_path(tmp_path: Path) -> None:
 
 def test_stat_tool_is_read_only() -> None:
     spec = default_tool_registry().get("stat")
+
+    assert spec.risk_level == ToolRisk.READ_ONLY
+
+
+def test_tree_excludes_runtime_and_cache_directories_by_default(tmp_path: Path) -> None:
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    for ignored in [".git", ".worktrees", "data", "__pycache__"]:
+        ignored_path = tmp_path / ignored
+        ignored_path.mkdir()
+        (ignored_path / "ignored.txt").write_text("ignored\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("tree").execute({}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.payload["tool_name"] == "tree"
+    assert observation.payload["relative_path"] == "."
+    assert observation.payload["truncated"] is False
+    paths = {entry["relative_path"] for entry in observation.payload["entries"]}
+    assert "app" in paths
+    assert "app/main.py" in paths
+    assert ".git" not in paths
+    assert ".worktrees" not in paths
+    assert "data" not in paths
+    assert "__pycache__" not in paths
+
+
+def test_tree_truncates_when_max_entries_is_exceeded(tmp_path: Path) -> None:
+    for index in range(5):
+        (tmp_path / f"file_{index}.txt").write_text("x\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("tree").execute({"max_entries": 3}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.payload["total_entries"] == 5
+    assert observation.payload["returned_entries"] == 3
+    assert observation.payload["truncated"] is True
+    assert len(observation.payload["entries"]) == 3
+
+
+def test_tree_rejects_repo_escaping_path(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("tree").execute({"path": "../outside"}, context)
+
+    assert observation.status == "rejected"
+    assert observation.payload["tool_name"] == "tree"
+    assert "escapes workspace root" in str(observation.error_message)
+
+
+def test_tree_tool_is_read_only() -> None:
+    spec = default_tool_registry().get("tree")
 
     assert spec.risk_level == ToolRisk.READ_ONLY
 
