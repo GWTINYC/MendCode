@@ -224,6 +224,36 @@ def test_review_queue_tools_list_view_accept_and_reject_candidates(
     assert context.memory_store.list_records()[0].metadata["candidate_id"] == first.id
 
 
+def test_review_queue_accepts_non_memory_candidate_without_memory_promotion(
+    tmp_path: Path,
+) -> None:
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+    assert context.memory_store is not None
+    runtime = MemoryRuntime(context.memory_store)
+    candidate = LessonCandidate(
+        kind="skill_lesson",
+        summary="Refine the test-fix skill from benchmark evidence.",
+        evidence={"case_id": "patch-repair-test-fix"},
+        target_kind="skill",
+        suggested_skill="test-fix",
+        confidence=0.7,
+    )
+    runtime.enqueue_candidate(candidate)
+
+    accepted = registry.get("review_queue_accept").execute(
+        {"candidate_id": candidate.id},
+        context,
+    )
+
+    assert accepted.status == "succeeded"
+    assert accepted.payload["candidate"]["id"] == candidate.id
+    assert accepted.payload["candidate"]["target_kind"] == "skill"
+    assert accepted.payload["candidate"]["status"] == "accepted"
+    assert accepted.payload["memory_record"] is None
+    assert context.memory_store.list_records() == []
+
+
 def test_review_queue_tools_reject_unknown_candidate(tmp_path: Path) -> None:
     registry = default_tool_registry()
     context = context_for(tmp_path)

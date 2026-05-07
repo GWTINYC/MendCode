@@ -11,6 +11,9 @@ LessonCandidateKind = Literal[
     "tool_policy_lesson",
     "context_lesson",
     "test_fix_lesson",
+    "prompt_rule_lesson",
+    "tool_schema_hint",
+    "skill_lesson",
 ]
 LessonCandidateStatus = Literal["pending", "accepted", "rejected"]
 EvolutionRuleType = Literal[
@@ -21,7 +24,7 @@ EvolutionRuleType = Literal[
 ]
 EvolutionRuleStatus = Literal["active", "disabled"]
 EvolutionRuleCandidateStatus = Literal["pending", "accepted", "rejected"]
-EvolutionTargetKind = Literal["memory", "rule"]
+EvolutionTargetKind = Literal["memory", "rule", "prompt_rule", "tool_schema_hint", "skill"]
 
 
 class EvolutionRuleCandidate(BaseModel):
