@@ -1254,6 +1254,63 @@ async def test_json_action_pending_confirmation_recovers_arguments(
     }
 
 
+async def test_pending_review_candidate_confirmation_displays_effect_preview(
+    tmp_path: Path,
+) -> None:
+    repo_path = init_git_repo(tmp_path)
+    app = MendCodeTextualApp(repo_path=repo_path, settings=make_settings(tmp_path))
+    result = AgentLoopResult(
+        run_id="pending-review-candidate",
+        status="needs_user_confirmation",
+        summary="User confirmation required",
+        trace_path=None,
+        steps=[
+            AgentStep(
+                index=1,
+                action=ToolCallAction(
+                    type="tool_call",
+                    action="review_queue_accept",
+                    reason="accept candidate",
+                    args={
+                        "candidate_id": "candidate-1",
+                        "target_kind": "skill",
+                    },
+                ),
+                observation=Observation(
+                    status="rejected",
+                    summary="User confirmation required",
+                    payload={
+                        "pending_confirmation": {
+                            "id": "confirm-review",
+                            "tool_name": "review_queue_accept",
+                            "reason": "tool review_queue_accept requires confirmation",
+                            "risk_level": "high",
+                            "required_mode": "workspace-write",
+                            "source": "agent_loop",
+                            "preview": {
+                                "candidate_id": "candidate-1",
+                                "target_kind": "skill",
+                                "source_report": "data/analysis-reports/run.json",
+                                "effect": "accept_candidate",
+                            },
+                        }
+                    },
+                    error_message="confirmation required",
+                ),
+            )
+        ],
+    )
+
+    async with app.run_test():
+        assert app._store_pending_tool_from_result(result) is True
+
+    rendered = "\n".join(app.message_texts)
+    assert "candidate-1" in rendered
+    assert "skill" in rendered
+    assert "accept_candidate" in rendered
+    assert "data/analysis-reports/run.json" in rendered
+
+
 async def test_pending_shell_compatibility_exposes_command_and_bounded_preview(
     tmp_path: Path,
 ) -> None:

@@ -324,6 +324,7 @@ PYTHONPATH=. uv run --isolated --python 3.12 --with-requirements requirements.tx
 
 开发项：
 
+- 已完成：`docs/` 重新整体加入 gitignore，后续 docs 下新增本地产物默认不提交。
 - 优化 `analysis_report_list`、`review_queue_list`、`review_queue_view` 的摘要格式。
 - TUI 增加 review detail 展示。
 - pending confirmation 明确显示 target_kind、source、risk、effect。
