@@ -24,6 +24,7 @@ from app.memory.store import MemoryStore
 from app.runtime.final_response_gate import apply_final_response_gate
 from app.runtime.process_registry import ProcessRegistry
 from app.runtime.tool_repetition import RepetitionTracker
+from app.runtime.turn import RuntimeTaskState
 from app.schemas.agent_action import Observation, ToolCallAction, build_invalid_action_observation
 from app.schemas.trace import TraceEvent
 from app.tools.structured import ToolInvocation
@@ -34,6 +35,7 @@ from app.workspace.worktree import prepare_worktree
 def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> AgentLoopResult:
     recorder = TraceRecorder(settings.traces_dir)
     run_id = f"agent-{uuid4().hex[:12]}"
+    task_state = RuntimeTaskState(goal=loop_input.problem_statement)
     process_registry = ProcessRegistry(log_dir=settings.data_dir / "processes" / run_id)
     workspace_path = loop_input.repo_path
     if loop_input.use_worktree:
@@ -68,6 +70,12 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 trace_path=str(trace_path),
                 workspace_path=None,
                 steps=[],
+                task_state=task_state.model_copy(
+                    update={
+                        "phase": "failed",
+                        "blocked_reason": f"Workspace setup failed: {detail.strip()}",
+                    }
+                ),
                 context_summary=None,
                 evolution_summary=None,
             )
@@ -336,6 +344,12 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
 
     context_bundle = context_manager.build_provider_context()
     context_summary = _compact_context_summary(context_bundle)
+    task_state = _build_task_state(
+        goal=loop_input.problem_statement,
+        status=status,
+        summary=summary,
+        steps=steps,
+    )
     evolution_summary = _evolution_summary_best_effort(
         evolution_runtime=EvolutionRuntime(memory_runtime),
         turn=EvolutionTurnInput(
@@ -357,6 +371,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                 "status": status,
                 "summary": summary,
                 "step_count": len(steps),
+                "task_state": task_state.model_dump(mode="json"),
                 "context_summary": context_summary,
                 "evolution_summary": evolution_summary,
             },
@@ -369,6 +384,7 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
         trace_path=str(trace_path),
         workspace_path=str(workspace_path),
         steps=steps,
+        task_state=task_state,
         context_summary=context_summary,
         evolution_summary=evolution_summary,
     )
@@ -392,6 +408,44 @@ def _compact_context_summary(context_bundle: ContextBundle) -> dict[str, object]
             for item in context_bundle.items
         ],
     }
+
+
+def _build_task_state(
+    *,
+    goal: str,
+    status: str,
+    summary: str,
+    steps: list[AgentStep],
+) -> RuntimeTaskState:
+    completed_steps = [
+        step.action.type
+        for step in steps
+        if step.observation.status in {"succeeded", "passed"}
+    ]
+    blocked_reason = None if status == "completed" else summary
+    return RuntimeTaskState(
+        goal=goal,
+        phase=status,
+        completed_steps=completed_steps,
+        blocked_reason=blocked_reason,
+        verified=_has_successful_verification(steps),
+    )
+
+
+def _has_successful_verification(steps: list[AgentStep]) -> bool:
+    for step in steps:
+        if step.observation.status not in {"succeeded", "passed"}:
+            continue
+        payload = step.observation.payload
+        if not isinstance(payload, dict):
+            continue
+        kind = payload.get("kind") or payload.get("tool")
+        if kind in {"verification", "run_command"}:
+            return True
+        action = getattr(step.action, "action", None)
+        if action in {"run_command", "verify"}:
+            return True
+    return False
 
 
 def _build_evolution_rule_runtime(settings: Settings) -> object | None:
