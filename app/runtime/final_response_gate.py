@@ -47,6 +47,7 @@ def apply_final_response_gate(
     *,
     steps: list[AgentStep],
     handled: _HandledAction,
+    problem_statement: str | None = None,
 ) -> tuple[AgentLoopStatus, str]:
     if not isinstance(handled.step.action, FinalResponseAction):
         return handled.status, handled.summary
@@ -86,7 +87,10 @@ def apply_final_response_gate(
         return "failed", "Agent loop ended with failed observations"
     if (
         handled.step.action.status == "completed"
-        and _looks_like_local_fact_answer(handled.step.action.summary)
+        and (
+            _looks_like_local_fact_request(problem_statement)
+            or _looks_like_local_fact_answer(handled.step.action.summary)
+        )
         and not _has_successful_tool_observation(steps)
     ):
         return "failed", "Final response requires tool evidence for local repository facts"
@@ -118,4 +122,13 @@ def _looks_like_local_fact_answer(summary: str) -> bool:
     normalized = summary.lower()
     return any(marker in normalized for marker in _LOCAL_FACT_MARKERS) or any(
         pattern.search(summary) for pattern in _LOCAL_FACT_PATTERNS
+    )
+
+
+def _looks_like_local_fact_request(problem_statement: str | None) -> bool:
+    if not problem_statement:
+        return False
+    normalized = problem_statement.lower()
+    return any(marker in normalized for marker in _LOCAL_FACT_MARKERS) or any(
+        pattern.search(problem_statement) for pattern in _LOCAL_FACT_PATTERNS
     )
