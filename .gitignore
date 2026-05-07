@@ -6,4 +6,6 @@ data/
 __pycache__/
 *.py[cod]
 *.egg-info/
-docs/
+docs/*
+!docs/*.md
+docs/superpowers/
