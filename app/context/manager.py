@@ -25,6 +25,12 @@ from app.context.token_budget import estimate_token_count
 from app.memory.recall import MemoryRecallHit
 from app.memory.runtime import MemoryRuntime
 
+PLAN_ACT_OBSERVE_CONTRACT = {
+    "local_facts": "local facts must come from tool observations",
+    "code_changes": "verify code changes before claiming completion",
+    "tool_failures": "if a required tool fails, explain the blocker instead of guessing",
+}
+
 
 class ContextManager:
     def __init__(
@@ -167,6 +173,7 @@ class ContextManager:
         observation_items = observation_items if observation_items is not None else []
         file_summary_items = file_summary_items if file_summary_items is not None else []
         payload: dict[str, Any] = {
+            "plan_act_observe_contract": PLAN_ACT_OBSERVE_CONTRACT,
             "base_context": self._parsed_base_context(),
             "memory_recall": [
                 compact_memory_hit(hit, max_chars=self.budget.max_memory_chars)

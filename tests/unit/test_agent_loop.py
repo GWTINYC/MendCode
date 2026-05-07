@@ -395,6 +395,33 @@ def test_agent_loop_injects_memory_recall_context_before_first_tool_call(
     assert "memory_recall" in provider.calls[0].context
 
 
+def test_agent_loop_provider_context_includes_plan_act_observe_contract(
+    tmp_path: Path,
+) -> None:
+    provider = NativeToolProvider(
+        [
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="解释一下 Python 列表",
+            provider=provider,
+        ),
+        settings_for(tmp_path),
+    )
+
+    assert result.status == "completed"
+    assert provider.calls[0].context is not None
+    context = provider.calls[0].context
+    assert "plan_act_observe_contract" in context
+    assert "local facts must come from tool observations" in context
+    assert "verify code changes before claiming completion" in context
+    assert "explain the blocker instead of guessing" in context
+
+
 def test_agent_loop_result_includes_context_summary_from_context_manager(
     tmp_path: Path,
 ) -> None:
