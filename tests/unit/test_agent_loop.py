@@ -14,6 +14,8 @@ from app.agent.openai_compatible import (
 from app.agent.provider import AgentObservationRecord, AgentProviderStepInput, ProviderResponse
 from app.agent.provider_factory import build_agent_provider
 from app.config.settings import Settings
+from app.evolution.accepted import AcceptedGuidanceStore
+from app.evolution.models import LessonCandidate
 from app.memory.models import MemoryRecord
 from app.memory.store import MemoryStore
 from app.schemas.agent_action import Observation, ToolCallAction
@@ -425,6 +427,43 @@ def test_agent_loop_result_includes_context_summary_from_context_manager(
     assert result.context_summary is not None
     assert result.context_summary["metrics"]["memory_recall_hits"] == 1
     assert "pytest command" in provider.calls[0].context
+
+
+def test_agent_loop_injects_accepted_evolution_guidance_context(
+    tmp_path: Path,
+) -> None:
+    settings = settings_for(tmp_path)
+    AcceptedGuidanceStore(
+        settings.data_dir / "evolution",
+        skills_root=settings.data_dir / "skills",
+    ).accept_candidate(
+        LessonCandidate(
+            kind="skill_lesson",
+            target_kind="skill",
+            summary="Run failing tests before editing and rerun after patch.",
+            suggested_skill="test-fix",
+            evidence={"case_id": "patch-repair-test-fix"},
+        )
+    )
+    provider = NativeToolProvider(
+        [
+            {"type": "final_response", "status": "completed", "summary": "done"},
+        ]
+    )
+
+    result = run_agent_loop(
+        AgentLoopInput(
+            repo_path=tmp_path,
+            problem_statement="帮我修复测试失败",
+            provider=provider,
+        ),
+        settings,
+    )
+
+    assert result.status == "completed"
+    assert provider.calls[0].context is not None
+    assert "evolution_guidance" in provider.calls[0].context
+    assert "test-fix" in provider.calls[0].context
 
 
 def test_agent_loop_generates_evolution_candidate_for_repeated_read_file(

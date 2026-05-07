@@ -6,6 +6,7 @@ ContextItemKind = Literal[
     "base_context",
     "memory_recall",
     "evolution_rule",
+    "evolution_guidance",
     "context_warning",
     "context_metrics",
     "observation",

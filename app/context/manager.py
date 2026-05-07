@@ -41,6 +41,7 @@ class ContextManager:
         self._observations: list[AgentObservationRecord] = []
         self._memory_recall: list[MemoryRecallHit] = []
         self._evolution_rules: list[dict[str, object]] = []
+        self._evolution_guidance: list[dict[str, object]] = []
         self._warnings: list[ContextWarning] = []
         self._latest_bundle: ContextBundle | None = None
         self._repo_path: Path | None = None
@@ -49,6 +50,7 @@ class ContextManager:
         self._observations = []
         self._memory_recall = []
         self._evolution_rules = []
+        self._evolution_guidance = []
         self._warnings = []
         self._repo_path = repo_path
         try:
@@ -77,6 +79,10 @@ class ContextManager:
                 self._evolution_rules = [
                     self._compact_evolution_rule(rule)
                     for rule in getattr(recall, "rules", [])
+                ]
+                self._evolution_guidance = [
+                    self._compact_evolution_guidance(guidance)
+                    for guidance in getattr(recall, "guidance", [])
                 ]
             except Exception as exc:  # pragma: no cover - defensive integration guard.
                 self._warnings.append(
@@ -149,6 +155,7 @@ class ContextManager:
                 for hit in self._memory_recall
             ],
             "evolution_rules": list(self._evolution_rules),
+            "evolution_guidance": list(self._evolution_guidance),
             "observations": [
                 item.model_dump(mode="json", exclude_none=True)
                 for item in observation_items
@@ -222,6 +229,19 @@ class ContextManager:
                 },
             )
             for rule in self._evolution_rules
+        )
+        items.extend(
+            ContextItem(
+                kind="evolution_guidance",
+                title=f"Accepted {guidance.get('target_kind', 'guidance')}",
+                content=str(guidance.get("content") or ""),
+                metadata={
+                    key: value
+                    for key, value in guidance.items()
+                    if key != "content" and value not in {None, ""}
+                },
+            )
+            for guidance in self._evolution_guidance
         )
         items.extend(observation_items)
         items.extend(file_summary_items)
@@ -306,6 +326,19 @@ class ContextManager:
             "rule_text": str(getattr(rule, "rule_text")),
             "scope": str(getattr(rule, "scope", "")),
             "activation_hint": str(getattr(rule, "activation_hint", "")),
+        }
+
+    def _compact_evolution_guidance(self, guidance: object) -> dict[str, object]:
+        return {
+            "guidance_id": str(getattr(guidance, "guidance_id")),
+            "candidate_id": str(getattr(guidance, "candidate_id")),
+            "target_kind": str(getattr(guidance, "target_kind")),
+            "title": str(getattr(guidance, "title")),
+            "content": str(getattr(guidance, "content")),
+            "activation_hint": str(getattr(guidance, "activation_hint", "")),
+            "suggested_skill": str(getattr(guidance, "suggested_skill", "") or ""),
+            "source_report": str(getattr(guidance, "source_report", "") or ""),
+            "source_trace": str(getattr(guidance, "source_trace", "") or ""),
         }
 
     def _with_compaction_metrics(
