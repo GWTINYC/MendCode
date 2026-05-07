@@ -76,7 +76,12 @@ from app.tools.read_only import (
     read_file,
     search_code,
 )
-from app.tools.schemas import ToolResult
+from app.tools.schemas import (
+    ToolResult,
+    build_patch_preview,
+    build_write_preview,
+    count_text_lines,
+)
 from app.tools.session_status import session_status
 from app.tools.structured import ToolExecutionContext, ToolRegistry, ToolRisk, ToolSpec
 from app.workspace.command_policy import CommandPolicy
@@ -463,6 +468,17 @@ def _patch_paths(patch: str) -> list[str]:
     return paths
 
 
+def _dedupe_paths(paths: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for path in paths:
+        if not path or path in seen:
+            continue
+        seen.add(path)
+        result.append(path)
+    return result
+
+
 def _validate_patch_paths(paths: list[str], workspace_path: Path) -> str | None:
     for path in paths:
         if path == "/dev/null":
@@ -473,7 +489,8 @@ def _validate_patch_paths(paths: list[str], workspace_path: Path) -> str | None:
 
 
 def _apply_patch(args: ApplyPatchArgs, context: ToolExecutionContext) -> Observation:
-    paths = [*args.files_to_modify, *_patch_paths(args.patch)]
+    paths = _dedupe_paths([*args.files_to_modify, *_patch_paths(args.patch)])
+    preview = build_patch_preview(paths=paths, patch=args.patch)
     error_message = _validate_patch_paths(paths, context.workspace_path)
     if error_message is not None:
         return _rejected(
@@ -536,6 +553,7 @@ def _apply_patch(args: ApplyPatchArgs, context: ToolExecutionContext) -> Observa
         status="succeeded",
         summary="Applied patch",
         payload=payload,
+        preview=preview,
         stdout_excerpt=payload["stdout_excerpt"],
         stderr_excerpt=payload["stderr_excerpt"],
     )
@@ -583,6 +601,12 @@ def _write_file(args: WriteFileArgs, context: ToolExecutionContext) -> Observati
             "path points to a directory",
             payload={"path": args.path},
         )
+    existing_lines = 0
+    if target.exists():
+        try:
+            existing_lines = count_text_lines(target.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError):
+            existing_lines = 0
     content_bytes = args.content.encode("utf-8")
     if len(content_bytes) > _TEXT_TOOL_MAX_BYTES:
         return _rejected(
@@ -600,11 +624,17 @@ def _write_file(args: WriteFileArgs, context: ToolExecutionContext) -> Observati
         "relative_path": str(target.relative_to(context.workspace_path.resolve())),
         "bytes_written": len(content_bytes),
     }
+    preview = build_write_preview(
+        paths=[payload["relative_path"]],
+        additions=count_text_lines(args.content),
+        deletions=existing_lines,
+    )
     return tool_observation(
         tool_name="write_file",
         status="succeeded",
         summary=f"Wrote {payload['relative_path']}",
         payload=payload,
+        preview=preview,
     )
 
 
@@ -661,11 +691,17 @@ def _edit_file(args: EditFileArgs, context: ToolExecutionContext) -> Observation
         "relative_path": str(target.relative_to(context.workspace_path.resolve())),
         "replacements": replacements,
     }
+    preview = build_write_preview(
+        paths=[payload["relative_path"]],
+        additions=count_text_lines(args.new_string) * replacements,
+        deletions=count_text_lines(args.old_string) * replacements,
+    )
     return tool_observation(
         tool_name="edit_file",
         status="succeeded",
         summary=f"Edited {payload['relative_path']}",
         payload=payload,
+        preview=preview,
     )
 
 

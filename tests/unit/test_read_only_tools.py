@@ -26,6 +26,7 @@ def test_read_file_returns_full_content(tmp_path: Path) -> None:
             "content": "alpha\nbeta\n",
             "truncated": False,
         },
+        "preview": {},
         "error_message": None,
         "workspace_path": str(workspace_path),
     }
@@ -378,6 +379,7 @@ def test_search_code_returns_matches(tmp_path: Path) -> None:
                 {"relative_path": "src.py", "line_number": 2, "line_text": "beta alpha"},
             ],
         },
+        "preview": {},
         "error_message": None,
         "workspace_path": str(workspace_path),
     }

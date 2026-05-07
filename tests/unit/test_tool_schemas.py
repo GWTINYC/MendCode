@@ -19,6 +19,7 @@ def test_tool_result_serializes_expected_fields():
         "status": "passed",
         "summary": "Read file successfully",
         "payload": {"lines": 12},
+        "preview": {},
         "error_message": None,
         "workspace_path": "/tmp/worktree",
     }

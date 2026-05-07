@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.permissions.policy import PermissionDecision, RequiredPermissionMode
 from app.schemas.agent_action import Observation, RiskLevel, ToolCallAction
+from app.tools.schemas import build_patch_preview, build_write_preview, count_text_lines
 from app.tools.structured import ToolInvocation
 
 _MAX_PREVIEW_ITEMS = 20
@@ -113,25 +114,23 @@ def _preview_for_tool(
         }
     if tool_name == "apply_patch":
         files = args.get("files_to_modify", [])
-        return {
-            "files_to_modify": _bounded_list(files),
-            "patch_chars": len(str(args.get("patch", ""))),
-            "reason": reason,
-        }
+        paths = [str(path) for path in _bounded_list(files)]
+        patch = str(args.get("patch", ""))
+        return build_patch_preview(paths=paths, patch=patch, reason=reason)
     if tool_name == "write_file":
-        return {
-            "path": str(args.get("path", "")),
-            "content_chars": len(str(args.get("content", ""))),
-            "reason": reason,
-        }
+        return build_write_preview(
+            paths=[str(args.get("path", ""))],
+            additions=count_text_lines(str(args.get("content", ""))),
+            deletions=0,
+            reason=reason,
+        )
     if tool_name == "edit_file":
-        return {
-            "path": str(args.get("path", "")),
-            "old_chars": len(str(args.get("old_string", ""))),
-            "new_chars": len(str(args.get("new_string", ""))),
-            "replace_all": bool(args.get("replace_all", False)),
-            "reason": reason,
-        }
+        return build_write_preview(
+            paths=[str(args.get("path", ""))],
+            additions=count_text_lines(str(args.get("new_string", ""))),
+            deletions=count_text_lines(str(args.get("old_string", ""))),
+            reason=reason,
+        )
     if tool_name == "git":
         return {
             "operation": str(args.get("operation", args.get("command", ""))),

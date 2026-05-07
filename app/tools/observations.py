@@ -18,6 +18,7 @@ _ENVELOPE_KEYS = frozenset(
         "stdout_excerpt",
         "stderr_excerpt",
         "duration_ms",
+        "preview",
     }
 )
 
@@ -40,6 +41,7 @@ def tool_observation(
     stdout_excerpt: str | None = None,
     stderr_excerpt: str | None = None,
     duration_ms: int | None = None,
+    preview: dict[str, Any] | None = None,
 ) -> Observation:
     """Build an observation with reserved envelope keys at the top level.
 
@@ -76,6 +78,8 @@ def tool_observation(
         "stderr_excerpt": stderr_value,
         "duration_ms": duration_ms if duration_ms is not None else tool_payload.get("duration_ms"),
     }
+    if preview:
+        envelope["preview"] = dict(preview)
     for key, value in tool_payload.items():
         if key not in _ENVELOPE_KEYS:
             envelope[key] = value
@@ -95,6 +99,7 @@ def observation_from_tool_result(result: ToolResult) -> Observation:
         status=result.status,
         summary=result.summary,
         payload=result.payload,
+        preview=result.preview,
         error_message=result.error_message,
         truncated=truncated if isinstance(truncated, bool) else None,
     )
