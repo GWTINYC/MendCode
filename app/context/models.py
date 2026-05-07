@@ -41,8 +41,11 @@ class ContextBudget(StrictContextModel):
 
 class ContextMetrics(StrictContextModel):
     context_chars: int = Field(default=0, ge=0)
+    estimated_context_tokens: int = Field(default=0, ge=0)
     raw_context_chars: int = Field(default=0, ge=0)
+    raw_context_tokens: int = Field(default=0, ge=0)
     compacted_context_chars: int = Field(default=0, ge=0)
+    compacted_context_tokens: int = Field(default=0, ge=0)
     memory_recall_hits: int = Field(default=0, ge=0)
     observation_count: int = Field(default=0, ge=0)
     read_file_count: int = Field(default=0, ge=0)
@@ -50,6 +53,7 @@ class ContextMetrics(StrictContextModel):
     compacted_item_count: int = Field(default=0, ge=0)
     file_summary_hit_count: int = Field(default=0, ge=0)
     observation_chars_saved: int = Field(default=0, ge=0)
+    observation_tokens_saved: int = Field(default=0, ge=0)
 
 
 class ContextWarning(StrictContextModel):

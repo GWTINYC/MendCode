@@ -21,6 +21,7 @@ from app.context.models import (
     ContextMetrics,
     ContextWarning,
 )
+from app.context.token_budget import estimate_token_count
 from app.memory.recall import MemoryRecallHit
 from app.memory.runtime import MemoryRuntime
 
@@ -115,6 +116,18 @@ class ContextManager:
         )
         provider_context = self._provider_context_json(metrics)
         metrics.context_chars = len(provider_context)
+        metrics.estimated_context_tokens = estimate_token_count(provider_context)
+        metrics.raw_context_tokens = sum(
+            estimate_token_count(record.observation.model_dump_json())
+            for record in self._observations
+        )
+        metrics.compacted_context_tokens = sum(
+            estimate_token_count(item.model_dump_json()) for item in observation_items
+        )
+        metrics.observation_tokens_saved = max(
+            0,
+            metrics.raw_context_tokens - metrics.compacted_context_tokens,
+        )
 
         while True:
             provider_context = self._provider_context_json(
@@ -123,9 +136,14 @@ class ContextManager:
                 file_summary_items=file_summary_items,
             )
             context_chars = len(provider_context)
+            context_tokens = estimate_token_count(provider_context)
             if context_chars == metrics.context_chars:
-                break
+                if context_tokens == metrics.estimated_context_tokens:
+                    break
             metrics.context_chars = context_chars
+            metrics.estimated_context_tokens = context_tokens
+        metrics.context_chars = len(provider_context)
+        metrics.estimated_context_tokens = estimate_token_count(provider_context)
 
         self._latest_bundle = ContextBundle(
             provider_context=provider_context,
@@ -357,12 +375,30 @@ class ContextManager:
         return metrics.model_copy(
             update={
                 "raw_context_chars": raw_observation_chars,
+                "raw_context_tokens": sum(
+                    estimate_token_count(record.observation.model_dump_json())
+                    for record in self._observations
+                ),
                 "compacted_context_chars": compact_observation_chars,
+                "compacted_context_tokens": sum(
+                    estimate_token_count(item.model_dump_json()) for item in observation_items
+                ),
                 "compacted_item_count": len(observation_items) + len(file_summary_items),
                 "file_summary_hit_count": len(file_summary_items),
                 "observation_chars_saved": max(
                     0,
                     raw_observation_chars - compact_observation_chars,
+                ),
+                "observation_tokens_saved": max(
+                    0,
+                    sum(
+                        estimate_token_count(record.observation.model_dump_json())
+                        for record in self._observations
+                    )
+                    - sum(
+                        estimate_token_count(item.model_dump_json())
+                        for item in observation_items
+                    ),
                 ),
             }
         )

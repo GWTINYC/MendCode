@@ -40,9 +40,16 @@ def merge_context_metrics(*metrics: ContextMetrics) -> ContextMetrics:
     for metric in metrics:
         merged = ContextMetrics(
             context_chars=merged.context_chars + metric.context_chars,
+            estimated_context_tokens=(
+                merged.estimated_context_tokens + metric.estimated_context_tokens
+            ),
             raw_context_chars=merged.raw_context_chars + metric.raw_context_chars,
+            raw_context_tokens=merged.raw_context_tokens + metric.raw_context_tokens,
             compacted_context_chars=(
                 merged.compacted_context_chars + metric.compacted_context_chars
+            ),
+            compacted_context_tokens=(
+                merged.compacted_context_tokens + metric.compacted_context_tokens
             ),
             memory_recall_hits=merged.memory_recall_hits + metric.memory_recall_hits,
             observation_count=merged.observation_count + metric.observation_count,
@@ -56,6 +63,9 @@ def merge_context_metrics(*metrics: ContextMetrics) -> ContextMetrics:
             ),
             observation_chars_saved=(
                 merged.observation_chars_saved + metric.observation_chars_saved
+            ),
+            observation_tokens_saved=(
+                merged.observation_tokens_saved + metric.observation_tokens_saved
             ),
         )
     return merged

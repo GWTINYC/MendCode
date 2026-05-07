@@ -8,6 +8,7 @@ from app.agent.provider import AgentObservationRecord
 from app.context.compaction import compact_observation_record
 from app.context.manager import ContextManager
 from app.context.models import ContextBudget, ContextMetrics
+from app.context.token_budget import estimate_token_count
 from app.memory.models import MemoryRecord
 from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
@@ -115,18 +116,25 @@ def test_context_budget_exposes_compaction_limits() -> None:
 def test_context_metrics_exposes_compaction_counters() -> None:
     metrics = ContextMetrics(
         context_chars=100,
+        estimated_context_tokens=25,
         raw_context_chars=300,
+        raw_context_tokens=75,
         compacted_context_chars=100,
+        compacted_context_tokens=25,
         compacted_item_count=2,
         file_summary_hit_count=1,
         observation_chars_saved=200,
+        observation_tokens_saved=50,
     )
 
     assert metrics.raw_context_chars == 300
+    assert metrics.raw_context_tokens == 75
     assert metrics.compacted_context_chars == 100
+    assert metrics.compacted_context_tokens == 25
     assert metrics.compacted_item_count == 2
     assert metrics.file_summary_hit_count == 1
     assert metrics.observation_chars_saved == 200
+    assert metrics.observation_tokens_saved == 50
 
 
 def test_context_manager_normalizes_simple_repeated_read_file_paths(
@@ -285,25 +293,34 @@ def test_merge_context_metrics_preserves_compaction_counters() -> None:
     merged = merge_context_metrics(
         ContextMetrics(
             raw_context_chars=300,
+            raw_context_tokens=75,
             compacted_context_chars=100,
+            compacted_context_tokens=25,
             compacted_item_count=2,
             file_summary_hit_count=1,
             observation_chars_saved=200,
+            observation_tokens_saved=50,
         ),
         ContextMetrics(
             raw_context_chars=30,
+            raw_context_tokens=8,
             compacted_context_chars=10,
+            compacted_context_tokens=3,
             compacted_item_count=3,
             file_summary_hit_count=4,
             observation_chars_saved=20,
+            observation_tokens_saved=5,
         ),
     )
 
     assert merged.raw_context_chars == 330
+    assert merged.raw_context_tokens == 83
     assert merged.compacted_context_chars == 110
+    assert merged.compacted_context_tokens == 28
     assert merged.compacted_item_count == 5
     assert merged.file_summary_hit_count == 5
     assert merged.observation_chars_saved == 220
+    assert merged.observation_tokens_saved == 55
 
 
 def test_context_manager_provider_context_uses_compact_observation_items(
@@ -337,6 +354,42 @@ def test_context_manager_provider_context_uses_compact_observation_items(
     assert "x" * 1000 not in json.dumps(payload, ensure_ascii=False)
     assert payload["context_metrics"]["compacted_item_count"] >= 1
     assert payload["context_metrics"]["observation_chars_saved"] > 0
+
+
+def test_context_manager_provider_context_includes_estimated_token_metrics(
+    tmp_path: Path,
+) -> None:
+    manager = ContextManager(
+        memory_runtime=_memory_runtime(tmp_path),
+        budget=ContextBudget(max_observation_chars=600, max_item_excerpt_chars=200),
+    )
+    manager.begin_turn(user_message="read large file", repo_path=tmp_path)
+    manager.record_observation(
+        AgentObservationRecord(
+            action=ToolCallAction(
+                type="tool_call",
+                action="read_file",
+                reason="inspect",
+                args={"path": "README.md"},
+            ),
+            observation=Observation(
+                status="succeeded",
+                summary="Read README.md",
+                payload={"relative_path": "README.md", "content": "x" * 5000},
+            ),
+        )
+    )
+
+    bundle = manager.build_provider_context()
+    payload = json.loads(bundle.provider_context)
+
+    assert bundle.metrics.estimated_context_tokens == estimate_token_count(
+        bundle.provider_context
+    )
+    assert payload["context_metrics"]["estimated_context_tokens"] > 0
+    assert payload["context_metrics"]["raw_context_tokens"] > 0
+    assert payload["context_metrics"]["compacted_context_tokens"] > 0
+    assert payload["context_metrics"]["observation_tokens_saved"] > 0
 
 
 def test_context_manager_limits_memory_recall_chars(tmp_path: Path) -> None:

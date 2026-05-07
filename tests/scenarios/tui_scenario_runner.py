@@ -13,6 +13,7 @@ from typing import Any
 from app.agent.loop import AgentLoopResult, AgentStep
 from app.agent.session import AgentSessionTurn, ReviewSummary
 from app.config.settings import Settings
+from app.context.token_budget import estimate_token_count
 from app.runtime.benchmark import (
     BenchmarkCaseEvidence,
     BenchmarkCaseSpec,
@@ -132,6 +133,7 @@ class ScenarioTranscript:
             observed_tools = list(self.tool_calls)
         repeated_file_reads = 0
         context_actual_chars = len(self.visible_text)
+        context_actual_tokens = estimate_token_count(self.visible_text)
         for record in self.jsonl_records:
             payload = record.get("payload")
             if not isinstance(payload, dict):
@@ -146,18 +148,24 @@ class ScenarioTranscript:
             context_chars = metrics.get("context_chars")
             if isinstance(context_chars, int):
                 context_actual_chars = context_chars
+            context_tokens = metrics.get("estimated_context_tokens")
+            if isinstance(context_tokens, int):
+                context_actual_tokens = context_tokens
         dangerous_blocked = None
         if case.expects_dangerous_block:
             dangerous_blocked = any(
                 _compact_tool_result_is_rejected_for(result, case.expected_tools)
                 for result in self.tool_results
             )
+        baseline_text = "\n".join(message or "" for _, message in self.chat_history)
         return BenchmarkCaseEvidence(
             case_id=case.id,
             observed_tools=observed_tools,
             visible_chars=len(self.visible_text),
-            context_baseline_chars=sum(len(message or "") for _, message in self.chat_history),
+            context_baseline_chars=len(baseline_text),
             context_actual_chars=context_actual_chars,
+            context_baseline_tokens=estimate_token_count(baseline_text),
+            context_actual_tokens=context_actual_tokens,
             repeated_file_reads=repeated_file_reads,
             dangerous_command_blocked=dangerous_blocked,
         )

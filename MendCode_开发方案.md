@@ -35,7 +35,7 @@ User Message
 
 - 工具与权限主链路：已基本成型，继续补安全细节和 legacy 收敛。
 - TUI 自然语言主线：已可用，继续补真实体验、折叠展示和 provider doctor。
-- 记忆与上下文：第一切片已完成，下一步是 tokenizer-aware compact、repo map 和长会话健康度。
+- 记忆与上下文：第一切片已完成；Context Budget V2 已接入 token 估算指标，下一步是分层硬预算、repo map 和长会话健康度。
 - 自进化机制：已有候选、规则审查和 analysis report ingestion 基础；analysis report 已能生成 memory / rule / prompt_rule / tool_schema_hint / skill 候选，prompt_rule / tool_schema_hint / skill 接受后已能进入本地 accepted guidance store 并被 runtime 召回，距离“接受候选 -> 回归验证收益”的完整闭环仍有差距。
 - Benchmark：固定 manifest、PTY live 和 gate 已建立，下一步是把失败报告接入 EvolutionRuntime。
 
@@ -179,20 +179,20 @@ User Message
 - 文件摘要缓存按 path、sha256、mtime、size、line count 和 symbols 校验。
 - `MemoryRuntime` 支持 recall、file summary 和 review queue。
 - AgentLoop 每轮开始前通过 `ContextManager -> MemoryRuntime.recall_for_turn()` 召回少量相关 memory。
-- Context metrics 记录 observation、memory recall、read_file、重复 read_file、raw/compact 字符量和节省量。
+- Context metrics 记录 observation、memory recall、read_file、重复 read_file、raw/compact 字符量、估算 token 量和节省量。
 - `memory_write` 和 `file_summary_refresh` 属于写长期状态能力，默认不暴露给普通只读工具池。
 - `trace_analyze` 只读，不允许绕过权限静默写 memory。
 
 主要不足：
 
-- Context compaction 仍是字符预算，未接入真实 tokenizer。
+- Context compaction 已有 tokenizer-aware/token-like 估算指标；真正按模型窗口硬裁剪仍未完成。
 - 文件摘要还未形成稳定 repo map。
 - 长会话 compact summary 还不完整。
 - `memory_write` 仍缺确认、合并、敏感信息过滤和专用审查界面。
 
 近期任务：
 
-- 接入 tokenizer-aware budget，根据模型窗口动态裁剪 context。
+- 基于现有 token 估算指标继续实现硬预算，根据模型窗口动态裁剪 context。
 - 扩展 repo map：目录结构、关键入口、测试命令、核心模块摘要。
 - 把 repeated read 和 file summary 命中率作为 benchmark 指标长期观察。
 - 设计 memory 写入审查：模型只生成候选，用户接受后才进入长期 memory。
@@ -228,7 +228,7 @@ User Message
 
 已完成：
 
-- `app.runtime.benchmark` 计算 case pass rate、tool chain pass rate、dangerous command block rate、route pass rate、answer concise rate、provider failure、trace exposure、token-ish reduction 和 repeated read。
+- `app.runtime.benchmark` 计算 case pass rate、tool chain pass rate、dangerous command block rate、route pass rate、answer concise rate、provider failure、trace exposure、token reduction 和 repeated read。
 - `tests/scenarios/benchmark_manifest.json` 固定目录查看、路径查看、Git、文件末句、文件读取、代码定位、工具面、危险命令、会话列表、多轮对话、记忆召回和修复链路等真实用户问题。
 - `app.runtime.benchmark_gate` 能把 pytest failure 映射到 benchmark case。
 - `app.runtime.tui_scenario_audit` 支持 manifest 驱动 pytest node selection，并输出 benchmark report 和 analysis report。
@@ -237,7 +237,7 @@ User Message
 主要不足：
 
 - 没有真实 provider env 时，PTY live 会失败；这是预期，但本地开发需要更明确的 doctor 和降级说明。
-- Token 降低仍是 token-ish / context-ish 指标，未接入真实 tokenizer。
+- Token 降低已优先使用 ContextManager 的估算 token 指标；缺真实 tokenizer 时仍会 fallback 到启发式估算。
 - 评测集仍需扩展到更多长链路修复任务和自进化任务。
 
 近期任务：
@@ -267,9 +267,10 @@ User Message
    - 接受后才写入 `data/evolution/` 或 `data/memory/`。
 
 3. Context Budget V2
-   - 引入 tokenizer-aware 估算。
-   - 给 observation、memory、file summary、conversation history 设置分层预算。
-   - 让 benchmark report 能看到 compact 前后差异。
+   - 已完成第一版：引入 tokenizer-aware/token-like 估算。
+   - 已完成第一版：Context metrics 和 benchmark evidence 优先记录估算 token。
+   - 下一步：给 observation、memory、file summary、conversation history 设置分层硬预算。
+   - 下一步：让 benchmark report 稳定展示 compact 前后 token 差异。
 
 4. SKILL.md 第一切片
    - 定义 skill schema 和加载规则。
