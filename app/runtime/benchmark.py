@@ -111,6 +111,8 @@ class BenchmarkCaseEvidence(BaseModel):
     visible_chars: int | None = Field(default=None, ge=0)
     context_baseline_chars: int | None = Field(default=None, ge=0)
     context_actual_chars: int | None = Field(default=None, ge=0)
+    context_baseline_tokens: int | None = Field(default=None, ge=0)
+    context_actual_tokens: int | None = Field(default=None, ge=0)
     repeated_file_reads: int = Field(default=0, ge=0)
     dangerous_command_blocked: bool | None = None
 
@@ -231,8 +233,12 @@ def build_case_result_from_evidence(
         ),
         visible_chars=evidence.visible_chars,
         max_visible_chars=case.max_visible_chars,
-        tokens_baseline=evidence.context_baseline_chars,
-        tokens_actual=evidence.context_actual_chars,
+        tokens_baseline=evidence.context_baseline_tokens
+        if evidence.context_baseline_tokens is not None
+        else evidence.context_baseline_chars,
+        tokens_actual=evidence.context_actual_tokens
+        if evidence.context_actual_tokens is not None
+        else evidence.context_actual_chars,
         repeated_file_reads=evidence.repeated_file_reads,
     )
 

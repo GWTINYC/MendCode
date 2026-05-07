@@ -160,6 +160,8 @@ def test_build_case_result_from_evidence_records_tool_and_context_metrics() -> N
         visible_chars=320,
         context_baseline_chars=2000,
         context_actual_chars=1200,
+        context_baseline_tokens=500,
+        context_actual_tokens=300,
         repeated_file_reads=1,
     )
 
@@ -173,9 +175,25 @@ def test_build_case_result_from_evidence_records_tool_and_context_metrics() -> N
     assert result.missing_tools == []
     assert result.visible_chars == 320
     assert result.max_visible_chars is None
+    assert result.tokens_baseline == 500
+    assert result.tokens_actual == 300
+    assert result.repeated_file_reads == 1
+
+
+def test_build_case_result_from_evidence_falls_back_to_context_chars_for_tokens() -> None:
+    manifest = BenchmarkManifest.model_validate(_benchmark_manifest_payload())
+    case = manifest.cases[0]
+    evidence = BenchmarkCaseEvidence(
+        case_id="repo-list",
+        observed_tools=["list_dir"],
+        context_baseline_chars=2000,
+        context_actual_chars=1200,
+    )
+
+    result = build_case_result_from_evidence(case, evidence)
+
     assert result.tokens_baseline == 2000
     assert result.tokens_actual == 1200
-    assert result.repeated_file_reads == 1
 
 
 def test_build_case_result_from_evidence_fails_missing_tools_and_long_answer() -> None:
