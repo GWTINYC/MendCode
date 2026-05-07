@@ -763,6 +763,37 @@ def test_apply_patch_rejects_repo_escaping_path(tmp_path: Path) -> None:
     assert "patch path escapes workspace root" in str(observation.error_message)
 
 
+def test_apply_patch_observation_includes_write_preview(tmp_path: Path) -> None:
+    target = tmp_path / "README.md"
+    target.write_text("alpha\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+    patch = "\n".join(
+        [
+            "diff --git a/README.md b/README.md",
+            "--- a/README.md",
+            "+++ b/README.md",
+            "@@ -1 +1 @@",
+            "-alpha",
+            "+beta",
+            "",
+        ]
+    )
+
+    observation = registry.get("apply_patch").execute({"patch": patch}, context)
+
+    assert observation.status == "succeeded"
+    preview = observation.payload["preview"]
+    assert preview["paths"] == ["README.md"]
+    assert preview["diff_stat"] == {"files": 1, "additions": 1, "deletions": 1}
+    assert preview["requires_confirmation"] is True
+    assert "patch" not in preview
+
+
 def test_write_file_creates_workspace_file(tmp_path: Path) -> None:
     registry = default_tool_registry()
     context = ToolExecutionContext(
@@ -781,6 +812,27 @@ def test_write_file_creates_workspace_file(tmp_path: Path) -> None:
     assert observation.payload["tool_name"] == "write_file"
     assert observation.payload["relative_path"] == "notes/todo.txt"
     assert observation.payload["bytes_written"] == len("alpha\n".encode())
+
+
+def test_write_file_observation_includes_write_preview(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("write_file").execute(
+        {"path": "notes/todo.txt", "content": "alpha\n"},
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    preview = observation.payload["preview"]
+    assert preview["paths"] == ["notes/todo.txt"]
+    assert preview["diff_stat"] == {"files": 1, "additions": 1, "deletions": 0}
+    assert preview["requires_confirmation"] is True
+    assert "content" not in preview
 
 
 def test_write_file_rejects_repo_escaping_path(tmp_path: Path) -> None:
@@ -842,6 +894,34 @@ def test_edit_file_replaces_exact_text(tmp_path: Path) -> None:
     assert target.read_text(encoding="utf-8") == "alpha\ngamma\n"
     assert observation.payload["relative_path"] == "README.md"
     assert observation.payload["replacements"] == 1
+
+
+def test_edit_file_observation_includes_write_preview(tmp_path: Path) -> None:
+    target = tmp_path / "README.md"
+    target.write_text("alpha\nbeta\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("edit_file").execute(
+        {
+            "path": "README.md",
+            "old_string": "beta\n",
+            "new_string": "gamma\n",
+        },
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    preview = observation.payload["preview"]
+    assert preview["paths"] == ["README.md"]
+    assert preview["diff_stat"] == {"files": 1, "additions": 1, "deletions": 1}
+    assert preview["requires_confirmation"] is True
+    assert "old_string" not in preview
+    assert "new_string" not in preview
 
 
 def test_edit_file_rejects_missing_old_text(tmp_path: Path) -> None:

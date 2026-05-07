@@ -72,10 +72,44 @@ def test_build_pending_tool_confirmation_bounds_large_patch_preview() -> None:
         source="agent_loop",
     )
 
-    assert pending.preview["files_to_modify"] == ["app/example.py"]
-    assert pending.preview["patch_chars"] == 5000
+    assert pending.preview["paths"] == ["app/example.py"]
+    assert pending.preview["diff_stat"] == {"files": 1, "additions": 0, "deletions": 0}
+    assert pending.preview["requires_confirmation"] is True
     assert pending.preview["reason"] == "tool apply_patch requires confirmation"
     assert "patch" not in pending.preview
+
+
+def test_build_pending_tool_confirmation_uses_write_preview_shape() -> None:
+    action = ToolCallAction(
+        type="tool_call",
+        action="edit_file",
+        reason="Need to edit file",
+        args={
+            "path": "README.md",
+            "old_string": "alpha\n",
+            "new_string": "beta\ngamma\n",
+        },
+    )
+    decision = PermissionDecision(
+        status="confirm",
+        reason="tool edit_file requires confirmation",
+        risk_level="medium",
+        required_mode="workspace-write",
+    )
+
+    pending = build_pending_tool_confirmation(
+        action=action,
+        decision=decision,
+        tool_invocation=None,
+        source="agent_loop",
+    )
+
+    assert pending.preview["paths"] == ["README.md"]
+    assert pending.preview["diff_stat"] == {"files": 1, "additions": 2, "deletions": 1}
+    assert pending.preview["requires_confirmation"] is True
+    assert pending.preview["reason"] == "tool edit_file requires confirmation"
+    assert "old_string" not in pending.preview
+    assert "new_string" not in pending.preview
 
 
 def test_pending_confirmation_payload_omits_raw_arguments() -> None:
@@ -101,8 +135,9 @@ def test_pending_confirmation_payload_omits_raw_arguments() -> None:
     payload = pending.safe_payload()
 
     assert "arguments" not in payload
-    assert payload["preview"]["content_chars"] == 5000
-    assert payload["preview"]["path"] == "secret.txt"
+    assert payload["preview"]["paths"] == ["secret.txt"]
+    assert payload["preview"]["diff_stat"] == {"files": 1, "additions": 1, "deletions": 0}
+    assert payload["preview"]["requires_confirmation"] is True
 
 
 def test_build_pending_tool_confirmation_bounds_shell_command_preview() -> None:
