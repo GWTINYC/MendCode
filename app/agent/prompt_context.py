@@ -451,6 +451,9 @@ def build_provider_messages(
     }
     if runtime_context is not None:
         user_context["runtime_context"] = runtime_context
+        tool_schema_hints = _tool_schema_hints_from_runtime_context(runtime_context)
+        if tool_schema_hints:
+            user_context["tool_schema_hints"] = tool_schema_hints
     user_context["context_metrics"] = _context_metrics(
         observations=recent_records,
         runtime_context=runtime_context,
@@ -474,3 +477,31 @@ def build_provider_messages(
         )
     )
     return messages
+
+
+def _tool_schema_hints_from_runtime_context(runtime_context: object) -> list[dict[str, object]]:
+    if not isinstance(runtime_context, dict):
+        return []
+    guidance = runtime_context.get("evolution_guidance")
+    if not isinstance(guidance, list):
+        return []
+    hints: list[dict[str, object]] = []
+    for item in guidance:
+        if not isinstance(item, dict) or item.get("target_kind") != "tool_schema_hint":
+            continue
+        hints.append(
+            {
+                key: item.get(key)
+                for key in [
+                    "target_kind",
+                    "title",
+                    "content",
+                    "activation_hint",
+                    "source_report",
+                    "source_trace",
+                    "evidence_ref",
+                ]
+                if item.get(key) not in {None, ""}
+            }
+        )
+    return hints

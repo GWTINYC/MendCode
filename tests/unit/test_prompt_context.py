@@ -179,6 +179,41 @@ def test_provider_messages_include_runtime_context_and_metrics() -> None:
     assert user_context["context_metrics"]["memory_recall_count"] == 1
 
 
+def test_provider_messages_extract_tool_schema_hints_from_runtime_context() -> None:
+    messages = build_provider_messages(
+        AgentProviderStepInput(
+            problem_statement="查看 git 状态",
+            verification_commands=[],
+            step_index=1,
+            remaining_steps=4,
+            observations=[],
+            context=json.dumps(
+                {
+                    "evolution_guidance": [
+                        {
+                            "target_kind": "tool_schema_hint",
+                            "title": "Use repo_status for natural-language Git status questions.",
+                            "content": "Use repo_status for natural-language Git status questions.",
+                            "activation_hint": "git status",
+                            "source_report": "analysis/report.json",
+                        },
+                        {
+                            "target_kind": "skill",
+                            "title": "Test-fix skill",
+                            "content": "Run tests first.",
+                        },
+                    ]
+                }
+            ),
+        )
+    )
+
+    user_context = json.loads(messages[1].content)
+    assert user_context["tool_schema_hints"][0]["title"].startswith("Use repo_status")
+    assert user_context["tool_schema_hints"][0]["target_kind"] == "tool_schema_hint"
+    assert len(user_context["tool_schema_hints"]) == 1
+
+
 def test_provider_messages_preserve_compact_runtime_context_without_reexpanding_content() -> None:
     large_content = "x" * 5000
     compact_runtime_context = {

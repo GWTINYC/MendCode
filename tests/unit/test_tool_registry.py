@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 import app.tools as tool_exports
 import app.tools.structured as structured
 from app.config.settings import Settings
+from app.evolution.accepted import AcceptedGuidanceStore
+from app.evolution.models import LessonCandidate
 from app.schemas.agent_action import Observation
 from app.tools.arguments import (
     EmptyToolArgs,
@@ -938,3 +940,37 @@ def test_tool_search_finds_tools_by_name_and_description(tmp_path: Path) -> None
     assert "write_file" in names
     assert "edit_file" in names
     assert observation.payload["total_matches"] >= 2
+
+
+def test_tool_search_uses_accepted_tool_schema_hints(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    settings = settings_for(tmp_path)
+    store = AcceptedGuidanceStore(settings.data_dir / "evolution")
+    store.accept_candidate(
+        LessonCandidate(
+            kind="tool_schema_hint",
+            target_kind="tool_schema_hint",
+            summary="Use repo_status for natural-language Git status questions.",
+            evidence={
+                "case_id": "git-status-natural-language",
+                "source_report": "analysis/report.json",
+            },
+            source_trace_path="traces/run.jsonl",
+            confidence=0.8,
+        )
+    )
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings,
+        verification_commands=[],
+    )
+
+    observation = registry.get("tool_search").execute(
+        {"query": "查看 git 状态", "max_results": 5},
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    names = [match["name"] for match in observation.payload["matches"]]
+    assert "repo_status" in names
+    assert observation.payload["matches"][0]["source"] == "tool_schema_hint"
