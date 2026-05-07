@@ -1,4 +1,5 @@
 import subprocess
+from typing import Any
 from uuid import uuid4
 
 from app.agent.loop import (
@@ -27,6 +28,7 @@ from app.runtime.tool_repetition import RepetitionTracker
 from app.runtime.turn import RuntimeTaskState
 from app.schemas.agent_action import Observation, ToolCallAction, build_invalid_action_observation
 from app.schemas.trace import TraceEvent
+from app.tools.registry import default_tool_registry
 from app.tools.structured import ToolInvocation
 from app.tracing.recorder import TraceRecorder
 from app.workspace.worktree import prepare_worktree
@@ -227,6 +229,16 @@ def run_agent_loop_turn(loop_input: AgentLoopInput, settings: Settings) -> Agent
                         else:
                             handled = _handled_tool_rejection(index, invocation, rejection)
                         record_handled_action(handled, tool_invocation=invocation)
+                        trace_path = _record_provider_tool_roundtrip(
+                            recorder=recorder,
+                            run_id=run_id,
+                            provider_turn=provider_turn,
+                            step_index=index,
+                            invocation=invocation,
+                            observation=handled.step.observation,
+                            permission_mode=loop_input.permission_mode,
+                            allowed_tools=loop_input.allowed_tools,
+                        )
                         repetition_tracker.record(
                             invocation,
                             workspace_path,
@@ -416,6 +428,94 @@ def _compact_context_summary(context_bundle: ContextBundle) -> dict[str, object]
             for item in context_bundle.items
         ],
     }
+
+
+def _record_provider_tool_roundtrip(
+    *,
+    recorder: TraceRecorder,
+    run_id: str,
+    provider_turn: int,
+    step_index: int,
+    invocation: ToolInvocation,
+    observation: Observation,
+    permission_mode: str,
+    allowed_tools: set[str] | None,
+) -> str:
+    trace_path = recorder.record(
+        TraceEvent(
+            run_id=run_id,
+            event_type="agent.provider.tool_roundtrip",
+            message="Completed provider tool roundtrip",
+            payload={
+                "provider_turn": provider_turn,
+                "step_index": step_index,
+                "tool_schema_names": _provider_visible_tool_schema_names(
+                    permission_mode=permission_mode,
+                    allowed_tools=allowed_tools,
+                ),
+                "tool_call_id": invocation.id,
+                "tool_call_name": invocation.name,
+                "tool_call_source": invocation.source,
+                "tool_call_args_excerpt": _bounded_json_value(invocation.args),
+                "permission_status": _permission_status_from_observation(observation),
+                "observation_status": observation.status,
+                "observation_summary": _bounded_text(observation.summary),
+                "observation_error_excerpt": _bounded_text(observation.error_message),
+            },
+        )
+    )
+    return str(trace_path)
+
+
+def _provider_visible_tool_schema_names(
+    *,
+    permission_mode: str,
+    allowed_tools: set[str] | None,
+) -> list[str]:
+    try:
+        return default_tool_registry().tool_pool(
+            permission_mode=permission_mode,
+            allowed_tools=allowed_tools,
+        ).names()
+    except Exception:
+        return []
+
+
+def _permission_status_from_observation(observation: Observation) -> str:
+    payload = observation.payload
+    if isinstance(payload, dict):
+        decision = payload.get("permission_decision")
+        if isinstance(decision, dict):
+            status = decision.get("status")
+            if isinstance(status, str):
+                return status
+    if observation.status == "rejected":
+        return "rejected"
+    return "allow"
+
+
+def _bounded_json_value(value: Any, *, max_string_chars: int = 160) -> Any:
+    if isinstance(value, str):
+        return _bounded_text(value, max_chars=max_string_chars)
+    if isinstance(value, dict):
+        return {
+            str(key): _bounded_json_value(item, max_string_chars=max_string_chars)
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [
+            _bounded_json_value(item, max_string_chars=max_string_chars)
+            for item in value[:20]
+        ]
+    return value
+
+
+def _bounded_text(value: str | None, *, max_chars: int = 160) -> str | None:
+    if value is None:
+        return None
+    if len(value) <= max_chars:
+        return value
+    return f"{value[:max_chars]}..."
 
 
 def _build_task_state(
