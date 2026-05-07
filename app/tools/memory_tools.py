@@ -268,7 +268,23 @@ def review_queue_accept(
 ) -> Observation:
     runtime = _memory_runtime(context)
     try:
-        record = runtime.accept_candidate(args.candidate_id)
+        candidate = _candidate_for_id(runtime, args.candidate_id)
+        if candidate.target_kind == "memory":
+            record = runtime.accept_candidate(args.candidate_id)
+            accepted_candidate = _candidate_for_id(runtime, args.candidate_id)
+            memory_record = {
+                "id": record.id,
+                "kind": record.kind,
+                "title": record.title,
+                "source": record.source,
+                "tags": record.tags,
+            }
+        else:
+            accepted_candidate = runtime.review_queue.update_status(
+                args.candidate_id,
+                "accepted",
+            )
+            memory_record = None
     except (KeyError, ValueError) as exc:
         return tool_observation(
             tool_name="review_queue_accept",
@@ -283,13 +299,8 @@ def review_queue_accept(
         summary=f"Accepted review candidate {args.candidate_id}",
         payload={
             "candidate_id": args.candidate_id,
-            "memory_record": {
-                "id": record.id,
-                "kind": record.kind,
-                "title": record.title,
-                "source": record.source,
-                "tags": record.tags,
-            },
+            "candidate": _compact_candidate(accepted_candidate),
+            "memory_record": memory_record,
         },
     )
 
@@ -342,6 +353,7 @@ def _compact_candidate(candidate) -> dict[str, object]:
     return {
         "id": candidate.id,
         "kind": candidate.kind,
+        "target_kind": candidate.target_kind,
         "summary": candidate.summary,
         "suggested_memory_kind": candidate.suggested_memory_kind,
         "suggested_skill": candidate.suggested_skill,

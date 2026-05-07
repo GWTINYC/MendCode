@@ -36,7 +36,7 @@ User Message
 - 工具与权限主链路：已基本成型，继续补安全细节和 legacy 收敛。
 - TUI 自然语言主线：已可用，继续补真实体验、折叠展示和 provider doctor。
 - 记忆与上下文：第一切片已完成，下一步是 tokenizer-aware compact、repo map 和长会话健康度。
-- 自进化机制：已有候选、规则审查和 analysis report ingestion 基础，距离“接受候选 -> 回归验证收益”的完整闭环仍有明显差距。
+- 自进化机制：已有候选、规则审查和 analysis report ingestion 基础；analysis report 已能生成 memory / rule / prompt_rule / tool_schema_hint / skill 候选，距离“接受候选 -> 回归验证收益”的完整闭环仍有明显差距。
 - Benchmark：固定 manifest、PTY live 和 gate 已建立，下一步是把失败报告接入 EvolutionRuntime。
 
 ## 3. 模块现状
@@ -214,13 +214,13 @@ User Message
 
 - 还没有 SKILL.md-compatible skill system。
 - Analysis ingestion 仍是第一版，只覆盖 benchmark failure analysis 的核心 root causes。
-- 候选不会自动生成 prompt rule / tool schema / skill patch 建议。
+- 候选已能生成 prompt_rule、tool_schema_hint 和 skill 第一版审查项，但它们接受后还没有专用 runtime store 或 benchmark proof。
 - 尚未形成“接受候选后再次跑 benchmark 证明收益”的闭环。
 
 近期任务：
 
 - 完善 `data/analysis-reports/*.json -> candidate -> TUI review -> accepted runtime context` 的真实 TUI 场景覆盖。
-- 增加 candidate 类型：prompt_rule、skill、tool_schema_hint，并让 skill candidate 可审查。
+- 扩展 prompt_rule、skill、tool_schema_hint 候选的接受后生效路径，避免只停留在 review queue 状态。
 - SKILL 第一批只做 Debug、Test-Fix、Review、Repo-Map，不追求复杂插件化。
 - 每个 accepted candidate 都记录来源 trace、analysis report、用户操作和回滚标识。
 
@@ -255,8 +255,8 @@ User Message
 
 1. Analysis Report -> Evolution Candidate
    - 已完成第一版：读取 `data/analysis-reports/*.json`。
-   - 已完成第一版：将 root causes 映射成 memory / rule 候选。
-   - 下一步：继续扩展 prompt rule / skill / tool schema hint 候选。
+   - 已完成第一版：将 root causes 映射成 memory / rule / prompt_rule / tool_schema_hint / skill 候选。
+   - 下一步：为 prompt_rule / skill / tool_schema_hint 增加专用 store、runtime recall 和 benchmark proof。
    - 候选必须带来源 trace、benchmark case、失败证据和建议改动。
 
 2. TUI-first Review Loop
