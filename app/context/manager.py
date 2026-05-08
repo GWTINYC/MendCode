@@ -507,7 +507,61 @@ class ContextManager:
                 break
             bounded.append(item)
             total_chars += item_chars
-        return list(reversed(bounded))
+        return self._fit_observation_items_to_token_budget(list(reversed(bounded)))
+
+    def _fit_observation_items_to_token_budget(
+        self,
+        items: list[ContextItem],
+    ) -> list[ContextItem]:
+        max_tokens = self.budget.max_observations_tokens
+        if max_tokens <= 0:
+            return []
+        fitted = list(items)
+        while fitted and self._section_token_count(
+            [item.model_dump(mode="json", exclude_none=True) for item in fitted]
+        ) > max_tokens:
+            if len(fitted) > 1:
+                fitted = fitted[1:]
+                continue
+            for max_chars in self._observation_content_trim_sizes(fitted[0]):
+                fitted[0] = self._trim_observation_item_content(
+                    fitted[0],
+                    max_chars=max_chars,
+                )
+                if self._section_token_count(
+                    [fitted[0].model_dump(mode="json", exclude_none=True)]
+                ) <= max_tokens:
+                    return fitted
+            if fitted[0].content is None:
+                return []
+            fitted[0] = fitted[0].model_copy(update={"content": None})
+        return fitted
+
+    def _observation_content_trim_sizes(self, item: ContextItem) -> list[int]:
+        content = item.content or ""
+        if not content:
+            return [0]
+        first = min(len(content), max(40, self.budget.max_item_excerpt_chars // 4))
+        return [size for size in (first, 160, 120, 80, 40, 20) if size <= len(content)]
+
+    def _trim_observation_item_content(
+        self,
+        item: ContextItem,
+        *,
+        max_chars: int,
+    ) -> ContextItem:
+        metadata = dict(item.metadata)
+        metadata["truncated"] = True
+        metadata["hard_truncated"] = True
+        content = item.content or ""
+        if not content or max_chars <= 0:
+            return item.model_copy(update={"metadata": metadata, "content": None})
+        return item.model_copy(
+            update={
+                "metadata": metadata,
+                "content": compact_text(content, max_chars=max_chars),
+            }
+        )
 
     def _file_summary_items(self) -> list[ContextItem]:
         if self._repo_path is None or self.budget.max_file_summary_chars <= 0:
