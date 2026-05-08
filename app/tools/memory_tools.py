@@ -3,6 +3,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from app.evolution.accepted import AcceptedGuidanceStore
+from app.evolution.models import LessonCandidate
 from app.evolution.rules import EvolutionRuleRuntime, EvolutionRuleStore
 from app.memory.file_summary import build_file_summary, summary_record_for_file
 from app.memory.models import MemoryKind, MemoryLayer, MemoryRecord
@@ -109,12 +110,41 @@ def memory_write(args: MemoryWriteArgs, context: ToolExecutionContext) -> Observ
             payload=args.model_dump(mode="json"),
             error_message=str(exc),
         )
-    written = store.append(record)
+    duplicate_candidate = _duplicate_pending_memory_candidate(store, record)
+    if duplicate_candidate is not None:
+        return tool_observation(
+            tool_name="memory_write",
+            status="rejected",
+            summary="Duplicate memory candidate",
+            payload={
+                "candidate_id": duplicate_candidate.id,
+                "kind": record.kind,
+                "title": record.title,
+            },
+            error_message="duplicate memory candidate already exists",
+        )
+    candidate = LessonCandidate(
+        kind="context_lesson",
+        summary=f"Review memory write: {record.title}",
+        evidence={
+            "tool": "memory_write",
+            "memory_record": record.model_dump(mode="json"),
+        },
+        suggested_memory_kind=record.kind,
+        confidence=0.6,
+    )
+    queued = MemoryRuntime(store).enqueue_candidate(candidate)
     return tool_observation(
         tool_name="memory_write",
         status="succeeded",
-        summary="Wrote memory record",
-        payload={"id": written.id, "kind": written.kind, "title": written.title},
+        summary="Queued memory record for review",
+        payload={
+            "candidate_id": queued.candidate_id,
+            "candidate_status": queued.status,
+            "kind": record.kind,
+            "layer": record.layer,
+            "title": record.title,
+        },
     )
 
 
@@ -433,4 +463,28 @@ def _duplicate_memory_record(
         if " ".join(record.content.casefold().split()) != normalized_content:
             continue
         return record
+    return None
+
+
+def _duplicate_pending_memory_candidate(
+    store: MemoryStore,
+    record: MemoryRecord,
+) -> LessonCandidate | None:
+    normalized_title = " ".join(record.title.casefold().split())
+    normalized_content = " ".join(record.content.casefold().split())
+    for candidate in MemoryRuntime(store).list_candidates():
+        if candidate.status != "pending":
+            continue
+        payload = candidate.evidence.get("memory_record")
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("kind") != record.kind:
+            continue
+        title = str(payload.get("title") or "")
+        content = str(payload.get("content") or "")
+        if " ".join(title.casefold().split()) != normalized_title:
+            continue
+        if " ".join(content.casefold().split()) != normalized_content:
+            continue
+        return candidate
     return None
