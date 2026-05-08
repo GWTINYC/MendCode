@@ -39,6 +39,8 @@ ToolName = Literal[
     "memory_write",
     "file_summary_read",
     "file_summary_refresh",
+    "repo_map_read",
+    "repo_map_refresh",
     "trace_analyze",
     "analysis_report_list",
     "analysis_report_ingest",
