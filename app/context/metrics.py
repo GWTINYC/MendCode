@@ -69,7 +69,20 @@ def merge_context_metrics(*metrics: ContextMetrics) -> ContextMetrics:
             observation_tokens_saved=(
                 merged.observation_tokens_saved + metric.observation_tokens_saved
             ),
+            section_chars=_merge_int_maps(merged.section_chars, metric.section_chars),
+            section_tokens=_merge_int_maps(merged.section_tokens, metric.section_tokens),
+            section_token_budgets={
+                **merged.section_token_budgets,
+                **metric.section_token_budgets,
+            },
         )
+    return merged
+
+
+def _merge_int_maps(first: dict[str, int], second: dict[str, int]) -> dict[str, int]:
+    merged = dict(first)
+    for key, value in second.items():
+        merged[key] = merged.get(key, 0) + value
     return merged
 
 

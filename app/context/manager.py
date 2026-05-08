@@ -134,6 +134,12 @@ class ContextManager:
             file_summary_items=file_summary_items,
             repo_context_item=repo_context_item,
         )
+        metrics = self._with_section_metrics(
+            metrics,
+            observation_items=observation_items,
+            file_summary_items=file_summary_items,
+            repo_context_item=repo_context_item,
+        )
         provider_context = self._provider_context_json(metrics)
         metrics.context_chars = len(provider_context)
         metrics.estimated_context_tokens = estimate_token_count(provider_context)
@@ -174,6 +180,35 @@ class ContextManager:
         )
         return self._latest_bundle
 
+    def _with_section_metrics(
+        self,
+        metrics: ContextMetrics,
+        *,
+        observation_items: list[ContextItem],
+        file_summary_items: list[ContextItem],
+        repo_context_item: ContextItem | None,
+    ) -> ContextMetrics:
+        section_payloads = self._provider_section_payloads(
+            observation_items=observation_items,
+            file_summary_items=file_summary_items,
+            repo_context_item=repo_context_item,
+        )
+        section_chars = {
+            section: self._section_char_count(value)
+            for section, value in section_payloads.items()
+        }
+        section_tokens = {
+            section: self._section_token_count(value)
+            for section, value in section_payloads.items()
+        }
+        return metrics.model_copy(
+            update={
+                "section_chars": section_chars,
+                "section_tokens": section_tokens,
+                "section_token_budgets": self.budget.section_token_budgets(),
+            }
+        )
+
     @property
     def latest_bundle(self) -> ContextBundle | None:
         return self._latest_bundle
@@ -188,28 +223,20 @@ class ContextManager:
     ) -> str:
         observation_items = observation_items if observation_items is not None else []
         file_summary_items = file_summary_items if file_summary_items is not None else []
+        sections = self._provider_section_payloads(
+            observation_items=observation_items,
+            file_summary_items=file_summary_items,
+            repo_context_item=repo_context_item,
+        )
         payload: dict[str, Any] = {
-            "plan_act_observe_contract": PLAN_ACT_OBSERVE_CONTRACT,
-            "base_context": self._parsed_base_context(),
-            "memory_recall": [
-                compact_memory_hit(hit, max_chars=self.budget.max_memory_chars)
-                for hit in self._memory_recall
-            ],
-            "evolution_rules": list(self._evolution_rules),
-            "evolution_guidance": list(self._evolution_guidance),
-            "observations": [
-                item.model_dump(mode="json", exclude_none=True)
-                for item in observation_items
-            ],
-            "file_summaries": [
-                item.model_dump(mode="json", exclude_none=True)
-                for item in file_summary_items
-            ],
-            "repo_context": (
-                repo_context_item.model_dump(mode="json", exclude_none=True)
-                if repo_context_item is not None
-                else None
-            ),
+            "plan_act_observe_contract": sections["task_state"],
+            "base_context": sections["base"],
+            "memory_recall": sections["memory"],
+            "evolution_rules": sections["guidance"]["evolution_rules"],
+            "evolution_guidance": sections["guidance"]["evolution_guidance"],
+            "observations": sections["observations"],
+            "file_summaries": sections["file_summaries"],
+            "repo_context": sections["repo_context"],
             "context_metrics": metrics.model_dump(mode="json"),
         }
         if self._warnings:
@@ -218,6 +245,69 @@ class ContextManager:
                 for warning in self._warnings
             ]
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    def _provider_section_payloads(
+        self,
+        *,
+        observation_items: list[ContextItem],
+        file_summary_items: list[ContextItem],
+        repo_context_item: ContextItem | None,
+    ) -> dict[str, Any]:
+        return {
+            "base": self._parsed_base_context(),
+            "task_state": PLAN_ACT_OBSERVE_CONTRACT,
+            "repo_context": (
+                repo_context_item.model_dump(mode="json", exclude_none=True)
+                if repo_context_item is not None
+                else None
+            ),
+            "memory": [
+                compact_memory_hit(hit, max_chars=self.budget.max_memory_chars)
+                for hit in self._memory_recall
+            ],
+            "guidance": {
+                "evolution_rules": list(self._evolution_rules),
+                "evolution_guidance": list(self._evolution_guidance),
+            },
+            "observations": [
+                item.model_dump(mode="json", exclude_none=True)
+                for item in observation_items
+            ],
+            "file_summaries": [
+                item.model_dump(mode="json", exclude_none=True)
+                for item in file_summary_items
+            ],
+        }
+
+    def _section_char_count(self, value: Any) -> int:
+        if self._is_empty_section_value(value):
+            return 0
+        return len(
+            json.dumps(
+                value,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+                default=str,
+            )
+        )
+
+    def _section_token_count(self, value: Any) -> int:
+        if self._is_empty_section_value(value):
+            return 0
+        return estimate_token_count(value)
+
+    def _is_empty_section_value(self, value: Any) -> bool:
+        if value is None:
+            return True
+        if value in ({}, [], ""):
+            return True
+        if isinstance(value, dict) and set(value) == {
+            "evolution_rules",
+            "evolution_guidance",
+        }:
+            return not value["evolution_rules"] and not value["evolution_guidance"]
+        return False
 
     def _parsed_base_context(self) -> Any:
         if self.base_context is None:
