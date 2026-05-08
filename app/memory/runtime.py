@@ -118,6 +118,20 @@ class MemoryRuntime:
 
 
 def _memory_record_from_candidate(candidate: LessonCandidate) -> MemoryRecord:
+    payload = candidate.evidence.get("memory_record")
+    if isinstance(payload, dict):
+        record_payload = dict(payload)
+        metadata = dict(record_payload.get("metadata") or {})
+        metadata.update(
+            {
+                "candidate_id": candidate.id,
+                "candidate_kind": candidate.kind,
+                "source_trace_path": candidate.source_trace_path,
+                "confidence": candidate.confidence,
+            }
+        )
+        record_payload["metadata"] = metadata
+        return MemoryRecord.model_validate(record_payload)
     return MemoryRecord(
         kind=candidate.suggested_memory_kind,
         title=_candidate_title(candidate),

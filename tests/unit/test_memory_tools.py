@@ -33,7 +33,9 @@ def context_for(tmp_path: Path) -> ToolExecutionContext:
     )
 
 
-def test_memory_write_and_search_roundtrip(tmp_path: Path) -> None:
+def test_memory_write_enqueues_review_candidate_without_long_term_write(
+    tmp_path: Path,
+) -> None:
     registry = default_tool_registry()
     context = context_for(tmp_path)
 
@@ -46,15 +48,73 @@ def test_memory_write_and_search_roundtrip(tmp_path: Path) -> None:
         },
         context,
     )
+
+    assert write_result.status == "succeeded"
+    assert write_result.summary == "Queued memory record for review"
+    assert "candidate_id" in write_result.payload
+    assert write_result.payload["candidate_status"] == "pending"
+    assert context.memory_store is not None
+    assert context.memory_store.list_records() == []
+    candidates = MemoryRuntime(context.memory_store).list_candidates()
+    assert candidates[0].suggested_memory_kind == "project_fact"
+    assert candidates[0].evidence["memory_record"]["title"] == "pytest command"
+
+
+def test_memory_write_candidate_accept_promotes_long_term_memory(
+    tmp_path: Path,
+) -> None:
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+
+    write_result = registry.get("memory_write").execute(
+        {
+            "kind": "project_fact",
+            "title": "pytest command",
+            "content": "Use python -m pytest -q for full verification.",
+            "tags": ["verification"],
+        },
+        context,
+    )
+    accepted = registry.get("review_queue_accept").execute(
+        {"candidate_id": str(write_result.payload["candidate_id"])},
+        context,
+    )
     search_result = registry.get("memory_search").execute(
         {"query": "pytest", "kinds": ["project_fact"], "limit": 5},
         context,
     )
 
-    assert write_result.status == "succeeded"
+    assert accepted.status == "succeeded"
+    assert accepted.payload["memory_record"]["kind"] == "project_fact"
     assert search_result.payload["total_matches"] == 1
     assert search_result.payload["matches"][0]["title"] == "pytest command"
     assert search_result.payload["matches"][0]["layer"] == "long"
+
+
+def test_memory_write_candidate_accept_is_idempotent(
+    tmp_path: Path,
+) -> None:
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+
+    write_result = registry.get("memory_write").execute(
+        {
+            "kind": "project_fact",
+            "title": "pytest command",
+            "content": "Use python -m pytest -q for full verification.",
+            "tags": ["verification"],
+        },
+        context,
+    )
+    candidate_id = str(write_result.payload["candidate_id"])
+
+    first = registry.get("review_queue_accept").execute({"candidate_id": candidate_id}, context)
+    second = registry.get("review_queue_accept").execute({"candidate_id": candidate_id}, context)
+
+    assert first.status == "succeeded"
+    assert second.status == "succeeded"
+    assert context.memory_store is not None
+    assert len(context.memory_store.list_records()) == 1
 
 
 def test_memory_search_filters_by_layer(tmp_path: Path) -> None:
@@ -106,7 +166,8 @@ def test_memory_write_rejects_duplicate_record(tmp_path: Path) -> None:
     assert second.status == "rejected"
     assert "duplicate" in (second.error_message or "")
     assert context.memory_store is not None
-    assert len(context.memory_store.list_records()) == 1
+    assert len(context.memory_store.list_records()) == 0
+    assert len(MemoryRuntime(context.memory_store).list_candidates()) == 1
 
 
 def test_file_summary_refresh_and_read(tmp_path: Path) -> None:
