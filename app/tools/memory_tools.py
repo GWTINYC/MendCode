@@ -5,7 +5,7 @@ from pydantic import ValidationError
 from app.evolution.accepted import AcceptedGuidanceStore
 from app.evolution.rules import EvolutionRuleRuntime, EvolutionRuleStore
 from app.memory.file_summary import build_file_summary, summary_record_for_file
-from app.memory.models import MemoryKind, MemoryRecord
+from app.memory.models import MemoryKind, MemoryLayer, MemoryRecord
 from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
 from app.runtime.trace_analyzer import analyze_trace
@@ -46,9 +46,13 @@ def memory_search(args: MemorySearchArgs, context: ToolExecutionContext) -> Obse
         )
     store = _memory_store(context)
     kinds: set[MemoryKind] | None = set(args.kinds) if args.kinds else None  # type: ignore[assignment]
+    layers: set[MemoryLayer] | None = (
+        set(args.layers) if args.layers else None  # type: ignore[assignment]
+    )
     results = store.search(
         query=args.query,
         kinds=kinds,
+        layers=layers,
         tags=set(args.tags) if args.tags else None,
         limit=args.limit,
     )
@@ -56,6 +60,7 @@ def memory_search(args: MemorySearchArgs, context: ToolExecutionContext) -> Obse
         {
             "id": result.record.id,
             "kind": result.record.kind,
+            "layer": result.record.layer,
             "title": result.record.title,
             "content_excerpt": result.record.content[:1200],
             "tags": result.record.tags,

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MemoryKind = Literal[
     "project_fact",
@@ -11,6 +11,15 @@ MemoryKind = Literal[
     "failure_lesson",
     "trace_insight",
 ]
+MemoryLayer = Literal["short", "medium", "long"]
+
+
+def infer_memory_layer(kind: MemoryKind) -> MemoryLayer:
+    if kind == "task_state":
+        return "short"
+    if kind == "file_summary":
+        return "medium"
+    return "long"
 
 
 class MemoryRecord(BaseModel):
@@ -22,9 +31,16 @@ class MemoryRecord(BaseModel):
     content: str = Field(min_length=1, max_length=12000)
     source: str = Field(min_length=1, max_length=240)
     tags: list[str] = Field(default_factory=list)
+    layer: MemoryLayer | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
     updated_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
     metadata: dict[str, object] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def default_layer(self) -> "MemoryRecord":
+        if self.layer is None:
+            self.layer = infer_memory_layer(self.kind)
+        return self
 
     @field_validator("tags")
     @classmethod

@@ -1,13 +1,22 @@
-from app.memory.models import FileSummary, MemoryKind, MemoryRecord, MemorySearchResult
+from app.memory.models import (
+    FileSummary,
+    MemoryKind,
+    MemoryLayer,
+    MemoryRecord,
+    MemorySearchResult,
+    infer_memory_layer,
+)
 from app.memory.store import MemoryStore
 
 __all__ = [
     "FileSummary",
     "MemoryKind",
+    "MemoryLayer",
     "MemoryRecord",
     "MemoryRuntime",
     "MemorySearchResult",
     "MemoryStore",
+    "infer_memory_layer",
 ]
 
 

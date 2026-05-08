@@ -4,7 +4,7 @@ from typing import Iterable
 
 from pydantic import ValidationError
 
-from app.memory.models import MemoryKind, MemoryRecord, MemorySearchResult
+from app.memory.models import MemoryKind, MemoryLayer, MemoryRecord, MemorySearchResult
 
 
 class MemoryStore:
@@ -37,6 +37,7 @@ class MemoryStore:
         *,
         query: str,
         kinds: set[MemoryKind] | None = None,
+        layers: set[MemoryLayer] | None = None,
         tags: set[str] | None = None,
         limit: int = 10,
     ) -> list[MemorySearchResult]:
@@ -45,6 +46,8 @@ class MemoryStore:
         results: list[MemorySearchResult] = []
         for record in self.list_records():
             if kinds is not None and record.kind not in kinds:
+                continue
+            if layers is not None and record.layer not in layers:
                 continue
             if normalized_tags and not normalized_tags.intersection(record.tags):
                 continue
