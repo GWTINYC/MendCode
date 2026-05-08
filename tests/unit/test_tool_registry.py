@@ -18,6 +18,8 @@ from app.tools.arguments import (
     ProcessStartArgs,
     ProcessStopArgs,
     ProcessWriteArgs,
+    RepoMapReadArgs,
+    RepoMapRefreshArgs,
 )
 from app.tools.registry import default_tool_registry, tool_result_to_observation
 from app.tools.schemas import ToolResult
@@ -216,6 +218,7 @@ def test_default_registry_contains_read_only_tools() -> None:
         "list_dir",
         "read_file",
         "repo_status",
+        "repo_map_read",
         "rg",
         "search_code",
         "show_diff",
@@ -236,6 +239,15 @@ def test_registry_contains_memory_tools() -> None:
         "file_summary_refresh",
         "trace_analyze",
     } <= names
+
+
+def test_default_registry_contains_repo_map_tools() -> None:
+    registry = default_tool_registry()
+
+    assert registry.get("repo_map_read").args_model is RepoMapReadArgs
+    assert registry.get("repo_map_read").risk_level == ToolRisk.READ_ONLY
+    assert registry.get("repo_map_refresh").args_model is RepoMapRefreshArgs
+    assert registry.get("repo_map_refresh").risk_level == ToolRisk.WRITE_WORKTREE
 
 
 def test_tool_result_to_observation_maps_passed_result(tmp_path: Path) -> None:
@@ -307,6 +319,8 @@ def test_registry_builds_permission_scoped_tool_pool() -> None:
     assert "read_file" in pool.names()
     assert "stat" in pool.names()
     assert "tree" in pool.names()
+    assert "repo_map_read" in pool.names()
+    assert "repo_map_refresh" not in pool.names()
     assert "list_dir" in pool.names()
     assert "tool_search" in pool.names()
     assert "write_file" not in pool.names()
@@ -378,6 +392,7 @@ def test_registry_expands_tool_groups() -> None:
         "glob_file_search",
         "rg",
         "search_code",
+        "repo_map_read",
     } <= names
     assert {"tool_search", "session_status"} <= names
     assert "write_file" not in names
@@ -544,6 +559,67 @@ def test_registry_executes_search_code_alias(tmp_path: Path) -> None:
     assert observation.payload["matches"] == [
         {"relative_path": "src.py", "line_number": 1, "line_text": "alpha"}
     ]
+
+
+def test_registry_executes_repo_map_refresh_tool(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    (tmp_path / "app").mkdir()
+    (tmp_path / "app" / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    (tmp_path / "tests").mkdir()
+    (tmp_path / "tests" / "test_main.py").write_text("def test_main(): pass\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("repo_map_refresh").execute(
+        {"max_depth": 3, "max_entries": 50},
+        context,
+    )
+
+    assert observation.status == "succeeded"
+    assert observation.summary == "Refreshed repository map"
+    assert observation.payload["entry_count"] >= 4
+    assert observation.payload["test_commands"] == ["python -m pytest -q"]
+    assert observation.payload["entry_points"] == ["app/main.py"]
+    assert observation.payload["store_path"].endswith("data/repo-map/latest.json")
+    assert (tmp_path / "data" / "repo-map" / "latest.json").exists()
+
+
+def test_registry_executes_repo_map_read_tool(tmp_path: Path) -> None:
+    (tmp_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+    registry.get("repo_map_refresh").execute({"max_depth": 2, "max_entries": 20}, context)
+
+    observation = registry.get("repo_map_read").execute({}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.summary == "Read repository map"
+    assert observation.payload["entry_count"] >= 1
+    assert observation.payload["entries"][0]["path"] == "README.md"
+    assert observation.payload["metadata"]["returned_entries"] >= 1
+
+
+def test_repo_map_read_reports_missing_map(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+    )
+
+    observation = registry.get("repo_map_read").execute({}, context)
+
+    assert observation.status == "failed"
+    assert observation.summary == "Repository map is not available"
+    assert "repo_map_refresh" in str(observation.error_message)
 
 
 def test_registry_rejects_bad_read_file_args(tmp_path: Path) -> None:

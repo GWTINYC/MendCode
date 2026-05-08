@@ -35,6 +35,8 @@ _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
         "memory_write",
         "file_summary_read",
         "file_summary_refresh",
+        "repo_map_read",
+        "repo_map_refresh",
         "trace_analyze",
         "analysis_report_list",
         "analysis_report_ingest",
@@ -51,7 +53,9 @@ _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
         "glob_file_search",
         "rg",
         "search_code",
+        "repo_map_read",
     ),
+    "repo_context": ("repo_map_read", "repo_map_refresh"),
     "fs_write": ("apply_patch", "write_file", "edit_file"),
     "git_read": ("repo_status", "git", "show_diff"),
     "runtime": ("run_shell_command", "run_command"),
@@ -89,6 +93,7 @@ _TOOL_ALIASES: dict[str, tuple[str, ...]] = {
         "introspection",
         "lsp_tools",
         "memory",
+        "repo_context",
     ),
     "full_coding_agent": ("coding_agent", "process"),
     "repair_agent": ("coding_agent",),
@@ -220,6 +225,7 @@ _SIMPLE_MODE_TOOLS = frozenset(
         "git",
         "tool_search",
         "session_status",
+        "repo_map_read",
     }
 )
 _DEFAULT_EXCLUDED_TOOLS = frozenset(

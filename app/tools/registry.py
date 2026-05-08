@@ -29,6 +29,8 @@ from app.tools.arguments import (
     ProcessStopArgs,
     ProcessWriteArgs,
     ReadFileArgs,
+    RepoMapReadArgs,
+    RepoMapRefreshArgs,
     ReviewQueueActionArgs,
     ReviewQueueListArgs,
     ReviewQueueViewArgs,
@@ -80,6 +82,7 @@ from app.tools.read_only import (
     stat_path,
     tree,
 )
+from app.tools.repo_map_tools import repo_map_read, repo_map_refresh
 from app.tools.schemas import (
     ToolResult,
     build_patch_preview,
@@ -1036,6 +1039,26 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=FileSummaryRefreshArgs,
                 risk_level=ToolRisk.DANGEROUS,
                 executor=file_summary_refresh,
+            ),
+            ToolSpec(
+                name="repo_map_read",
+                description=(
+                    "Read the latest compact repository map with entry points, "
+                    "core modules, test commands, and bounded directory entries."
+                ),
+                args_model=RepoMapReadArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=repo_map_read,
+            ),
+            ToolSpec(
+                name="repo_map_refresh",
+                description=(
+                    "Refresh and store the compact repository map under local data "
+                    "for later context recall."
+                ),
+                args_model=RepoMapRefreshArgs,
+                risk_level=ToolRisk.WRITE_WORKTREE,
+                executor=repo_map_refresh,
             ),
             ToolSpec(
                 name="trace_analyze",
