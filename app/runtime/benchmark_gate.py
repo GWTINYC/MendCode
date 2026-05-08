@@ -68,6 +68,9 @@ def build_gate_report(
         failed = any(_matches_failed_nodeid(nodeid, failures) for nodeid in case.pytest_nodeids)
         passed = not failed if case.pytest_nodeids else clean_run
         reasons = ["pytest_node_failed"] if failed else []
+        if passed and case.requires_token_evidence:
+            passed = False
+            reasons.append("missing_token_evidence")
         if result.exit_code != 0 and not failed and not case.pytest_nodeids:
             reasons.append("pytest_run_failed_without_case_match")
         cases.append(
@@ -80,6 +83,8 @@ def build_gate_report(
                 missing_tools=list(case.expected_tools) if not passed else [],
                 dangerous_command_blocked=(passed if case.expects_dangerous_block else None),
                 max_visible_chars=case.max_visible_chars,
+                max_context_tokens=case.max_context_tokens,
+                requires_token_evidence=case.requires_token_evidence,
                 route_passed=passed,
                 answer_concise=passed if case.max_visible_chars is not None else None,
                 provider_failed=False,
@@ -101,6 +106,17 @@ def build_case_result_from_live_records(
     provider_failed = "Provider failed" in visible_text
     trace_exposed = "trace_path" in visible_text
     missing_tools = [tool for tool in case.expected_tools if tool not in observed_tools]
+    actual_tokens, observation_tokens_saved = _context_token_evidence(records)
+    token_evidence_passed = (
+        True
+        if not case.requires_token_evidence
+        else actual_tokens is not None or observation_tokens_saved > 0
+    )
+    context_tokens_passed = (
+        True
+        if case.max_context_tokens is None or actual_tokens is None
+        else actual_tokens <= case.max_context_tokens
+    )
     answer_concise = (
         None
         if case.max_visible_chars is None
@@ -124,6 +140,10 @@ def build_case_result_from_live_records(
         failure_reasons.append("trace_path_visible")
     if not dangerous_passed:
         failure_reasons.append("dangerous_command_not_blocked")
+    if not token_evidence_passed:
+        failure_reasons.append("missing_token_evidence")
+    if not context_tokens_passed:
+        failure_reasons.append("context_tokens_exceeded")
     passed = (
         not missing_tools
         and route_passed
@@ -131,6 +151,8 @@ def build_case_result_from_live_records(
         and not provider_failed
         and not trace_exposed
         and dangerous_passed
+        and token_evidence_passed
+        and context_tokens_passed
     )
     return BenchmarkCaseResult(
         name=case.id,
@@ -142,12 +164,38 @@ def build_case_result_from_live_records(
         dangerous_command_blocked=(dangerous_passed if case.expects_dangerous_block else None),
         visible_chars=len(visible_text),
         max_visible_chars=case.max_visible_chars,
+        tokens_actual=actual_tokens,
+        max_context_tokens=case.max_context_tokens,
+        requires_token_evidence=case.requires_token_evidence,
+        observation_tokens_saved=observation_tokens_saved,
         route_passed=route_passed,
         answer_concise=answer_concise,
         provider_failed=provider_failed,
         trace_exposed=trace_exposed,
         failure_reasons=failure_reasons,
     )
+
+
+def _context_token_evidence(records: list[dict[str, Any]]) -> tuple[int | None, int]:
+    actual_tokens = None
+    observation_tokens_saved = 0
+    for record in records:
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        context_summary = payload.get("context_summary")
+        if not isinstance(context_summary, dict):
+            continue
+        metrics = context_summary.get("metrics")
+        if not isinstance(metrics, dict):
+            continue
+        estimated_tokens = metrics.get("estimated_context_tokens")
+        if isinstance(estimated_tokens, int):
+            actual_tokens = estimated_tokens
+        tokens_saved = metrics.get("observation_tokens_saved")
+        if isinstance(tokens_saved, int):
+            observation_tokens_saved = tokens_saved
+    return actual_tokens, observation_tokens_saved
 
 
 def write_failure_analysis_reports(

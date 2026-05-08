@@ -45,6 +45,8 @@
         "tests/e2e/test_tui_pty_live.py::test_live_tui_last_sentence_answer_is_not_full_file"
       ],
       "max_visible_chars": 500,
+      "max_context_tokens": 1200,
+      "requires_token_evidence": true,
       "notes": "Answer must be concise and must not return the full file."
     },
     {
@@ -56,7 +58,9 @@
         "tests/scenarios/test_tui_file_question_scenarios.py::test_large_file_read_keeps_conversation_log_compact",
         "tests/e2e/test_tui_pty_live.py::test_live_tui_reads_named_file_concisely"
       ],
-      "max_visible_chars": 800
+      "max_visible_chars": 800,
+      "max_context_tokens": 1600,
+      "requires_token_evidence": true
     },
     {
       "id": "code-location-search",

@@ -161,6 +161,39 @@ def test_build_benchmark_report_from_clean_audit_marks_manifest_cases_passed(
     assert report.cases[1].dangerous_command_blocked is True
 
 
+def test_build_benchmark_report_from_audit_marks_missing_token_evidence(
+    tmp_path: Path,
+) -> None:
+    result = ScenarioAuditResult(
+        command=["python", "-m", "pytest", "-q", "tests/scenarios"],
+        cwd=tmp_path,
+        exit_code=0,
+        stdout="1 passed\n",
+        stderr="",
+        duration_ms=20,
+    )
+    manifest = BenchmarkManifest.model_validate(
+        {
+            "name": "quick",
+            "cases": [
+                {
+                    "id": "file-read-concise",
+                    "category": "file_question",
+                    "prompt": "读大文件",
+                    "expected_tools": ["read_file"],
+                    "pytest_nodeids": ["tests/scenarios/test_file.py::test_read"],
+                    "requires_token_evidence": True,
+                }
+            ],
+        }
+    )
+
+    report = build_benchmark_report_from_audit(result=result, manifest=manifest)
+
+    assert report.cases[0].passed is False
+    assert "missing_token_evidence" in report.cases[0].failure_reasons
+
+
 def test_build_benchmark_report_from_audit_maps_failed_node_to_case(tmp_path: Path) -> None:
     failed_node = (
         "tests/scenarios/test_tui_repository_inspection_scenarios.py::"
