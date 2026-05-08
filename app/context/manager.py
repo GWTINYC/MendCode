@@ -24,6 +24,8 @@ from app.context.models import (
 from app.context.token_budget import estimate_token_count
 from app.memory.recall import MemoryRecallHit
 from app.memory.runtime import MemoryRuntime
+from app.repo_map.models import RepoMap
+from app.repo_map.store import RepoMapStore
 
 PLAN_ACT_OBSERVE_CONTRACT = {
     "local_facts": "local facts must come from tool observations",
@@ -40,11 +42,13 @@ class ContextManager:
         evolution_rule_runtime: object | None = None,
         base_context: str | dict[str, Any] | list[Any] | None = None,
         budget: ContextBudget | None = None,
+        data_dir: Path | None = None,
     ) -> None:
         self.memory_runtime = memory_runtime
         self.evolution_rule_runtime = evolution_rule_runtime
         self.base_context = base_context
         self.budget = budget or ContextBudget()
+        self.data_dir = data_dir or self._default_data_dir()
         self._observations: list[AgentObservationRecord] = []
         self._memory_recall: list[MemoryRecallHit] = []
         self._evolution_rules: list[dict[str, object]] = []
@@ -52,6 +56,7 @@ class ContextManager:
         self._warnings: list[ContextWarning] = []
         self._latest_bundle: ContextBundle | None = None
         self._repo_path: Path | None = None
+        self._user_message = ""
 
     def begin_turn(self, *, user_message: str, repo_path: Path) -> ContextBundle:
         self._observations = []
@@ -60,6 +65,7 @@ class ContextManager:
         self._evolution_guidance = []
         self._warnings = []
         self._repo_path = repo_path
+        self._user_message = user_message
         try:
             recall = self.memory_runtime.recall_for_turn(
                 user_message=user_message,
@@ -108,17 +114,25 @@ class ContextManager:
     def build_provider_context(self) -> ContextBundle:
         memory_metrics = ContextMetrics(memory_recall_hits=len(self._memory_recall))
         observation_metrics = metrics_for_observations(self._observations)
-        metrics = merge_context_metrics(memory_metrics, observation_metrics)
         observation_items = self._observation_items()
         file_summary_items = self._file_summary_items()
+        repo_context_item = self._repo_context_item()
+        repo_context_metrics = self._repo_context_metrics(repo_context_item)
+        metrics = merge_context_metrics(
+            memory_metrics,
+            observation_metrics,
+            repo_context_metrics,
+        )
         metrics = self._with_compaction_metrics(
             metrics,
             observation_items=observation_items,
             file_summary_items=file_summary_items,
+            repo_context_item=repo_context_item,
         )
         items = self._context_items(
             observation_items=observation_items,
             file_summary_items=file_summary_items,
+            repo_context_item=repo_context_item,
         )
         provider_context = self._provider_context_json(metrics)
         metrics.context_chars = len(provider_context)
@@ -140,6 +154,7 @@ class ContextManager:
                 metrics,
                 observation_items=observation_items,
                 file_summary_items=file_summary_items,
+                repo_context_item=repo_context_item,
             )
             context_chars = len(provider_context)
             context_tokens = estimate_token_count(provider_context)
@@ -169,6 +184,7 @@ class ContextManager:
         *,
         observation_items: list[ContextItem] | None = None,
         file_summary_items: list[ContextItem] | None = None,
+        repo_context_item: ContextItem | None = None,
     ) -> str:
         observation_items = observation_items if observation_items is not None else []
         file_summary_items = file_summary_items if file_summary_items is not None else []
@@ -189,6 +205,11 @@ class ContextManager:
                 item.model_dump(mode="json", exclude_none=True)
                 for item in file_summary_items
             ],
+            "repo_context": (
+                repo_context_item.model_dump(mode="json", exclude_none=True)
+                if repo_context_item is not None
+                else None
+            ),
             "context_metrics": metrics.model_dump(mode="json"),
         }
         if self._warnings:
@@ -213,6 +234,7 @@ class ContextManager:
         *,
         observation_items: list[ContextItem],
         file_summary_items: list[ContextItem],
+        repo_context_item: ContextItem | None,
     ) -> list[ContextItem]:
         items: list[ContextItem] = []
         if self.base_context is not None:
@@ -270,6 +292,8 @@ class ContextManager:
         )
         items.extend(observation_items)
         items.extend(file_summary_items)
+        if repo_context_item is not None:
+            items.append(repo_context_item)
         items.extend(
             ContextItem(
                 kind="context_warning",
@@ -280,6 +304,100 @@ class ContextManager:
             for warning in self._warnings
         )
         return items
+
+    def _repo_context_item(self) -> ContextItem | None:
+        if not self._should_include_repo_context():
+            return None
+        if self.budget.max_repo_context_chars <= 0:
+            return None
+        try:
+            repo_map = RepoMapStore(self.data_dir).load_latest()
+        except (OSError, ValueError) as exc:
+            self._append_warning_once(
+                ContextWarning(
+                    code="repo_map_read_failed",
+                    message=str(exc),
+                    source="repo_map_store",
+                )
+            )
+            return None
+        if repo_map is None:
+            return None
+        content, truncated = self._repo_map_content(repo_map)
+        return ContextItem(
+            kind="repo_context",
+            title="Repository map",
+            content=content,
+            metadata={
+                "root": repo_map.root,
+                "entry_count": len(repo_map.entries),
+                "entry_points": repo_map.entry_points,
+                "test_commands": repo_map.test_commands,
+                "core_modules": repo_map.core_modules,
+                "truncated": truncated,
+            },
+        )
+
+    def _should_include_repo_context(self) -> bool:
+        message = self._user_message.casefold()
+        activation_terms = (
+            "项目结构",
+            "仓库结构",
+            "目录结构",
+            "文件结构",
+            "测试命令",
+            "入口文件",
+            "核心模块",
+            "列出项目",
+            "repo map",
+            "repository map",
+            "project structure",
+            "repo structure",
+            "directory structure",
+            "test command",
+            "entry point",
+            "core module",
+        )
+        return any(term in message for term in activation_terms)
+
+    def _repo_map_content(self, repo_map: RepoMap) -> tuple[str, bool]:
+        max_chars = self.budget.max_repo_context_chars
+        entries = [entry.model_dump(mode="json") for entry in repo_map.entries]
+        truncated = False
+        while True:
+            payload = {
+                "root": repo_map.root,
+                "generated_at": repo_map.model_dump(mode="json")["generated_at"],
+                "entry_points": repo_map.entry_points,
+                "test_commands": repo_map.test_commands,
+                "core_modules": repo_map.core_modules,
+                "entries": entries,
+                "metadata": {
+                    **repo_map.metadata,
+                    "context_entries_returned": len(entries),
+                    "context_truncated": truncated,
+                },
+            }
+            content = json.dumps(
+                payload,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            if len(content) <= max_chars:
+                return content, truncated
+            if not entries:
+                return compact_text(content, max_chars=max_chars), True
+            truncated = True
+            entries = entries[:-1]
+
+    def _repo_context_metrics(self, item: ContextItem | None) -> ContextMetrics:
+        if item is None or item.content is None:
+            return ContextMetrics()
+        return ContextMetrics(
+            repo_context_chars=len(item.content),
+            repo_context_tokens=estimate_token_count(item.content),
+        )
 
     def _observation_items(self) -> list[ContextItem]:
         items = [
@@ -372,6 +490,7 @@ class ContextManager:
         *,
         observation_items: list[ContextItem],
         file_summary_items: list[ContextItem],
+        repo_context_item: ContextItem | None,
     ) -> ContextMetrics:
         raw_observation_chars = sum(
             len(record.observation.model_dump_json()) for record in self._observations
@@ -390,7 +509,11 @@ class ContextManager:
                 "compacted_context_tokens": sum(
                     estimate_token_count(item.model_dump_json()) for item in observation_items
                 ),
-                "compacted_item_count": len(observation_items) + len(file_summary_items),
+                "compacted_item_count": (
+                    len(observation_items)
+                    + len(file_summary_items)
+                    + (1 if repo_context_item is not None else 0)
+                ),
                 "file_summary_hit_count": len(file_summary_items),
                 "observation_chars_saved": max(
                     0,
@@ -419,3 +542,10 @@ class ContextManager:
             ):
                 return
         self._warnings.append(warning)
+
+    def _default_data_dir(self) -> Path:
+        store = getattr(self.memory_runtime, "store", None)
+        root = getattr(store, "root", None)
+        if isinstance(root, Path):
+            return root.parent
+        return Path("data")
