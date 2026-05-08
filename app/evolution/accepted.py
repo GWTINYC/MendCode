@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from datetime import datetime
 from pathlib import Path
 from typing import Literal
@@ -9,6 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from app.evolution.models import LessonCandidate
+from app.evolution.skills import SkillStore, safe_skill_name
 
 AcceptedGuidanceKind = Literal["prompt_rule", "tool_schema_hint", "skill"]
 
@@ -55,7 +55,7 @@ class AcceptedGuidanceStore:
         guidance = _guidance_from_candidate(candidate, skills_root=self.skills_root)
         self._append(guidance)
         if guidance.target_kind == "skill":
-            self._write_skill(guidance)
+            SkillStore(self.skills_root).persist_guidance(guidance)
         return guidance
 
     def list_by_kind(self, kind: AcceptedGuidanceKind | None = None) -> list[AcceptedGuidance]:
@@ -96,15 +96,6 @@ class AcceptedGuidanceStore:
         if kind == "tool_schema_hint":
             return self.root / "tool_schema_hints.jsonl"
         return self.root / "skills.jsonl"
-
-    def _write_skill(self, guidance: AcceptedGuidance) -> None:
-        if not guidance.suggested_skill:
-            return
-        skill_path = Path(guidance.skill_path or "")
-        if not skill_path:
-            return
-        skill_path.parent.mkdir(parents=True, exist_ok=True)
-        skill_path.write_text(_skill_markdown(guidance), encoding="utf-8")
 
 
 class EvolutionGuidanceRuntime:
@@ -153,7 +144,7 @@ def _guidance_from_candidate(
     suggested_skill = candidate.suggested_skill if target_kind == "skill" else None
     skill_path = None
     if suggested_skill:
-        skill_path = str(skills_root / _safe_skill_name(suggested_skill) / "SKILL.md")
+        skill_path = str(skills_root / safe_skill_name(suggested_skill) / "SKILL.md")
     return AcceptedGuidance(
         guidance_id=_guidance_id(candidate.id, target_kind),
         candidate_id=candidate.id,
@@ -189,11 +180,6 @@ def _guidance_id(candidate_id: str, target_kind: str) -> str:
     return f"{target_kind}-{digest}"
 
 
-def _safe_skill_name(name: str) -> str:
-    normalized = re.sub(r"[^a-z0-9_-]+", "-", name.casefold()).strip("-")
-    return normalized or "skill"
-
-
 def _guidance_score(guidance: AcceptedGuidance, user_message: str) -> int:
     text = user_message.casefold()
     score = 0
@@ -220,14 +206,3 @@ def _guidance_score(guidance: AcceptedGuidance, user_message: str) -> int:
 def _tokens(value: str) -> set[str]:
     return {token for token in value.casefold().replace(",", " ").split() if len(token) >= 2}
 
-
-def _skill_markdown(guidance: AcceptedGuidance) -> str:
-    return (
-        f"# {guidance.suggested_skill or guidance.title}\n\n"
-        f"## Source\n\n"
-        f"- candidate_id: `{guidance.candidate_id}`\n"
-        f"- source_report: `{guidance.source_report or ''}`\n"
-        f"- source_trace: `{guidance.source_trace or ''}`\n\n"
-        f"## Guidance\n\n"
-        f"{guidance.content}\n"
-    )
