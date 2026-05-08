@@ -22,6 +22,7 @@ from app.context.models import (
     ContextWarning,
 )
 from app.context.token_budget import estimate_token_count
+from app.evolution.skills import BuiltinSkillSummary, recall_builtin_skills
 from app.memory.recall import MemoryRecallHit
 from app.memory.runtime import MemoryRuntime
 from app.repo_map.models import RepoMap
@@ -53,6 +54,7 @@ class ContextManager:
         self._memory_recall: list[MemoryRecallHit] = []
         self._evolution_rules: list[dict[str, object]] = []
         self._evolution_guidance: list[dict[str, object]] = []
+        self._skill_summaries: list[BuiltinSkillSummary] = []
         self._warnings: list[ContextWarning] = []
         self._latest_bundle: ContextBundle | None = None
         self._repo_path: Path | None = None
@@ -63,6 +65,7 @@ class ContextManager:
         self._memory_recall = []
         self._evolution_rules = []
         self._evolution_guidance = []
+        self._skill_summaries = []
         self._warnings = []
         self._repo_path = repo_path
         self._user_message = user_message
@@ -80,7 +83,7 @@ class ContextManager:
                     message=str(exc),
                     source="memory_runtime",
                 )
-            )
+                )
         if self.evolution_rule_runtime is not None and self.budget.max_evolution_rules > 0:
             try:
                 recall_for_turn = getattr(self.evolution_rule_runtime, "recall_for_turn")
@@ -105,6 +108,10 @@ class ContextManager:
                         source="evolution_rule_runtime",
                     )
                 )
+        self._skill_summaries = recall_builtin_skills(
+            user_message,
+            max_tokens=self.budget.max_guidance_tokens,
+        )
         return self.build_provider_context()
 
     def record_observation(self, observation: AgentObservationRecord) -> ContextBundle:
@@ -234,6 +241,7 @@ class ContextManager:
             "memory_recall": sections["memory"],
             "evolution_rules": sections["guidance"]["evolution_rules"],
             "evolution_guidance": sections["guidance"]["evolution_guidance"],
+            "skill_summaries": sections["guidance"]["skill_summaries"],
             "observations": sections["observations"],
             "file_summaries": sections["file_summaries"],
             "repo_context": sections["repo_context"],
@@ -268,6 +276,10 @@ class ContextManager:
             "guidance": {
                 "evolution_rules": list(self._evolution_rules),
                 "evolution_guidance": list(self._evolution_guidance),
+                "skill_summaries": [
+                    self._compact_builtin_skill_summary(skill)
+                    for skill in self._skill_summaries
+                ],
             },
             "observations": [
                 item.model_dump(mode="json", exclude_none=True)
@@ -297,6 +309,14 @@ class ContextManager:
             return 0
         return estimate_token_count(value)
 
+    def _compact_builtin_skill_summary(self, skill: BuiltinSkillSummary) -> dict[str, str]:
+        return {
+            "name": skill.name,
+            "title": skill.title,
+            "summary": skill.summary,
+            "source": skill.source,
+        }
+
     def _is_empty_section_value(self, value: Any) -> bool:
         if value is None:
             return True
@@ -305,8 +325,13 @@ class ContextManager:
         if isinstance(value, dict) and set(value) == {
             "evolution_rules",
             "evolution_guidance",
+            "skill_summaries",
         }:
-            return not value["evolution_rules"] and not value["evolution_guidance"]
+            return (
+                not value["evolution_rules"]
+                and not value["evolution_guidance"]
+                and not value["skill_summaries"]
+            )
         return False
 
     def _parsed_base_context(self) -> Any:
@@ -379,6 +404,21 @@ class ContextManager:
                 },
             )
             for guidance in self._evolution_guidance
+        )
+        items.extend(
+            ContextItem(
+                kind="evolution_guidance",
+                title=f"Built-in skill: {skill.title}",
+                content=skill.summary,
+                metadata={
+                    "target_kind": "skill",
+                    "suggested_skill": skill.name,
+                    "source": skill.source,
+                    "status": skill.status,
+                    "activation_hint": skill.activation_hint,
+                },
+            )
+            for skill in self._skill_summaries
         )
         items.extend(observation_items)
         items.extend(file_summary_items)
