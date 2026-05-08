@@ -427,6 +427,97 @@ def test_context_manager_provider_context_includes_estimated_token_metrics(
     assert payload["context_metrics"]["observation_tokens_saved"] > 0
 
 
+def test_context_manager_hard_trims_long_read_file_observation_to_section_budget(
+    tmp_path: Path,
+) -> None:
+    manager = ContextManager(
+        memory_runtime=_memory_runtime(tmp_path),
+        budget=ContextBudget(
+            max_observations_tokens=120,
+            max_observation_chars=4000,
+            max_item_excerpt_chars=1000,
+        ),
+    )
+    manager.begin_turn(user_message="read huge file", repo_path=tmp_path)
+    manager.record_observation(
+        AgentObservationRecord(
+            action=ToolCallAction(
+                type="tool_call",
+                action="read_file",
+                reason="inspect",
+                args={"path": "README.md"},
+            ),
+            tool_invocation=ToolInvocation(
+                id="call_read",
+                name="read_file",
+                args={"path": "README.md"},
+                source="openai_tool_call",
+            ),
+            observation=Observation(
+                status="succeeded",
+                summary="Read README.md",
+                payload={
+                    "relative_path": "README.md",
+                    "content": "important line\n" + ("x" * 12000),
+                },
+            ),
+        )
+    )
+
+    bundle = manager.build_provider_context()
+    payload = json.loads(bundle.provider_context)
+    observation = payload["observations"][0]
+
+    assert payload["context_metrics"]["section_tokens"]["observations"] <= 120
+    assert observation["metadata"]["tool_name"] == "read_file"
+    assert observation["metadata"]["status"] == "succeeded"
+    assert observation["metadata"]["relative_path"] == "README.md"
+    assert observation["metadata"]["truncated"] is True
+    assert observation["content"]
+    assert "x" * 1000 not in json.dumps(payload, ensure_ascii=False)
+
+
+def test_context_manager_drops_old_observations_until_observation_budget_fits(
+    tmp_path: Path,
+) -> None:
+    manager = ContextManager(
+        memory_runtime=_memory_runtime(tmp_path),
+        budget=ContextBudget(
+            max_observations_tokens=160,
+            max_observation_chars=5000,
+            max_item_excerpt_chars=600,
+            max_observation_items=4,
+        ),
+    )
+    manager.begin_turn(user_message="read many files", repo_path=tmp_path)
+    for index in range(4):
+        manager.record_observation(
+            AgentObservationRecord(
+                action=ToolCallAction(
+                    type="tool_call",
+                    action="read_file",
+                    reason="inspect",
+                    args={"path": f"file_{index}.md"},
+                ),
+                observation=Observation(
+                    status="succeeded",
+                    summary=f"Read file_{index}.md",
+                    payload={
+                        "relative_path": f"file_{index}.md",
+                        "content": f"file {index}\n" + ("x" * 6000),
+                    },
+                ),
+            )
+        )
+
+    bundle = manager.build_provider_context()
+    payload = json.loads(bundle.provider_context)
+
+    assert payload["context_metrics"]["section_tokens"]["observations"] <= 160
+    assert payload["context_metrics"]["compacted_item_count"] < 4
+    assert payload["observations"][-1]["metadata"]["relative_path"] == "file_3.md"
+
+
 def test_context_manager_records_provider_section_token_usage(tmp_path: Path) -> None:
     store = MemoryStore(tmp_path / "memory")
     store.append(
