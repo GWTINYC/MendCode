@@ -4,6 +4,7 @@ from pathlib import Path
 from app.context.manager import ContextManager
 from app.evolution.accepted import AcceptedGuidanceStore, EvolutionGuidanceRuntime
 from app.evolution.models import EvolutionRuleCandidate, LessonCandidate
+from app.evolution.skills import SkillStore
 from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
 from app.tools.registry import default_tool_registry
@@ -43,6 +44,57 @@ def test_review_queue_accept_persists_prompt_rule_candidate(tmp_path: Path) -> N
     assert prompt_rules[0].source_trace == "traces/run.jsonl"
 
 
+def test_skill_store_writes_skill_md_and_metadata(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path / "data" / "skills")
+    candidate = LessonCandidate(
+        id="candidate-skill-1",
+        kind="skill_lesson",
+        target_kind="skill",
+        summary="Run failing tests before editing and rerun after patch.",
+        evidence={"source_report": "analysis/report.json"},
+        source_trace_path="traces/run.jsonl",
+        suggested_skill="test-fix",
+    )
+
+    record = store.persist_candidate(candidate)
+
+    skill_dir = tmp_path / "data" / "skills" / "test-fix"
+    skill_md = skill_dir / "SKILL.md"
+    metadata = json.loads((skill_dir / "skill.json").read_text(encoding="utf-8"))
+    assert skill_md.exists()
+    assert "Run failing tests before editing" in skill_md.read_text(encoding="utf-8")
+    assert record.candidate_id == "candidate-skill-1"
+    assert record.source_report == "analysis/report.json"
+    assert record.source_trace == "traces/run.jsonl"
+    assert record.status == "active"
+    assert metadata["candidate_id"] == "candidate-skill-1"
+    assert metadata["source_report"] == "analysis/report.json"
+    assert metadata["accepted_at"]
+    assert metadata["status"] == "active"
+
+
+def test_skill_store_repeated_candidate_accept_is_idempotent(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path / "data" / "skills")
+    candidate = LessonCandidate(
+        id="candidate-skill-1",
+        kind="skill_lesson",
+        target_kind="skill",
+        summary="Initial skill content.",
+        suggested_skill="test-fix",
+    )
+
+    first = store.persist_candidate(candidate)
+    skill_md = tmp_path / "data" / "skills" / "test-fix" / "SKILL.md"
+    original_text = skill_md.read_text(encoding="utf-8")
+    second = store.persist_candidate(
+        candidate.model_copy(update={"summary": "Changed skill content."})
+    )
+
+    assert second == first
+    assert skill_md.read_text(encoding="utf-8") == original_text
+    assert len(store.list_records()) == 1
+
+
 def test_review_queue_accept_persists_skill_candidate_as_skill_md(tmp_path: Path) -> None:
     registry = default_tool_registry()
     context = context_for(tmp_path)
@@ -67,6 +119,10 @@ def test_review_queue_accept_persists_skill_candidate_as_skill_md(tmp_path: Path
     skill_path = context.settings.data_dir / "skills" / "test-fix" / "SKILL.md"
     assert skill_path.exists()
     assert "Refine the test-fix workflow." in skill_path.read_text(encoding="utf-8")
+    skill_record = json.loads((skill_path.parent / "skill.json").read_text(encoding="utf-8"))
+    assert skill_record["candidate_id"] == candidate.id
+    assert skill_record["accepted_at"]
+    assert skill_record["status"] == "active"
     assert result.payload["accepted_guidance"]["skill_path"] == str(skill_path)
 
 
