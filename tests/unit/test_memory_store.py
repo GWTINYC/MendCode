@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from app.memory.models import MemoryRecord
+from app.memory.models import MemoryRecord, infer_memory_layer
 from app.memory.store import MemoryStore
 
 
@@ -49,6 +49,82 @@ def test_memory_store_filters_by_kind_and_tag(tmp_path: Path) -> None:
 
     assert [result.record.kind for result in results] == ["failure_lesson"]
     assert results[0].record.title == "provider plain text"
+
+
+def test_memory_record_defaults_layer_from_kind() -> None:
+    assert MemoryRecord(
+        kind="task_state",
+        title="current task",
+        content="Inspect repo map.",
+        source="test",
+    ).layer == "short"
+    assert MemoryRecord(
+        kind="file_summary",
+        title="README summary",
+        content="README.md summary.",
+        source="test",
+    ).layer == "medium"
+    assert MemoryRecord(
+        kind="project_fact",
+        title="pytest command",
+        content="Use python -m pytest -q.",
+        source="test",
+    ).layer == "long"
+    assert infer_memory_layer("failure_lesson") == "long"
+
+
+def test_memory_store_search_filters_by_layer(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory")
+    store.append(
+        MemoryRecord(
+            kind="task_state",
+            title="pytest task",
+            content="Run pytest after editing.",
+            source="test",
+        )
+    )
+    store.append(
+        MemoryRecord(
+            kind="file_summary",
+            title="pytest helper summary",
+            content="helpers.py wraps pytest commands.",
+            source="test",
+        )
+    )
+    store.append(
+        MemoryRecord(
+            kind="project_fact",
+            title="pytest command",
+            content="Use python -m pytest -q.",
+            source="test",
+        )
+    )
+
+    short_results = store.search(query="pytest", layers={"short"})
+    medium_results = store.search(query="pytest", layers={"medium"})
+    long_results = store.search(query="pytest", layers={"long"})
+
+    assert [result.record.kind for result in short_results] == ["task_state"]
+    assert [result.record.kind for result in medium_results] == ["file_summary"]
+    assert [result.record.kind for result in long_results] == ["project_fact"]
+
+
+def test_memory_store_loads_legacy_rows_without_layer(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory")
+    store.root.mkdir(parents=True)
+    store.path.write_text(
+        (
+            '{"id":"legacy-1","kind":"file_summary","title":"README",'
+            '"content":"summary","source":"legacy","tags":[],"metadata":{}}\n'
+        ),
+        encoding="utf-8",
+    )
+
+    records = store.list_records()
+    results = store.search(query="README", layers={"medium"})
+
+    assert records[0].layer == "medium"
+    assert results[0].record.id == "legacy-1"
 
 
 def test_memory_store_update_rewrites_matching_record(tmp_path: Path) -> None:

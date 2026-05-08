@@ -148,6 +148,7 @@ class MemorySearchArgs(BaseModel):
 
     query: str = ""
     kinds: list[str] = Field(default_factory=list)
+    layers: list[Literal["short", "medium", "long"]] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     limit: int = Field(default=10, ge=1, le=25)
 

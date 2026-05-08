@@ -54,6 +54,39 @@ def test_memory_write_and_search_roundtrip(tmp_path: Path) -> None:
     assert write_result.status == "succeeded"
     assert search_result.payload["total_matches"] == 1
     assert search_result.payload["matches"][0]["title"] == "pytest command"
+    assert search_result.payload["matches"][0]["layer"] == "long"
+
+
+def test_memory_search_filters_by_layer(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    context = context_for(tmp_path)
+    assert context.memory_store is not None
+    context.memory_store.append(
+        MemoryRecord(
+            kind="task_state",
+            title="current pytest task",
+            content="Run pytest for the current edit.",
+            source="test",
+        )
+    )
+    context.memory_store.append(
+        MemoryRecord(
+            kind="project_fact",
+            title="pytest command",
+            content="Use python -m pytest -q.",
+            source="test",
+        )
+    )
+
+    search_result = registry.get("memory_search").execute(
+        {"query": "pytest", "layers": ["short"], "limit": 5},
+        context,
+    )
+
+    assert search_result.status == "succeeded"
+    assert search_result.payload["total_matches"] == 1
+    assert search_result.payload["matches"][0]["kind"] == "task_state"
+    assert search_result.payload["matches"][0]["layer"] == "short"
 
 
 def test_memory_write_rejects_duplicate_record(tmp_path: Path) -> None:
