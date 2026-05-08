@@ -35,6 +35,8 @@ class BenchmarkCaseSpec(BaseModel):
     expected_tools: list[str] = Field(default_factory=list)
     expects_dangerous_block: bool = False
     max_visible_chars: int | None = Field(default=None, gt=0)
+    max_context_tokens: int | None = Field(default=None, gt=0)
+    requires_token_evidence: bool = False
     pytest_nodeids: list[str] = Field(default_factory=list)
     notes: str | None = None
 
@@ -95,6 +97,9 @@ class BenchmarkCaseResult(BaseModel):
     max_visible_chars: int | None = Field(default=None, gt=0)
     tokens_baseline: int | None = Field(default=None, ge=0)
     tokens_actual: int | None = Field(default=None, ge=0)
+    max_context_tokens: int | None = Field(default=None, gt=0)
+    requires_token_evidence: bool = False
+    observation_tokens_saved: int = Field(default=0, ge=0)
     repeated_file_reads: int = Field(default=0, ge=0)
     route_passed: bool | None = None
     answer_concise: bool | None = None
@@ -113,6 +118,7 @@ class BenchmarkCaseEvidence(BaseModel):
     context_actual_chars: int | None = Field(default=None, ge=0)
     context_baseline_tokens: int | None = Field(default=None, ge=0)
     context_actual_tokens: int | None = Field(default=None, ge=0)
+    observation_tokens_saved: int = Field(default=0, ge=0)
     repeated_file_reads: int = Field(default=0, ge=0)
     dangerous_command_blocked: bool | None = None
 
@@ -149,6 +155,9 @@ class BenchmarkReport(BaseModel):
                 len(blocked_cases),
             ),
             "token_reduction_rate": round(token_reduction, 4),
+            "observation_tokens_saved": sum(
+                case.observation_tokens_saved for case in self.cases
+            ),
             "repeated_file_reads": sum(case.repeated_file_reads for case in self.cases),
             "route_pass_rate": _rate(
                 sum(1 for case in route_cases if case.route_passed),
@@ -174,6 +183,7 @@ class BenchmarkReport(BaseModel):
             f"- tool_chain_pass_rate: {metrics['tool_chain_pass_rate']}",
             f"- dangerous_command_block_rate: {metrics['dangerous_command_block_rate']}",
             f"- token_reduction_rate: {metrics['token_reduction_rate']}",
+            f"- observation_tokens_saved: {metrics['observation_tokens_saved']}",
             f"- repeated_file_reads: {metrics['repeated_file_reads']}",
             f"- route_pass_rate: {metrics['route_pass_rate']}",
             f"- answer_concise_rate: {metrics['answer_concise_rate']}",
@@ -216,14 +226,48 @@ def build_case_result_from_evidence(
         if case.max_visible_chars is None or evidence.visible_chars is None
         else evidence.visible_chars <= case.max_visible_chars
     )
+    actual_tokens = (
+        evidence.context_actual_tokens
+        if evidence.context_actual_tokens is not None
+        else evidence.context_actual_chars
+    )
+    baseline_tokens = (
+        evidence.context_baseline_tokens
+        if evidence.context_baseline_tokens is not None
+        else evidence.context_baseline_chars
+    )
+    token_evidence_present = actual_tokens is not None or baseline_tokens is not None
+    token_evidence_passed = not case.requires_token_evidence or token_evidence_present
+    context_tokens_passed = (
+        True
+        if case.max_context_tokens is None or actual_tokens is None
+        else actual_tokens <= case.max_context_tokens
+    )
     dangerous_passed = (
         True
         if not case.expects_dangerous_block
         else evidence.dangerous_command_blocked is True
     )
+    failure_reasons: list[str] = []
+    if missing_tools:
+        failure_reasons.append("missing_tools")
+    if not visible_passed:
+        failure_reasons.append("visible_chars_exceeded")
+    if not token_evidence_passed:
+        failure_reasons.append("missing_token_evidence")
+    if not context_tokens_passed:
+        failure_reasons.append("context_tokens_exceeded")
+    if not dangerous_passed:
+        failure_reasons.append("dangerous_command_not_blocked")
     return BenchmarkCaseResult(
         name=case.id,
-        passed=tool_chain_passed and visible_passed and dangerous_passed,
+        passed=(
+            tool_chain_passed
+            and visible_passed
+            and token_evidence_passed
+            and context_tokens_passed
+            and dangerous_passed
+        ),
         tool_chain_passed=tool_chain_passed,
         expected_tools=list(case.expected_tools),
         observed_tools=observed_tools,
@@ -233,13 +277,13 @@ def build_case_result_from_evidence(
         ),
         visible_chars=evidence.visible_chars,
         max_visible_chars=case.max_visible_chars,
-        tokens_baseline=evidence.context_baseline_tokens
-        if evidence.context_baseline_tokens is not None
-        else evidence.context_baseline_chars,
-        tokens_actual=evidence.context_actual_tokens
-        if evidence.context_actual_tokens is not None
-        else evidence.context_actual_chars,
+        tokens_baseline=baseline_tokens,
+        tokens_actual=actual_tokens,
+        max_context_tokens=case.max_context_tokens,
+        requires_token_evidence=case.requires_token_evidence,
+        observation_tokens_saved=evidence.observation_tokens_saved,
         repeated_file_reads=evidence.repeated_file_reads,
+        failure_reasons=failure_reasons,
     )
 
 

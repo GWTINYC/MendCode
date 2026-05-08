@@ -121,6 +121,60 @@ def test_build_case_result_from_live_records_tracks_tool_route_and_concision() -
     assert result.failure_reasons == []
 
 
+def test_build_case_result_from_live_records_tracks_context_token_evidence() -> None:
+    records = [
+        {
+            "event_type": "intent",
+            "payload": {"source": "schema_tool_call"},
+        },
+        {
+            "event_type": "tool_result",
+            "payload": {
+                "steps": [
+                    {"action": "read_file", "status": "succeeded"},
+                    {"action": "final_response", "status": "succeeded"},
+                ]
+            },
+        },
+        {
+            "event_type": "agent_turn",
+            "payload": {
+                "context_summary": {
+                    "metrics": {
+                        "estimated_context_tokens": 300,
+                        "observation_tokens_saved": 700,
+                    }
+                }
+            },
+        },
+        {
+            "event_type": "message",
+            "payload": {"role": "agent", "message": "最后一句是：完成。"},
+        },
+    ]
+    case = BenchmarkManifest.model_validate(
+        {
+            "name": "gate",
+            "cases": [
+                {
+                    "id": "file-last-sentence",
+                    "category": "file_question",
+                    "prompt": "最后一句",
+                    "expected_tools": ["read_file"],
+                    "requires_token_evidence": True,
+                    "max_context_tokens": 400,
+                }
+            ],
+        }
+    ).cases[0]
+
+    result = build_case_result_from_live_records(case=case, records=records)
+
+    assert result.passed is True
+    assert result.tokens_actual == 300
+    assert result.observation_tokens_saved == 700
+
+
 def test_write_failure_analysis_reports_creates_one_json_per_failed_case(
     tmp_path: Path,
 ) -> None:

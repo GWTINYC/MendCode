@@ -132,6 +132,7 @@ class ScenarioTranscript:
         if not observed_tools:
             observed_tools = list(self.tool_calls)
         repeated_file_reads = 0
+        observation_tokens_saved = 0
         context_actual_chars = len(self.visible_text)
         context_actual_tokens = estimate_token_count(self.visible_text)
         for record in self.jsonl_records:
@@ -151,6 +152,9 @@ class ScenarioTranscript:
             context_tokens = metrics.get("estimated_context_tokens")
             if isinstance(context_tokens, int):
                 context_actual_tokens = context_tokens
+            tokens_saved = metrics.get("observation_tokens_saved")
+            if isinstance(tokens_saved, int):
+                observation_tokens_saved = tokens_saved
         dangerous_blocked = None
         if case.expects_dangerous_block:
             dangerous_blocked = any(
@@ -166,6 +170,7 @@ class ScenarioTranscript:
             context_actual_chars=context_actual_chars,
             context_baseline_tokens=estimate_token_count(baseline_text),
             context_actual_tokens=context_actual_tokens,
+            observation_tokens_saved=observation_tokens_saved,
             repeated_file_reads=repeated_file_reads,
             dangerous_command_blocked=dangerous_blocked,
         )
