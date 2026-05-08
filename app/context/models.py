@@ -11,6 +11,7 @@ ContextItemKind = Literal[
     "context_metrics",
     "observation",
     "file_summary",
+    "repo_context",
     "compaction_notice",
 ]
 
@@ -35,6 +36,7 @@ class ContextBudget(StrictContextModel):
     max_evolution_rule_chars: int = Field(default=1200, ge=0)
     max_observation_chars: int = Field(default=8000, ge=0)
     max_file_summary_chars: int = Field(default=3000, ge=0)
+    max_repo_context_chars: int = Field(default=2000, ge=0)
     max_observation_items: int = Field(default=12, ge=0)
     max_item_excerpt_chars: int = Field(default=1200, ge=100)
 
@@ -52,6 +54,8 @@ class ContextMetrics(StrictContextModel):
     repeated_read_file_count: int = Field(default=0, ge=0)
     compacted_item_count: int = Field(default=0, ge=0)
     file_summary_hit_count: int = Field(default=0, ge=0)
+    repo_context_chars: int = Field(default=0, ge=0)
+    repo_context_tokens: int = Field(default=0, ge=0)
     observation_chars_saved: int = Field(default=0, ge=0)
     observation_tokens_saved: int = Field(default=0, ge=0)
 

@@ -61,6 +61,8 @@ def merge_context_metrics(*metrics: ContextMetrics) -> ContextMetrics:
             file_summary_hit_count=(
                 merged.file_summary_hit_count + metric.file_summary_hit_count
             ),
+            repo_context_chars=merged.repo_context_chars + metric.repo_context_chars,
+            repo_context_tokens=merged.repo_context_tokens + metric.repo_context_tokens,
             observation_chars_saved=(
                 merged.observation_chars_saved + metric.observation_chars_saved
             ),

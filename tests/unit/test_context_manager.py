@@ -12,12 +12,18 @@ from app.context.token_budget import estimate_token_count
 from app.memory.models import MemoryRecord
 from app.memory.runtime import MemoryRuntime
 from app.memory.store import MemoryStore
+from app.repo_map.builder import build_repo_map
+from app.repo_map.store import RepoMapStore
 from app.schemas.agent_action import Observation, ToolCallAction
 from app.tools.structured import ToolInvocation
 
 
 def _memory_runtime(tmp_path: Path) -> MemoryRuntime:
     return MemoryRuntime(MemoryStore(tmp_path / "memory"))
+
+
+def _memory_runtime_for_data_dir(data_dir: Path) -> MemoryRuntime:
+    return MemoryRuntime(MemoryStore(data_dir / "memory"))
 
 
 def test_context_manager_builds_provider_context_with_memory_recall(
@@ -390,6 +396,72 @@ def test_context_manager_provider_context_includes_estimated_token_metrics(
     assert payload["context_metrics"]["raw_context_tokens"] > 0
     assert payload["context_metrics"]["compacted_context_tokens"] > 0
     assert payload["context_metrics"]["observation_tokens_saved"] > 0
+
+
+def test_context_manager_injects_repo_map_for_project_structure_question(
+    tmp_path: Path,
+) -> None:
+    repo_path = tmp_path / "repo"
+    data_dir = tmp_path / "data"
+    repo_path.mkdir()
+    (repo_path / "pyproject.toml").write_text("[tool.pytest.ini_options]\n", encoding="utf-8")
+    (repo_path / "app").mkdir()
+    (repo_path / "app" / "main.py").write_text("print('hello')\n", encoding="utf-8")
+    RepoMapStore(data_dir).save(build_repo_map(repo_path, max_depth=3, max_entries=20))
+    manager = ContextManager(memory_runtime=_memory_runtime_for_data_dir(data_dir))
+
+    bundle = manager.begin_turn(
+        user_message="这个项目的结构和测试命令是什么？",
+        repo_path=repo_path,
+    )
+    payload = json.loads(bundle.provider_context)
+
+    assert payload["repo_context"]["title"] == "Repository map"
+    assert "app/main.py" in payload["repo_context"]["content"]
+    assert "python -m pytest -q" in payload["repo_context"]["content"]
+    assert bundle.metrics.repo_context_chars > 0
+    assert bundle.metrics.repo_context_tokens > 0
+    assert payload["context_metrics"]["repo_context_chars"] == bundle.metrics.repo_context_chars
+    assert any(item.kind == "repo_context" for item in bundle.items)
+
+
+def test_context_manager_does_not_inject_repo_map_for_unrelated_question(
+    tmp_path: Path,
+) -> None:
+    repo_path = tmp_path / "repo"
+    data_dir = tmp_path / "data"
+    repo_path.mkdir()
+    (repo_path / "README.md").write_text("# demo\n", encoding="utf-8")
+    RepoMapStore(data_dir).save(build_repo_map(repo_path, max_depth=2, max_entries=20))
+    manager = ContextManager(memory_runtime=_memory_runtime_for_data_dir(data_dir))
+
+    bundle = manager.begin_turn(user_message="你好，随便聊聊", repo_path=repo_path)
+    payload = json.loads(bundle.provider_context)
+
+    assert payload["repo_context"] is None
+    assert bundle.metrics.repo_context_chars == 0
+    assert bundle.metrics.repo_context_tokens == 0
+    assert all(item.kind != "repo_context" for item in bundle.items)
+
+
+def test_context_manager_limits_repo_map_context_by_budget(tmp_path: Path) -> None:
+    repo_path = tmp_path / "repo"
+    data_dir = tmp_path / "data"
+    repo_path.mkdir()
+    for index in range(40):
+        (repo_path / f"module_{index}.py").write_text("print('x')\n", encoding="utf-8")
+    RepoMapStore(data_dir).save(build_repo_map(repo_path, max_depth=2, max_entries=100))
+    manager = ContextManager(
+        memory_runtime=_memory_runtime_for_data_dir(data_dir),
+        budget=ContextBudget(max_repo_context_chars=500),
+    )
+
+    bundle = manager.begin_turn(user_message="列出项目结构", repo_path=repo_path)
+    payload = json.loads(bundle.provider_context)
+
+    assert payload["repo_context"]["metadata"]["truncated"] is True
+    assert len(payload["repo_context"]["content"]) <= 500
+    assert bundle.metrics.repo_context_chars <= 500
 
 
 def test_context_manager_limits_memory_recall_chars(tmp_path: Path) -> None:
