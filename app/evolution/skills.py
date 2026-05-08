@@ -34,6 +34,122 @@ class SkillRecord(BaseModel):
     skill_path: str = Field(min_length=1, max_length=500)
 
 
+class BuiltinSkillSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=120)
+    title: str = Field(min_length=1, max_length=160)
+    summary: str = Field(min_length=1, max_length=500)
+    activation_hint: str = Field(default="", max_length=300)
+    source: Literal["built_in"] = "built_in"
+    status: Literal["active"] = "active"
+
+
+_BUILTIN_SKILLS: tuple[BuiltinSkillSummary, ...] = (
+    BuiltinSkillSummary(
+        name="test-fix",
+        title="Test-Fix",
+        summary="Run failing tests, inspect failure, patch, rerun focused test.",
+        activation_hint="pytest failed test failing tests 修复 测试失败",
+    ),
+    BuiltinSkillSummary(
+        name="review",
+        title="Review",
+        summary="Lead with findings, cite files, then note residual test risk.",
+        activation_hint="review 审查 代码审查 风险 findings",
+    ),
+    BuiltinSkillSummary(
+        name="debug",
+        title="Debug",
+        summary="Reproduce, isolate cause, make minimal fix, verify original symptom.",
+        activation_hint="debug bug error exception failure 报错 调试",
+    ),
+    BuiltinSkillSummary(
+        name="repo-map",
+        title="Repo-Map",
+        summary="Map structure, entry points, tests, and likely impact before edits.",
+        activation_hint="repo map repository structure 项目结构 仓库结构 入口 测试命令",
+    ),
+)
+
+
+def recall_builtin_skills(
+    user_message: str,
+    *,
+    max_skills: int = 4,
+    max_tokens: int = 400,
+) -> list[BuiltinSkillSummary]:
+    if max_skills <= 0 or max_tokens <= 0:
+        return []
+    scored = [
+        (skill, _builtin_skill_score(skill, user_message))
+        for skill in _BUILTIN_SKILLS
+    ]
+    ranked = sorted(
+        [(skill, score) for skill, score in scored if score > 0],
+        key=lambda item: (-item[1], item[0].name),
+    )
+    selected: list[BuiltinSkillSummary] = []
+    for skill, _score in ranked:
+        candidate = selected + [skill]
+        if len(candidate) > max_skills:
+            break
+        if _skill_summaries_fit_budget(candidate, max_tokens=max_tokens):
+            selected = candidate
+            continue
+        if selected:
+            break
+        compact = skill.model_copy(
+            update={
+                "summary": _compact_summary(skill.summary),
+                "activation_hint": "",
+            }
+        )
+        if _skill_summaries_fit_budget([compact], max_tokens=max_tokens):
+            selected = [compact]
+    return selected
+
+
+def _builtin_skill_score(skill: BuiltinSkillSummary, user_message: str) -> int:
+    text = user_message.casefold()
+    score = 0
+    for token in skill.activation_hint.casefold().split():
+        if token and token in text:
+            score += 4
+    for token in skill.name.casefold().replace("-", " ").split():
+        if token and token in text:
+            score += 2
+    return score
+
+
+def _skill_summaries_fit_budget(
+    summaries: list[BuiltinSkillSummary],
+    *,
+    max_tokens: int,
+) -> bool:
+    payload = {
+        "evolution_rules": [],
+        "evolution_guidance": [],
+        "skill_summaries": [
+            summary.model_dump(mode="json") for summary in summaries
+        ],
+    }
+    return _estimate_tokens(payload) <= max_tokens
+
+
+def _compact_summary(summary: str) -> str:
+    first = summary.split(",", 1)[0].strip().rstrip(".")
+    words = first.split()
+    return " ".join(words[:4]).rstrip(".") + "."
+
+
+def _estimate_tokens(value: object) -> int:
+    text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
 class SkillStore:
     def __init__(self, root: Path) -> None:
         self.root = root

@@ -573,6 +573,59 @@ def test_context_manager_records_provider_section_token_usage(tmp_path: Path) ->
     assert bundle.metrics.section_tokens == metrics["section_tokens"]
 
 
+def test_context_manager_recalls_test_fix_builtin_skill_for_failed_tests(
+    tmp_path: Path,
+) -> None:
+    manager = ContextManager(memory_runtime=_memory_runtime(tmp_path))
+
+    payload = json.loads(
+        manager.begin_turn(
+            user_message="pytest failed，帮我修复这个 failed test",
+            repo_path=tmp_path,
+        ).provider_context
+    )
+
+    skill_summaries = payload["skill_summaries"]
+    assert [skill["name"] for skill in skill_summaries] == ["test-fix"]
+    assert "run failing tests" in skill_summaries[0]["summary"].casefold()
+    assert "trace" not in json.dumps(skill_summaries, ensure_ascii=False).casefold()
+
+
+def test_context_manager_recalls_review_builtin_skill_for_review_request(
+    tmp_path: Path,
+) -> None:
+    manager = ContextManager(memory_runtime=_memory_runtime(tmp_path))
+
+    payload = json.loads(
+        manager.begin_turn(
+            user_message="请 review 这次改动并审查风险",
+            repo_path=tmp_path,
+        ).provider_context
+    )
+
+    assert [skill["name"] for skill in payload["skill_summaries"]] == ["review"]
+    assert "findings" in payload["skill_summaries"][0]["summary"].casefold()
+
+
+def test_context_manager_limits_builtin_skill_summary_by_guidance_token_budget(
+    tmp_path: Path,
+) -> None:
+    manager = ContextManager(
+        memory_runtime=_memory_runtime(tmp_path),
+        budget=ContextBudget(max_guidance_tokens=55),
+    )
+
+    bundle = manager.begin_turn(
+        user_message="pytest failed，请 review 并看看 repo map",
+        repo_path=tmp_path,
+    )
+    payload = json.loads(bundle.provider_context)
+
+    assert payload["skill_summaries"]
+    assert payload["context_metrics"]["section_tokens"]["guidance"] <= 55
+    assert len(payload["skill_summaries"]) < 3
+
+
 def test_context_manager_injects_repo_map_for_project_structure_question(
     tmp_path: Path,
 ) -> None:
