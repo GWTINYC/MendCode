@@ -119,6 +119,23 @@ def test_context_budget_exposes_compaction_limits() -> None:
     assert budget.max_observation_items == 4
 
 
+def test_context_budget_exposes_provider_section_token_limits() -> None:
+    budget = ContextBudget()
+
+    section_budgets = budget.section_token_budgets()
+
+    assert section_budgets == {
+        "base": budget.max_base_tokens,
+        "task_state": budget.max_task_state_tokens,
+        "repo_context": budget.max_repo_context_tokens,
+        "memory": budget.max_memory_tokens,
+        "guidance": budget.max_guidance_tokens,
+        "observations": budget.max_observations_tokens,
+        "file_summaries": budget.max_file_summaries_tokens,
+    }
+    assert sum(section_budgets.values()) <= budget.max_context_tokens
+
+
 def test_context_metrics_exposes_compaction_counters() -> None:
     metrics = ContextMetrics(
         context_chars=100,
@@ -141,6 +158,18 @@ def test_context_metrics_exposes_compaction_counters() -> None:
     assert metrics.file_summary_hit_count == 1
     assert metrics.observation_chars_saved == 200
     assert metrics.observation_tokens_saved == 50
+
+
+def test_context_metrics_exposes_section_budget_counters() -> None:
+    metrics = ContextMetrics(
+        section_chars={"base": 40, "observations": 80},
+        section_tokens={"base": 10, "observations": 20},
+        section_token_budgets={"base": 400, "observations": 1200},
+    )
+
+    assert metrics.section_chars["base"] == 40
+    assert metrics.section_tokens["observations"] == 20
+    assert metrics.section_token_budgets["base"] == 400
 
 
 def test_context_manager_normalizes_simple_repeated_read_file_paths(
@@ -396,6 +425,61 @@ def test_context_manager_provider_context_includes_estimated_token_metrics(
     assert payload["context_metrics"]["raw_context_tokens"] > 0
     assert payload["context_metrics"]["compacted_context_tokens"] > 0
     assert payload["context_metrics"]["observation_tokens_saved"] > 0
+
+
+def test_context_manager_records_provider_section_token_usage(tmp_path: Path) -> None:
+    store = MemoryStore(tmp_path / "memory")
+    store.append(
+        MemoryRecord(
+            kind="project_fact",
+            title="pytest command",
+            content="Use python -m pytest -q.",
+            source="test",
+            tags=["pytest"],
+        )
+    )
+    manager = ContextManager(
+        memory_runtime=MemoryRuntime(store),
+        base_context={"repo": "demo"},
+        budget=ContextBudget(max_memory_items=3),
+    )
+    manager.begin_turn(user_message="pytest command", repo_path=tmp_path)
+    manager.record_observation(
+        AgentObservationRecord(
+            action=ToolCallAction(
+                type="tool_call",
+                action="run_shell_command",
+                reason="inspect",
+                args={"command": "pwd"},
+            ),
+            observation=Observation(
+                status="succeeded",
+                summary="Ran pwd",
+                payload={"command": "pwd", "stdout": str(tmp_path)},
+            ),
+        )
+    )
+
+    bundle = manager.build_provider_context()
+    payload = json.loads(bundle.provider_context)
+    metrics = payload["context_metrics"]
+
+    assert set(metrics["section_tokens"]) == {
+        "base",
+        "task_state",
+        "repo_context",
+        "memory",
+        "guidance",
+        "observations",
+        "file_summaries",
+    }
+    assert metrics["section_token_budgets"] == ContextBudget().section_token_budgets()
+    assert metrics["section_tokens"]["base"] > 0
+    assert metrics["section_tokens"]["task_state"] > 0
+    assert metrics["section_tokens"]["memory"] > 0
+    assert metrics["section_tokens"]["observations"] > 0
+    assert metrics["section_tokens"]["repo_context"] == 0
+    assert bundle.metrics.section_tokens == metrics["section_tokens"]
 
 
 def test_context_manager_injects_repo_map_for_project_structure_question(
