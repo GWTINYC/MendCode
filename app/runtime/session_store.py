@@ -1,4 +1,5 @@
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,15 @@ class TraceView:
     trace_path: Path
     event_count: int
     tool_events: list[TraceToolEvent]
+
+
+@dataclass(frozen=True)
+class TraceSummary:
+    event_count: int
+    tool_names: list[str]
+    failed_tools: list[str]
+    tool_events: list[dict[str, object]]
+    truncated: bool
 
 
 def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -230,6 +240,41 @@ def _trace_payload_excerpt(
     return text, truncated
 
 
+def _redact_sensitive_text(text: str) -> str:
+    replacements = [
+        (r"sk-[A-Za-z0-9_\-]{6,}", "sk-[redacted]"),
+        (r"(?i)(api[_-]?key[\"']?\s*[:=]\s*[\"']?)[^\"'\s,}]+", r"\1[redacted]"),
+        (r"(?i)(authorization[\"']?\s*[:=]\s*[\"']?bearer\s+)[^\"'\s,}]+", r"\1[redacted]"),
+    ]
+    redacted = text
+    for pattern, replacement in replacements:
+        redacted = re.sub(pattern, replacement, redacted)
+    return redacted
+
+
+def _safe_trace_excerpt(event: TraceToolEvent, *, max_excerpt_chars: int) -> tuple[str, bool]:
+    payload = event.full_payload
+    observation = payload.get("observation")
+    observation_payload = observation.get("payload") if isinstance(observation, dict) else None
+    compact: dict[str, object] = {
+        "index": event.index,
+        "tool_name": event.tool_name,
+        "status": event.status,
+        "summary": event.summary,
+    }
+    if isinstance(observation_payload, dict):
+        compact_payload = _compact_payload(observation_payload)
+        for hidden_key in ["trace_path", "workspace_path"]:
+            compact_payload.pop(hidden_key, None)
+        if compact_payload:
+            compact["payload"] = compact_payload
+    text = _redact_sensitive_text(json.dumps(compact, ensure_ascii=False, sort_keys=True))
+    truncated = len(text) > max_excerpt_chars or event.payload_truncated
+    if len(text) > max_excerpt_chars:
+        text = text[:max_excerpt_chars] + "...[truncated]"
+    return text, truncated
+
+
 class SessionStore:
     def __init__(self, *, data_dir: Path) -> None:
         self.data_dir = data_dir
@@ -327,6 +372,53 @@ class SessionStore:
                 )
         return lines
 
+    def read_trace_summary(
+        self,
+        session_id: str | None = None,
+        *,
+        trace_path: Path | None = None,
+        max_tool_events: int = 20,
+        max_excerpt_chars: int = 600,
+    ) -> TraceSummary:
+        if trace_path is None:
+            session = self.latest_session() if session_id is None else self.get_session(session_id)
+            trace_path = session.jsonl_path
+        view = read_trace_view(trace_path, max_excerpt_chars=max_excerpt_chars)
+        limited_events = view.tool_events[-max_tool_events:]
+        tool_names = _dedupe_preserve_order([event.tool_name for event in limited_events])
+        failed_tools = _dedupe_preserve_order(
+            [
+                event.tool_name
+                for event in limited_events
+                if event.status not in {"succeeded", "passed"}
+            ]
+        )
+        event_payloads: list[dict[str, object]] = []
+        truncated = len(view.tool_events) > len(limited_events)
+        for event in limited_events:
+            excerpt, excerpt_truncated = _safe_trace_excerpt(
+                event,
+                max_excerpt_chars=max_excerpt_chars,
+            )
+            truncated = truncated or excerpt_truncated
+            event_payloads.append(
+                {
+                    "index": event.index,
+                    "tool_name": event.tool_name,
+                    "status": event.status,
+                    "summary": event.summary,
+                    "payload_excerpt": excerpt,
+                    "payload_truncated": excerpt_truncated,
+                }
+            )
+        return TraceSummary(
+            event_count=view.event_count,
+            tool_names=tool_names,
+            failed_tools=failed_tools,
+            tool_events=event_payloads,
+            truncated=truncated,
+        )
+
 
 def _summarize_tool_payload(payload: dict[str, Any]) -> list[str]:
     result_payload = payload
@@ -359,6 +451,17 @@ def _summarize_tool_payload(payload: dict[str, Any]) -> list[str]:
                 f"{summary_item.get('summary', '')}".rstrip()
             )
     return lines
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def read_trace_view(trace_path: Path, *, max_excerpt_chars: int = 1200) -> TraceView:

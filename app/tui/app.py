@@ -64,6 +64,7 @@ TUI_TOOL_AGENT_TOOLS = {
     "search_code",
     "session_status",
     "tool_search",
+    "trace_summary_read",
 }
 READ_ONLY_TOOL_AGENT_TOOLS = TUI_TOOL_AGENT_TOOLS
 

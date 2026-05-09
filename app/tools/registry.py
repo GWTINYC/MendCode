@@ -44,6 +44,7 @@ from app.tools.arguments import (
     TodoWriteArgs,
     ToolSearchArgs,
     TraceAnalyzeArgs,
+    TraceSummaryReadArgs,
     TreeArgs,
     WriteFileArgs,
 )
@@ -93,6 +94,7 @@ from app.tools.schemas import (
 )
 from app.tools.session_status import session_status
 from app.tools.structured import ToolExecutionContext, ToolRegistry, ToolRisk, ToolSpec
+from app.tools.trace_tools import trace_summary_read
 from app.workspace.command_policy import CommandPolicy
 from app.workspace.executor import execute_verification_command
 from app.workspace.project_detection import detect_project
@@ -1081,6 +1083,16 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=TraceAnalyzeArgs,
                 risk_level=ToolRisk.READ_ONLY,
                 executor=trace_analyze,
+            ),
+            ToolSpec(
+                name="trace_summary_read",
+                description=(
+                    "Read a compact summary of recent trace tool calls, including tool names, "
+                    "failed tools, and redacted excerpts without exposing raw trace paths."
+                ),
+                args_model=TraceSummaryReadArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=trace_summary_read,
             ),
             ToolSpec(
                 name="review_queue_list",
