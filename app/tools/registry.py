@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 from app.evolution.accepted import AcceptedGuidanceStore
+from app.provider.doctor import provider_doctor
 from app.schemas.agent_action import Observation
 from app.tools.arguments import (
     AnalysisReportIngestArgs,
@@ -28,6 +29,7 @@ from app.tools.arguments import (
     ProcessStartArgs,
     ProcessStopArgs,
     ProcessWriteArgs,
+    ProviderDoctorArgs,
     ReadFileArgs,
     RepoMapReadArgs,
     RepoMapRefreshArgs,
@@ -1004,6 +1006,16 @@ def default_tool_registry() -> ToolRegistry:
                 args_model=SessionStatusArgs,
                 risk_level=ToolRisk.READ_ONLY,
                 executor=session_status,
+            ),
+            ToolSpec(
+                name="provider_doctor",
+                description=(
+                    "Diagnose local provider configuration, model, and tool-call readiness "
+                    "without revealing secret values."
+                ),
+                args_model=ProviderDoctorArgs,
+                risk_level=ToolRisk.READ_ONLY,
+                executor=provider_doctor,
             ),
             ToolSpec(
                 name="tool_search",
