@@ -104,6 +104,7 @@ class BenchmarkCaseResult(BaseModel):
     route_passed: bool | None = None
     answer_concise: bool | None = None
     provider_failed: bool = False
+    provider_skipped: bool = False
     trace_exposed: bool = False
     failure_reasons: list[str] = Field(default_factory=list)
 
@@ -117,6 +118,7 @@ class BenchmarkCaseResult(BaseModel):
             "route_passed": self.route_passed,
             "answer_concise": self.answer_concise,
             "provider_failed": self.provider_failed,
+            "provider_skipped": self.provider_skipped,
             "trace_exposed": self.trace_exposed,
         }
 
@@ -155,6 +157,10 @@ class BenchmarkReport(BaseModel):
             token_reduction = (baseline_tokens - actual_tokens) / baseline_tokens
         return {
             "case_count": total,
+            "provider_skip_count": sum(1 for case in self.cases if case.provider_skipped),
+            "real_failure_count": sum(
+                1 for case in self.cases if not case.passed and not case.provider_skipped
+            ),
             "case_pass_rate": _rate(
                 sum(1 for case in self.cases if case.passed),
                 total,
@@ -192,6 +198,8 @@ class BenchmarkReport(BaseModel):
             "## Metrics",
             "",
             f"- case_count: {metrics['case_count']}",
+            f"- provider_skip_count: {metrics['provider_skip_count']}",
+            f"- real_failure_count: {metrics['real_failure_count']}",
             f"- case_pass_rate: {metrics['case_pass_rate']}",
             f"- tool_chain_pass_rate: {metrics['tool_chain_pass_rate']}",
             f"- dangerous_command_block_rate: {metrics['dangerous_command_block_rate']}",

@@ -62,16 +62,26 @@ def build_gate_report(
 ) -> BenchmarkReport:
     output = "\n".join(part for part in [result.stdout, result.stderr] if part)
     failures = set(_extract_pytest_failures(output))
+    provider_env_missing = _provider_env_missing(output)
     cases: list[BenchmarkCaseResult] = []
     clean_run = result.exit_code == 0
     for case in manifest.cases:
         failed = any(_matches_failed_nodeid(nodeid, failures) for nodeid in case.pytest_nodeids)
+        provider_skipped = provider_env_missing and _case_is_provider_gated(case)
         passed = not failed if case.pytest_nodeids else clean_run
         reasons = ["pytest_node_failed"] if failed else []
+        if provider_skipped:
+            passed = False
+            reasons = ["skipped_provider"]
         if passed and case.requires_token_evidence:
             passed = False
             reasons.append("missing_token_evidence")
-        if result.exit_code != 0 and not failed and not case.pytest_nodeids:
+        if (
+            result.exit_code != 0
+            and not failed
+            and not case.pytest_nodeids
+            and not provider_skipped
+        ):
             reasons.append("pytest_run_failed_without_case_match")
         cases.append(
             BenchmarkCaseResult(
@@ -88,6 +98,7 @@ def build_gate_report(
                 route_passed=passed,
                 answer_concise=passed if case.max_visible_chars is not None else None,
                 provider_failed=False,
+                provider_skipped=provider_skipped,
                 trace_exposed=False,
                 failure_reasons=reasons,
             )
@@ -207,7 +218,7 @@ def write_failure_analysis_reports(
     output_dir.mkdir(parents=True, exist_ok=True)
     paths: list[Path] = []
     for case in report.cases:
-        if case.passed:
+        if case.passed or case.provider_skipped:
             continue
         payload = {
             "run_id": run_id,
@@ -260,6 +271,10 @@ def _recommendations_for_case(case: BenchmarkCaseResult) -> list[str]:
     return recommendations
 
 
+def _case_is_provider_gated(case: BenchmarkCaseSpec) -> bool:
+    return any(nodeid.startswith("tests/e2e/") for nodeid in case.pytest_nodeids)
+
+
 def _extract_pytest_failures(output: str) -> list[str]:
     failures: list[str] = []
     for raw_line in output.splitlines():
@@ -270,6 +285,14 @@ def _extract_pytest_failures(output: str) -> list[str]:
         if failure:
             failures.append(failure)
     return failures
+
+
+def _provider_env_missing(output: str) -> bool:
+    normalized = output.lower()
+    return (
+        "real openai-compatible provider env" in normalized
+        or "provider env" in normalized
+    )
 
 
 def _visible_agent_text(records: list[dict[str, Any]]) -> str:

@@ -76,6 +76,40 @@ def test_build_gate_report_maps_failed_nodeid_to_case() -> None:
     assert "pytest_node_failed" in report.cases[0].failure_reasons
 
 
+def test_build_gate_report_marks_provider_gated_cases_as_skipped_provider() -> None:
+    manifest = BenchmarkManifest.model_validate(
+        {
+            "name": "gate",
+            "cases": [
+                {
+                    "id": "git-status",
+                    "category": "git_status",
+                    "prompt": "看下 git status",
+                    "expected_tools": ["git"],
+                    "pytest_nodeids": ["tests/e2e/test_tui_pty_live.py::test_git"],
+                }
+            ],
+        }
+    )
+    result = PytestRunResult(
+        command=["python", "-m", "pytest"],
+        cwd=Path("/repo"),
+        exit_code=1,
+        stdout=(
+            "E   pytest.fail: Live PTY TUI tests require real OpenAI-compatible "
+            "provider env: OPENAI_API_KEY\n"
+        ),
+        stderr="",
+        duration_ms=120,
+    )
+
+    report = build_gate_report(manifest=manifest, result=result)
+
+    assert report.cases[0].passed is False
+    assert report.cases[0].provider_skipped is True
+    assert "skipped_provider" in report.cases[0].failure_reasons
+
+
 def test_build_case_result_from_live_records_tracks_tool_route_and_concision() -> None:
     records = [
         {
@@ -119,6 +153,38 @@ def test_build_case_result_from_live_records_tracks_tool_route_and_concision() -
     assert result.answer_concise is True
     assert result.observed_tools == ["git"]
     assert result.failure_reasons == []
+
+
+def test_write_failure_analysis_reports_skips_provider_gated_cases(
+    tmp_path: Path,
+) -> None:
+    report = BenchmarkReport(
+        cases=[
+            BenchmarkCaseResult(
+                name="provider-case",
+                passed=False,
+                tool_chain_passed=False,
+                provider_skipped=True,
+                failure_reasons=["skipped_provider"],
+                expected_tools=["git"],
+            ),
+            BenchmarkCaseResult(
+                name="real-failure",
+                passed=False,
+                tool_chain_passed=False,
+                failure_reasons=["missing_expected_tools"],
+                expected_tools=["read_file"],
+            ),
+        ]
+    )
+
+    paths = write_failure_analysis_reports(
+        output_dir=tmp_path / "analysis-reports",
+        report=report,
+        run_id="gate-123",
+    )
+
+    assert [path.name for path in paths] == ["gate-123-real-failure.json"]
 
 
 def test_build_case_result_from_live_records_tracks_context_token_evidence() -> None:

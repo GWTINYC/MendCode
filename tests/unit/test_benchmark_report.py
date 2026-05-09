@@ -80,6 +80,39 @@ def test_benchmark_case_result_tracks_tui_quality_failures() -> None:
     assert "missing_schema_tool_call_route" in report.to_markdown()
 
 
+def test_benchmark_report_separates_provider_skips_from_real_failures() -> None:
+    report = BenchmarkReport(
+        cases=[
+            BenchmarkCaseResult(
+                name="provider-case",
+                passed=False,
+                tool_chain_passed=False,
+                provider_skipped=True,
+                failure_reasons=["skipped_provider"],
+            ),
+            BenchmarkCaseResult(
+                name="real-failure",
+                passed=False,
+                tool_chain_passed=False,
+                failure_reasons=["missing_expected_tools"],
+            ),
+            BenchmarkCaseResult(
+                name="passing-case",
+                passed=True,
+                tool_chain_passed=True,
+            ),
+        ]
+    )
+
+    metrics = report.metrics()
+    markdown = report.to_markdown()
+
+    assert metrics["provider_skip_count"] == 1
+    assert metrics["real_failure_count"] == 1
+    assert "- provider_skip_count: 1" in markdown
+    assert "- real_failure_count: 1" in markdown
+
+
 def test_benchmark_manifest_loads_six_target_categories(tmp_path: Path) -> None:
     manifest_path = tmp_path / "benchmark.json"
     manifest_path.write_text(json.dumps(_benchmark_manifest_payload()), encoding="utf-8")
