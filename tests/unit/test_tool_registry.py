@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.tools.arguments import (
     ProviderDoctorArgs,
     RepoMapReadArgs,
     RepoMapRefreshArgs,
+    TraceSummaryReadArgs,
 )
 from app.tools.registry import default_tool_registry, tool_result_to_observation
 from app.tools.schemas import ToolResult
@@ -1353,3 +1355,117 @@ def test_tool_search_uses_accepted_tool_schema_hints(tmp_path: Path) -> None:
     names = [match["name"] for match in observation.payload["matches"]]
     assert "repo_status" in names
     assert observation.payload["matches"][0]["source"] == "tool_schema_hint"
+
+
+def test_trace_summary_read_returns_compact_tool_summary(tmp_path: Path) -> None:
+    trace_path = tmp_path / "data" / "conversations" / "2026-05-09_run-123.jsonl"
+    trace_path.parent.mkdir(parents=True)
+    trace_path.write_text(
+        "\n".join(
+            [
+                json.dumps({"event_type": "message", "payload": {"role": "user"}}),
+                json.dumps(
+                    {
+                        "event_type": "agent_step",
+                        "payload": {
+                            "index": 1,
+                            "action": {"type": "tool_call", "action": "list_dir"},
+                            "observation": {
+                                "status": "succeeded",
+                                "summary": "Listed .",
+                                "payload": {"entries": ["README.md", "app"]},
+                            },
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "event_type": "agent_step",
+                        "payload": {
+                            "index": 2,
+                            "action": {"type": "tool_call", "action": "read_file"},
+                            "observation": {
+                                "status": "failed",
+                                "summary": "Unable to read file",
+                                "payload": {"file_path": "missing.md"},
+                            },
+                        },
+                    }
+                ),
+            ]
+        ),
+        encoding="utf-8",
+    )
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+        trace_path=str(trace_path),
+    )
+
+    observation = registry.get("trace_summary_read").execute({}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.payload["event_count"] == 3
+    assert observation.payload["tool_names"] == ["list_dir", "read_file"]
+    assert observation.payload["failed_tools"] == ["read_file"]
+    assert observation.payload["tool_events"][0]["tool_name"] == "list_dir"
+    assert "README.md" in observation.payload["tool_events"][0]["payload_excerpt"]
+
+
+def test_trace_summary_read_redacts_raw_payload_secrets_and_absolute_paths(
+    tmp_path: Path,
+) -> None:
+    secret = "sk-secret"
+    full_payload = "complete raw payload body " * 80
+    trace_path = tmp_path / "data" / "conversations" / "2026-05-09_run-456.jsonl"
+    trace_path.parent.mkdir(parents=True)
+    trace_path.write_text(
+        json.dumps(
+            {
+                "event_type": "agent_step",
+                "payload": {
+                    "index": 1,
+                    "action": {"type": "tool_call", "action": "provider_doctor"},
+                    "observation": {
+                        "status": "succeeded",
+                        "summary": "Provider ready",
+                        "payload": {
+                            "api_key": secret,
+                            "trace_path": str(trace_path),
+                            "content": full_payload,
+                        },
+                    },
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    registry = default_tool_registry()
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(tmp_path),
+        verification_commands=[],
+        trace_path=str(trace_path),
+    )
+
+    observation = registry.get("trace_summary_read").execute(
+        {"max_excerpt_chars": 120},
+        context,
+    )
+    rendered = json.dumps(observation.payload, ensure_ascii=False, sort_keys=True)
+
+    assert observation.status == "succeeded"
+    assert secret not in rendered
+    assert full_payload not in rendered
+    assert str(trace_path) not in rendered
+    assert observation.payload["tool_events"][0]["payload_truncated"] is True
+
+
+def test_default_registry_contains_trace_summary_read_tool() -> None:
+    registry = default_tool_registry()
+
+    assert "trace_summary_read" in registry.names()
+    assert registry.get("trace_summary_read").args_model is TraceSummaryReadArgs
+    assert registry.get("trace_summary_read").risk_level == ToolRisk.READ_ONLY

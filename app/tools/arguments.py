@@ -199,6 +199,20 @@ class TraceAnalyzeArgs(BaseModel):
     )
 
 
+class TraceSummaryReadArgs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    session_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional conversation session id. Defaults to the current trace "
+            "or latest session."
+        ),
+    )
+    max_tool_events: int = Field(default=20, ge=1, le=100)
+    max_excerpt_chars: int = Field(default=600, ge=0, le=2000)
+
+
 class ReviewQueueListArgs(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

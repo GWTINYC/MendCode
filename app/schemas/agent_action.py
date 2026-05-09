@@ -42,6 +42,7 @@ ToolName = Literal[
     "repo_map_read",
     "repo_map_refresh",
     "trace_analyze",
+    "trace_summary_read",
     "analysis_report_list",
     "analysis_report_ingest",
     "review_queue_list",
