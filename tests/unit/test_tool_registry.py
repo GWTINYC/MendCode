@@ -18,6 +18,7 @@ from app.tools.arguments import (
     ProcessStartArgs,
     ProcessStopArgs,
     ProcessWriteArgs,
+    ProviderDoctorArgs,
     RepoMapReadArgs,
     RepoMapRefreshArgs,
 )
@@ -48,7 +49,14 @@ def execute_example(args: ExampleArgs, context: ToolExecutionContext) -> Observa
     )
 
 
-def settings_for(tmp_path: Path) -> Settings:
+def settings_for(
+    tmp_path: Path,
+    *,
+    provider: str = "scripted",
+    model: str | None = None,
+    base_url: str | None = None,
+    api_key: str | None = None,
+) -> Settings:
     return Settings(
         app_name="MendCode",
         app_version="0.0.0",
@@ -58,6 +66,10 @@ def settings_for(tmp_path: Path) -> Settings:
         workspace_root=tmp_path / ".worktrees",
         verification_timeout_seconds=60,
         cleanup_success_workspace=False,
+        provider=provider,  # type: ignore[arg-type]
+        provider_model=model,
+        provider_base_url=base_url,
+        provider_api_key=api_key,
     )
 
 
@@ -693,6 +705,71 @@ def test_default_registry_contains_lsp_tool() -> None:
         "workspace_symbols",
         "implementations",
     }
+
+
+def test_default_registry_contains_provider_doctor_tool() -> None:
+    registry = default_tool_registry()
+
+    assert "provider_doctor" in registry.names()
+    assert registry.get("provider_doctor").args_model is ProviderDoctorArgs
+    assert registry.get("provider_doctor").risk_level == ToolRisk.READ_ONLY
+    assert "provider_doctor" in {
+        tool["function"]["name"] for tool in registry.openai_tools()
+    }
+
+
+def test_provider_doctor_reports_missing_api_key_as_failed(tmp_path: Path) -> None:
+    registry = default_tool_registry()
+    spec = registry.get("provider_doctor")
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(
+            tmp_path,
+            provider="openai-compatible",
+            model="test-model",
+            base_url="https://example.test/v1",
+        ),
+        verification_commands=[],
+    )
+
+    observation = spec.execute({}, context)
+
+    assert observation.status == "failed"
+    assert observation.summary == "Provider configuration is incomplete"
+    assert "MENDCODE_API_KEY" in str(observation.error_message)
+    assert "secret" not in str(observation.payload)
+
+
+def test_provider_doctor_reports_ready_configuration_without_secret_leak(
+    tmp_path: Path,
+) -> None:
+    registry = default_tool_registry()
+    spec = registry.get("provider_doctor")
+    context = ToolExecutionContext(
+        workspace_path=tmp_path,
+        settings=settings_for(
+            tmp_path,
+            provider="openai-compatible",
+            model="test-model",
+            base_url="https://example.test/v1",
+            api_key="super-secret-key",
+        ),
+        verification_commands=[],
+    )
+
+    observation = spec.execute({}, context)
+
+    assert observation.status == "succeeded"
+    assert observation.summary == "Provider configuration looks ready"
+    assert observation.payload["provider"] == "openai-compatible"
+    assert observation.payload["model"] == "test-model"
+    assert observation.payload["base_url"] == "https://example.test/v1"
+    assert observation.payload["api_key_present"] is True
+    assert observation.payload["tool_call_check"]["status"] == "passed"
+    assert observation.payload["tool_call_check"]["summary"] == (
+        "provider configuration can support tool calls"
+    )
+    assert "super-secret-key" not in str(observation.payload)
 
 
 def test_repo_status_runs_through_registry(tmp_path: Path) -> None:

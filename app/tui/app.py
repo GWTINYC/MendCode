@@ -49,6 +49,7 @@ TUI_TOOL_AGENT_TOOLS = {
     "analysis_report_list",
     "glob_file_search",
     "git",
+    "provider_doctor",
     "evolution_rule_accept",
     "evolution_rule_accept_with_edits",
     "evolution_rule_list",

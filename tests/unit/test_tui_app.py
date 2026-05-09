@@ -809,6 +809,7 @@ async def test_tui_tool_agent_allows_evolution_rule_review_tools() -> None:
     assert {
         "analysis_report_ingest",
         "analysis_report_list",
+        "provider_doctor",
         "evolution_rule_list",
         "evolution_rule_view",
         "evolution_rule_accept",
