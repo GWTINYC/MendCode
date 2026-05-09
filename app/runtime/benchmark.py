@@ -107,6 +107,19 @@ class BenchmarkCaseResult(BaseModel):
     trace_exposed: bool = False
     failure_reasons: list[str] = Field(default_factory=list)
 
+    def proof_metrics(self) -> dict[str, object]:
+        return {
+            "passed": self.passed,
+            "tool_chain_passed": self.tool_chain_passed,
+            "failure_reason_count": len(self.failure_reasons),
+            "missing_tool_count": len(self.missing_tools),
+            "dangerous_command_blocked": self.dangerous_command_blocked,
+            "route_passed": self.route_passed,
+            "answer_concise": self.answer_concise,
+            "provider_failed": self.provider_failed,
+            "trace_exposed": self.trace_exposed,
+        }
+
 
 class BenchmarkCaseEvidence(BaseModel):
     model_config = ConfigDict(extra="forbid")
