@@ -172,6 +172,51 @@
       "max_visible_chars": 600
     },
     {
+      "id": "review-queue-list-candidates",
+      "category": "memory_context",
+      "prompt": "有哪些失败可以沉淀？",
+      "expected_tools": ["review_queue_list"],
+      "pytest_nodeids": [
+        "tests/scenarios/test_tui_review_queue_scenarios.py::test_review_queue_question_uses_review_queue_list_tool"
+      ],
+      "max_visible_chars": 900,
+      "notes": "Evolution review should be reachable through natural language, not only CLI commands."
+    },
+    {
+      "id": "review-queue-view-first-candidate",
+      "category": "memory_context",
+      "prompt": "查看第一个候选",
+      "expected_tools": ["review_queue_view"],
+      "pytest_nodeids": [
+        "tests/scenarios/test_tui_review_queue_scenarios.py::test_review_queue_view_question_shows_compact_candidate_summary"
+      ],
+      "max_visible_chars": 900,
+      "notes": "Candidate view must stay compact and avoid dumping raw JSON."
+    },
+    {
+      "id": "review-queue-accept-skill",
+      "category": "memory_context",
+      "prompt": "接受这个 skill",
+      "expected_tools": ["review_queue_accept"],
+      "pytest_nodeids": [
+        "tests/scenarios/test_tui_review_queue_scenarios.py::test_review_queue_accept_question_enters_confirmation_then_accepts"
+      ],
+      "max_visible_chars": 1000,
+      "notes": "Accepting a skill candidate must enter confirmation or accepted guidance flow."
+    },
+    {
+      "id": "review-queue-reject-rule",
+      "category": "memory_context",
+      "prompt": "拒绝这个规则",
+      "expected_tools": ["review_queue_reject"],
+      "expects_dangerous_block": true,
+      "pytest_nodeids": [
+        "tests/scenarios/test_tui_review_queue_scenarios.py::test_review_queue_reject_question_records_rejected_confirmation"
+      ],
+      "max_visible_chars": 1000,
+      "notes": "Rejecting a candidate must form a rejected observation and keep the chat concise."
+    },
+    {
       "id": "patch-repair-failing-test",
       "category": "patch_repair",
       "prompt": "pytest 失败了，帮我修复并验证。",
