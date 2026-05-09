@@ -14,6 +14,9 @@ from app.agent.loop import AgentLoopResult, AgentStep
 from app.agent.session import AgentSessionTurn, ReviewSummary
 from app.config.settings import Settings
 from app.context.token_budget import estimate_token_count
+from app.evolution.models import LessonCandidate
+from app.memory.runtime import MemoryRuntime
+from app.memory.store import MemoryStore
 from app.runtime.benchmark import (
     BenchmarkCaseEvidence,
     BenchmarkCaseSpec,
@@ -48,6 +51,7 @@ class TuiScenario:
     user_inputs: list[str]
     repo_files: dict[str, str] = field(default_factory=dict)
     tool_steps: list[ScenarioToolStep] = field(default_factory=list)
+    review_queue_candidates: list[dict[str, Any]] = field(default_factory=list)
     pending_confirmation: dict[str, Any] | None = None
     final_summary: str = "完成。"
     chat_response: str = "chat response"
@@ -62,7 +66,8 @@ class ScenarioTranscript:
     jsonl_records: list[dict[str, Any]]
     chat_calls: list[str]
     tool_calls: list[str]
-    shell_calls: list[tuple[str, Path, bool]]
+    initial_observation_counts: list[int] = field(default_factory=list)
+    shell_calls: list[tuple[str, Path, bool]] = field(default_factory=list)
     pending_tool: dict[str, Any] | None = None
     chat_history: list[tuple[str, str | None]] = field(default_factory=list)
     chat_contexts: list[list[tuple[str, str | None]]] = field(default_factory=list)
@@ -269,6 +274,7 @@ class FakeToolAgentRunner:
         self.repo_path = repo_path
         self.calls: list[str] = []
         self.initial_observation_counts: list[int] = []
+        self._call_index = 0
 
     def __call__(
         self,
@@ -278,7 +284,9 @@ class FakeToolAgentRunner:
     ) -> AgentLoopResult:
         self.calls.append(problem_statement)
         self.initial_observation_counts.append(len(initial_observations or []))
-        if self.scenario.pending_confirmation is not None:
+        call_index = self._call_index
+        self._call_index += 1
+        if self.scenario.pending_confirmation is not None and call_index == 0:
             pending = self.scenario.pending_confirmation
             return AgentLoopResult(
                 run_id=f"scenario-{self.scenario.name.replace(' ', '-')}",
@@ -309,8 +317,9 @@ class FakeToolAgentRunner:
                     )
                 ],
             )
+        tool_steps = list(self.scenario.tool_steps)
         steps: list[AgentStep] = []
-        for index, item in enumerate(self.scenario.tool_steps, start=1):
+        for index, item in enumerate(tool_steps, start=1):
             error_message = item.error_message
             if item.status in {"failed", "rejected"} and error_message is None:
                 error_message = item.summary
@@ -357,9 +366,9 @@ class FakeToolAgentRunner:
                 "metrics": {
                     "context_chars": 0,
                     "memory_recall_hits": 0,
-                    "observation_count": len(self.scenario.tool_steps),
+                    "observation_count": len(tool_steps),
                     "read_file_count": sum(
-                        1 for item in self.scenario.tool_steps if item.action == "read_file"
+                        1 for item in tool_steps if item.action == "read_file"
                     ),
                     "repeated_read_file_count": 0,
                 },
@@ -517,6 +526,12 @@ class TuiScenarioRunner:
     async def run(self, scenario: TuiScenario) -> ScenarioTranscript:
         repo_path = init_git_repo(self.tmp_path, scenario.repo_files)
         settings = make_settings(self.tmp_path)
+        if scenario.review_queue_candidates:
+            memory_runtime = MemoryRuntime(MemoryStore(settings.data_dir / "memory"))
+            for candidate_payload in scenario.review_queue_candidates:
+                memory_runtime.enqueue_candidate(
+                    LessonCandidate.model_validate(candidate_payload)
+                )
         chat_responder = FakeChatResponder(scenario.chat_response)
         shell_executor = FakeShellExecutor(scenario.shell_stdout)
         tool_runner = FakeToolAgentRunner(scenario, repo_path)
@@ -550,6 +565,7 @@ class TuiScenarioRunner:
             visible_messages=list(app.message_texts),
             jsonl_records=records,
             chat_calls=list(chat_responder.calls),
+            initial_observation_counts=list(tool_runner.initial_observation_counts),
             chat_history=[
                 (history.role, history.content)
                 for history in app.session_state.chat_history
@@ -739,6 +755,57 @@ def assert_has_rejected_evidence_from_observation(
     if matching_steps:
         _fail(transcript, f"expected rejected compact tool_result evidence for {tool_name}")
     _fail(transcript, f"expected compact tool_result evidence for {tool_name}")
+
+
+def assert_tool_confirmation_event(
+    transcript: ScenarioTranscript,
+    *,
+    event_type: str,
+    tool_name: str,
+    status: str,
+) -> None:
+    for record in transcript.jsonl_records:
+        if record.get("event_type") != event_type:
+            continue
+        payload = record.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        observation = payload.get("observation")
+        if not isinstance(observation, dict):
+            continue
+        if observation.get("status") != status:
+            continue
+        pending = payload.get("pending")
+        if isinstance(pending, dict) and pending.get("tool_name") == tool_name:
+            return
+    _fail(
+        transcript,
+        f"expected {event_type} event for {tool_name} with status={status}",
+    )
+
+
+def assert_tool_confirmation_executed(
+    transcript: ScenarioTranscript,
+    tool_name: str,
+) -> None:
+    assert_tool_confirmation_event(
+        transcript,
+        event_type="tool_confirmation_executed",
+        tool_name=tool_name,
+        status="succeeded",
+    )
+
+
+def assert_tool_confirmation_rejected(
+    transcript: ScenarioTranscript,
+    tool_name: str,
+) -> None:
+    assert_tool_confirmation_event(
+        transcript,
+        event_type="tool_confirmation_rejected",
+        tool_name=tool_name,
+        status="rejected",
+    )
 
 
 def assert_no_repeated_equivalent_tool_calls(
